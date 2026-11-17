@@ -37,6 +37,10 @@
                         <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddRepository">
                             Repository toevoegen
                         </MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.Save"
+                                   OnClick="SaveRepositoriesAsync">
+                            Repositories opslaan
+                        </MudButton>
                         <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh"
                                    OnClick="RefreshAllAsync" Disabled="@_isRefreshingBranches">
                             Git-status vernieuwen
@@ -226,6 +230,13 @@
         var result = await dialog.Result;
         if (result is { Canceled: false })
             await RefreshBranches();
+    }
+
+    private async Task SaveRepositoriesAsync()
+    {
+        await SettingsService.SaveAsync(_settings);
+        await RefreshBranches();
+        Snackbar.Add("Repositories opgeslagen.", Severity.Success);
     }
 
     private void LaunchAll()

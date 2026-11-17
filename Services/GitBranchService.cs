@@ -166,11 +166,20 @@ public sealed class GitBranchService
             var column = lanes.FindIndex(lane => lane.Hash == commit.Hash);
             if (column < 0)
             {
-                column = 0;
+                // A commit encountered outside the active lanes starts a new lane to
+                // their right. Prepending at column zero shifts existing branch lanes
+                // and makes unrelated commits appear on the same path.
+                column = lanes.Count;
                 var color = branchColors.TryGetValue(commit.Hash, out var branchColor)
                     ? branchColor
                     : branchColors.Count <= 1 ? baseColor : nextColor++ % colors.Length;
                 lanes.Insert(column, new GraphLane(commit.Hash, color));
+            }
+            else if (branchColors.TryGetValue(commit.Hash, out var tipColor))
+            {
+                // A branch tip must keep the same color as its label, even when its lane
+                // was introduced earlier through another commit's parent edge.
+                lanes[column] = lanes[column] with { Color = tipColor };
             }
 
             var lanesBefore = lanes.ToList();
@@ -184,15 +193,17 @@ public sealed class GitBranchService
                 var existingParentColumn = lanes.FindIndex(lane => lane.Hash == parentHash);
                 if (existingParentColumn >= 0)
                 {
+                    if (branchColors.TryGetValue(parentHash, out var existingParentColor))
+                        lanes[existingParentColumn] = lanes[existingParentColumn] with { Color = existingParentColor };
                     parentColors[parentHash] = lanes[existingParentColumn].Color;
                     continue;
                 }
 
                 var parentColumn = Math.Min(column + parentIndex, lanes.Count);
-                var color = parentIndex == 0
-                    ? currentLane.Color
-                    : branchColors.TryGetValue(parentHash, out var parentColor)
-                        ? parentColor
+                var color = branchColors.TryGetValue(parentHash, out var parentColor)
+                    ? parentColor
+                    : parentIndex == 0
+                        ? currentLane.Color
                         : branchColors.Count <= 1 ? baseColor : nextColor++ % colors.Length;
                 lanes.Insert(parentColumn, new GraphLane(parentHash, color));
                 parentColors[parentHash] = color;
@@ -204,7 +215,7 @@ public sealed class GitBranchService
                 var lane = lanesBefore[oldColumn];
                 if (lane.Hash == commit.Hash)
                 {
-                    edges.Add(new GitGraphEdge(oldColumn, -1, oldColumn, 26, lane.Color));
+                    edges.Add(new GitGraphEdge(oldColumn, 0, oldColumn, 26, lane.Color));
                     for (var parentIndex = 0; parentIndex < commit.Parents.Count; parentIndex++)
                     {
                         var parentHash = commit.Parents[parentIndex];
@@ -214,7 +225,7 @@ public sealed class GitBranchService
                             // The first parent continues the current branch; merge-side parents keep
                             // the color of their own branch lane into the merge.
                             var edgeColor = parentIndex == 0 ? lane.Color : parentColors[parentHash];
-                            edges.Add(new GitGraphEdge(oldColumn, 26, parentColumn, 53, edgeColor));
+                            edges.Add(new GitGraphEdge(oldColumn, 26, parentColumn, 52, edgeColor));
                         }
                     }
                 }
@@ -222,7 +233,7 @@ public sealed class GitBranchService
                 {
                     var nextColumn = lanes.FindIndex(nextLane => nextLane.Hash == lane.Hash);
                     if (nextColumn >= 0)
-                        edges.Add(new GitGraphEdge(oldColumn, -1, nextColumn, 53, lane.Color));
+                        edges.Add(new GitGraphEdge(oldColumn, 0, nextColumn, 52, lane.Color));
                 }
             }
 
@@ -239,7 +250,7 @@ public sealed class GitBranchService
                         group.Key,
                         group.Any(branch => !branch.IsRemote),
                         group.Any(branch => branch.IsRemote),
-                        branchColors[group.First().TipHash]))
+                        currentLane.Color))
                     .ToList()
             });
         }
@@ -276,6 +287,24 @@ public sealed class GitBranchService
     public async Task<GitOperationResult> PullAsync(string path) => await RunGitAsync(path, "pull", "--no-rebase");
 
     public async Task<GitOperationResult> PushAsync(string path) => await RunGitAsync(path, "push");
+
+    public async Task<GitOperationResult> PushWhenUpToDateAsync(string path)
+    {
+        var fetchResult = await FetchAsync(path);
+        if (!fetchResult.Success)
+            return new GitOperationResult(false, $"Push afgebroken: remote-status ophalen is mislukt. {fetchResult.Message}", string.Empty);
+
+        var snapshot = await GetRepositorySnapshotAsync(path);
+        if (!snapshot.IsValid)
+            return new GitOperationResult(false, $"Push afgebroken: remote-status controleren is mislukt. {snapshot.Error}", string.Empty);
+
+        if (snapshot.Behind > 0)
+            return new GitOperationResult(false,
+                $"Push geblokkeerd: deze branch loopt {snapshot.Behind} commit(s) achter. Pull eerst de remote wijzigingen en probeer daarna opnieuw.",
+                string.Empty);
+
+        return await PushAsync(path);
+    }
 
     public async Task<GitOperationResult> CheckoutBranchAsync(string path, string branch)
     {

@@ -72,10 +72,13 @@
                 @if (_view == GitView.History)
                 {
                     <MudGrid Spacing="3" Class="git-history-workspace">
-                        <MudItem xs="12" md="4">
-                            <MudPaper Class="pa-3 git-dialog-panel" Outlined="true" Elevation="0">
-                                <MudText Typo="Typo.subtitle1" Class="mb-2">Branches (@_snapshot.Branches.Count)</MudText>
-        <div class="git-branch-groups">
+                        <MudItem xs="12" md="3">
+                            <MudPaper Class="pa-3 git-dialog-panel git-branch-panel" Outlined="true" Elevation="0">
+                                <div class="git-branch-header">
+                                    <MudText Typo="Typo.subtitle1">Branches</MudText>
+                                    <span class="git-branch-count">@_snapshot.Branches.Count</span>
+                                </div>
+                                <div class="git-branch-groups">
                                     <details class="git-branch-group" open>
                                         <summary><span>Lokale branches</span><span class="git-branch-count">@LocalBranches.Count</span></summary>
                                         <div class="git-dialog-list git-branch-list">
@@ -105,7 +108,7 @@
                                 </div>
                             </MudPaper>
                         </MudItem>
-                        <MudItem xs="12" md="8">
+                        <MudItem xs="12" md="9">
                             <MudPaper Class="pa-3 git-dialog-panel" Outlined="true" Elevation="0">
                                 <MudText Typo="Typo.subtitle1" Class="mb-2">Recente commits</MudText>
                                 <MudStack Spacing="0" Class="git-dialog-list">
@@ -117,21 +120,23 @@
                                                 {
                                                     @foreach (var label in commit.BranchLabels)
                                                     {
-                                                        <span @key="label.Name" class="git-commit-branch-label" title="@label.Name">
+                                                        <span @key="label.Name" class="git-commit-branch-label"
+                                                              style="--branch-color: @GraphColor(label.Color)" title="@label.Name">
                                                             @if (label.IsLocal)
                                                             {
-                                                                <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" aria-label="Lokaal" Class="git-branch-label-icon" Style="color: #B38CFF" />
+                                                                <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" aria-label="Lokaal" Class="git-branch-label-icon" />
                                                             }
                                                             @if (label.IsRemote)
                                                             {
-                                                                <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small" aria-label="Remote" Class="git-branch-label-icon" Style="color: #B38CFF" />
+                                                                <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small" aria-label="Remote" Class="git-branch-label-icon" />
                                                             }
                                                             <span class="git-commit-branch-name">@label.Name</span>
                                                         </span>
                                                     }
                                                 }
                                             </div>
-                                            <svg class="git-commit-graph" width="@GraphWidth(commit)" height="52" viewBox="0 0 @GraphWidth(commit) 52" aria-hidden="true">
+                                            <svg class="git-commit-graph" width="220" height="52"
+                                                 viewBox="0 0 220 52" preserveAspectRatio="xMinYMid meet" aria-hidden="true">
                                                 @if (commit.GraphEdges is not null)
                                                 {
                                                     @foreach (var edge in commit.GraphEdges)
@@ -142,8 +147,8 @@
                                                 <circle cx="@GraphX(commit.GraphColumn)" cy="26" r="5.5" fill="var(--mud-palette-surface)" stroke="@GraphColor(commit.GraphColor)" style="@GraphStrokeStyle(commit.GraphColor)" stroke-width="3" />
                                             </svg>
                                             <div class="git-commit-content">
-                                                <MudText Typo="Typo.body2">@commit.Subject</MudText>
-                                                <MudText Typo="Typo.caption" Color="Color.Secondary">@commit.ShortHash · @commit.Author · @FormatDate(commit.Date)</MudText>
+                                                <MudText Typo="Typo.body2" Class="git-commit-subject" title="@commit.Subject">@commit.Subject</MudText>
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="git-commit-metadata" title="@($"{commit.ShortHash} · {commit.Author} · {FormatDate(commit.Date)}")">@commit.ShortHash · @commit.Author · @FormatDate(commit.Date)</MudText>
                                             </div>
                                         </div>
                                     }
@@ -541,7 +546,7 @@
     private enum GitView { History, Commit }
 
     private Task PullAsync() => RunGitOperationAsync(() => GitBranchService.PullAsync(RepositoryPath), "Pull");
-    private Task PushAsync() => RunGitOperationAsync(() => GitBranchService.PushAsync(RepositoryPath), "Push");
+    private Task PushAsync() => RunGitOperationAsync(() => GitBranchService.PushWhenUpToDateAsync(RepositoryPath), "Push");
 
     private async Task RunGitOperationAsync(Func<Task<GitOperationResult>> operation, string name)
     {
@@ -584,18 +589,21 @@
     private static string FormatDate(string date) => DateTimeOffset.TryParse(date, CultureInfo.InvariantCulture, out var parsed)
         ? parsed.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
         : date;
-    private static int GraphX(int column) => column * 20 + 10;
-    private static int GraphWidth(GitCommitEntry commit) => Math.Max(28, Math.Max(commit.GraphWidth, commit.GraphColumn + 1) * 20);
+    private int GraphX(int column)
+    {
+        return 10 + column * 20;
+    }
+
     private static readonly int[] GraphPalette = [0xB38CFF, 0x55A6FF, 0xFFB454, 0x42D6B5, 0xFF6B81, 0xD6D95A, 0x53C7D9, 0xF080D0];
     private static string GraphColor(int color) => $"#{GraphPalette[Math.Abs(color % GraphPalette.Length)]:X6}";
     private static string GraphStrokeStyle(int color) => $"stroke: {GraphColor(color)}";
-    private static string GraphPath(GitGraphEdge edge)
+    private string GraphPath(GitGraphEdge edge)
     {
         var startX = GraphX(edge.FromColumn);
         var endX = GraphX(edge.ToColumn);
         return edge.FromColumn == edge.ToColumn
             ? $"M {startX} {edge.FromY} L {endX} {edge.ToY}"
-            : $"M {startX} {edge.FromY} C {startX} 35, {endX} 44, {endX} {edge.ToY}";
+            : $"M {startX} {edge.FromY} C {startX} {edge.FromY + (edge.ToY - edge.FromY) / 3d:0.##}, {endX} {edge.ToY - (edge.ToY - edge.FromY) / 3d:0.##}, {endX} {edge.ToY}";
     }
 
     private void Close() => MudDialog.Close();

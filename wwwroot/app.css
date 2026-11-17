@@ -591,10 +591,10 @@ h1:focus {
 }
 
 .git-overview-dialog {
-    width: min(96vw, 1440px) !important;
+    width: min(96vw, 1800px) !important;
     max-width: 96vw !important;
-    height: min(86vh, 900px);
-    max-height: 86vh;
+    height: min(92vh, 1200px);
+    max-height: 92vh;
 }
 
 .git-overview-dialog .mud-dialog-content {
@@ -668,7 +668,7 @@ h1:focus {
 
 .git-commit-workspace {
     display: grid;
-    grid-template-columns: minmax(0, 7fr) minmax(20rem, 5fr);
+    grid-template-columns: minmax(0, 2.2fr) minmax(20rem, 1fr);
     gap: 1rem;
     flex: 1 1 auto;
     width: 100%;

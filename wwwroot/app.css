@@ -549,6 +549,26 @@ h1:focus {
     min-width: 0;
     overflow: visible;
     border-bottom: 1px solid var(--mud-palette-divider);
+    cursor: pointer;
+    transition: background-color 120ms ease;
+}
+
+.git-commit-row:hover {
+    background: color-mix(in srgb, var(--mud-palette-primary) 6%, transparent);
+}
+
+.git-commit-row-selected {
+    background: color-mix(in srgb, var(--mud-palette-primary) 10%, transparent);
+}
+
+.git-commit-row-selected:hover {
+    background: color-mix(in srgb, var(--mud-palette-primary) 14%, transparent);
+}
+
+.git-commit-branch-label-context {
+    opacity: 0.62;
+    border-style: dashed;
+    background: color-mix(in srgb, var(--branch-color) 7%, transparent);
 }
 
 .git-commit-graph {

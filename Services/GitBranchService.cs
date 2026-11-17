@@ -153,6 +153,7 @@ public sealed class GitBranchService
             .Select((branch, index) => (branch.TipHash, Color: index % colors.Length))
             .GroupBy(item => item.TipHash, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First().Color, StringComparer.Ordinal);
+        var visibleCommitHashes = commits.Select(commit => commit.Hash).ToHashSet(StringComparer.Ordinal);
 
         var lanes = new List<GraphLane>();
         var laidOut = new List<GitCommitEntry>(commits.Count);
@@ -164,6 +165,7 @@ public sealed class GitBranchService
         foreach (var commit in commits)
         {
             var column = lanes.FindIndex(lane => lane.Hash == commit.Hash);
+            var laneWasActive = column >= 0;
             if (column < 0)
             {
                 // A commit encountered outside the active lanes starts a new lane to
@@ -173,13 +175,13 @@ public sealed class GitBranchService
                 var color = branchColors.TryGetValue(commit.Hash, out var branchColor)
                     ? branchColor
                     : branchColors.Count <= 1 ? baseColor : nextColor++ % colors.Length;
-                lanes.Insert(column, new GraphLane(commit.Hash, color));
+                lanes.Insert(column, new GraphLane(commit.Hash, SelectLaneColor(color, column, lanes, colors.Length)));
             }
             else if (branchColors.TryGetValue(commit.Hash, out var tipColor))
             {
                 // A branch tip must keep the same color as its label, even when its lane
                 // was introduced earlier through another commit's parent edge.
-                lanes[column] = lanes[column] with { Color = tipColor };
+                lanes[column] = lanes[column] with { Color = SelectLaneColor(tipColor, column, lanes, colors.Length) };
             }
 
             var lanesBefore = lanes.ToList();
@@ -190,11 +192,17 @@ public sealed class GitBranchService
             for (var parentIndex = 0; parentIndex < commit.Parents.Count; parentIndex++)
             {
                 var parentHash = commit.Parents[parentIndex];
+                if (!visibleCommitHashes.Contains(parentHash))
+                    continue;
+
                 var existingParentColumn = lanes.FindIndex(lane => lane.Hash == parentHash);
                 if (existingParentColumn >= 0)
                 {
                     if (branchColors.TryGetValue(parentHash, out var existingParentColor))
-                        lanes[existingParentColumn] = lanes[existingParentColumn] with { Color = existingParentColor };
+                        lanes[existingParentColumn] = lanes[existingParentColumn] with
+                        {
+                            Color = SelectLaneColor(existingParentColor, existingParentColumn, lanes, colors.Length)
+                        };
                     parentColors[parentHash] = lanes[existingParentColumn].Color;
                     continue;
                 }
@@ -205,8 +213,9 @@ public sealed class GitBranchService
                     : parentIndex == 0
                         ? currentLane.Color
                         : branchColors.Count <= 1 ? baseColor : nextColor++ % colors.Length;
-                lanes.Insert(parentColumn, new GraphLane(parentHash, color));
-                parentColors[parentHash] = color;
+                var laneColor = SelectLaneColor(color, parentColumn, lanes, colors.Length);
+                lanes.Insert(parentColumn, new GraphLane(parentHash, laneColor));
+                parentColors[parentHash] = laneColor;
             }
 
             var edges = new List<GitGraphEdge>();
@@ -215,24 +224,30 @@ public sealed class GitBranchService
                 var lane = lanesBefore[oldColumn];
                 if (lane.Hash == commit.Hash)
                 {
-                    edges.Add(new GitGraphEdge(oldColumn, 0, oldColumn, 26, lane.Color));
+                    // Existing lanes enter from the previous row and stop just before
+                    // the commit node. A newly-started lane begins at its own node.
+                    if (laneWasActive)
+                        edges.Add(new GitGraphEdge(oldColumn, 0, oldColumn, 19, lane.Color));
                     for (var parentIndex = 0; parentIndex < commit.Parents.Count; parentIndex++)
                     {
                         var parentHash = commit.Parents[parentIndex];
+                        if (!visibleCommitHashes.Contains(parentHash))
+                            continue;
+
                         var parentColumn = lanes.FindIndex(nextLane => nextLane.Hash == parentHash);
                         if (parentColumn >= 0)
                         {
                             // The first parent continues the current branch; merge-side parents keep
                             // the color of their own branch lane into the merge.
                             var edgeColor = parentIndex == 0 ? lane.Color : parentColors[parentHash];
-                            edges.Add(new GitGraphEdge(oldColumn, 26, parentColumn, 52, edgeColor));
+                            edges.Add(new GitGraphEdge(oldColumn, 33, parentColumn, 52, edgeColor));
                         }
                     }
                 }
                 else
                 {
                     var nextColumn = lanes.FindIndex(nextLane => nextLane.Hash == lane.Hash);
-                    if (nextColumn >= 0)
+                    if (nextColumn >= 0 && visibleCommitHashes.Contains(lane.Hash))
                         edges.Add(new GitGraphEdge(oldColumn, 0, nextColumn, 52, lane.Color));
                 }
             }
@@ -256,6 +271,24 @@ public sealed class GitBranchService
         }
 
         return laidOut;
+    }
+
+    private static int SelectLaneColor(int preferredColor, int laneIndex, IReadOnlyList<GraphLane> lanes, int colorCount)
+    {
+        var leftColor = laneIndex > 0 ? lanes[laneIndex - 1].Color : -1;
+        var rightColor = laneIndex < lanes.Count ? lanes[laneIndex].Color : -1;
+        var preferred = (preferredColor % colorCount + colorCount) % colorCount;
+        if (preferred != leftColor && preferred != rightColor)
+            return preferred;
+
+        for (var offset = 1; offset < colorCount; offset++)
+        {
+            var candidate = (preferred + offset) % colorCount;
+            if (candidate != leftColor && candidate != rightColor)
+                return candidate;
+        }
+
+        return preferred;
     }
 
     private static bool IsDefaultBranch(string branchName, string? defaultBranch)

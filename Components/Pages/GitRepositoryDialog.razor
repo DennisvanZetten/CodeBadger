@@ -114,9 +114,28 @@
                                 <MudStack Spacing="0" Class="git-dialog-list">
                                     @foreach (var commit in _snapshot.Commits)
                                     {
-                                        <div @key="commit.Hash" class="git-commit-row">
+                                        <div @key="commit.Hash"
+                                             class="git-commit-row @(IsSelectedCommit(commit) ? "git-commit-row-selected" : "")"
+                                             role="button" tabindex="0" aria-pressed="@IsSelectedCommit(commit)"
+                                             @onclick="@(() => SelectCommit(commit))"
+                                             @onkeydown="@(args => HandleCommitRowKeyDown(args, commit))">
                                             <div class="git-commit-branch-labels">
-                                                @if (commit.BranchLabels is { Count: > 0 })
+                                                @if (IsSelectedCommit(commit) && GetPathBranchLabel(commit) is { } pathLabel)
+                                                {
+                                                    <span class="git-commit-branch-label git-commit-branch-label-context"
+                                                          style="--branch-color: @GraphColor(pathLabel.Color)" title="@pathLabel.Name">
+                                                        @if (pathLabel.IsLocal)
+                                                        {
+                                                            <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" aria-label="Lokaal" Class="git-branch-label-icon" />
+                                                        }
+                                                        @if (pathLabel.IsRemote)
+                                                        {
+                                                            <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small" aria-label="Remote" Class="git-branch-label-icon" />
+                                                        }
+                                                        <span class="git-commit-branch-name">@pathLabel.Name</span>
+                                                    </span>
+                                                }
+                                                else if (commit.BranchLabels is { Count: > 0 })
                                                 {
                                                     @foreach (var label in commit.BranchLabels)
                                                     {
@@ -268,6 +287,7 @@
     private bool _isOperating;
     private bool _isGeneratingMessage;
     private GitView _view = GitView.History;
+    private string? _selectedCommitHash;
     private IReadOnlyList<GitBranchEntry> LocalBranches => _snapshot?.Branches.Where(branch => !branch.IsRemote).ToList() ?? [];
     private IReadOnlyList<GitBranchEntry> RemoteBranches => _snapshot?.Branches.Where(branch => branch.IsRemote).ToList() ?? [];
     private IReadOnlyList<BranchFolder> LocalBranchFolders => GroupBranchesIntoFolders(LocalBranches);
@@ -503,6 +523,39 @@
     {
         var separator = branchName.LastIndexOf('/');
         return separator < 0 ? branchName : branchName[(separator + 1)..];
+    }
+
+    private bool IsSelectedCommit(GitCommitEntry commit) => _selectedCommitHash == commit.Hash;
+
+    private void SelectCommit(GitCommitEntry commit) =>
+        _selectedCommitHash = IsSelectedCommit(commit) ? null : commit.Hash;
+
+    private void HandleCommitRowKeyDown(KeyboardEventArgs args, GitCommitEntry commit)
+    {
+        if (args.Key is "Enter" or " ")
+            SelectCommit(commit);
+    }
+
+    private GitCommitBranchLabel? GetPathBranchLabel(GitCommitEntry commit)
+    {
+        if (commit.BranchLabels is { Count: > 0 })
+            return commit.BranchLabels[0];
+
+        if (_snapshot is null)
+            return null;
+
+        var currentIndex = _snapshot.Commits.ToList().FindIndex(candidate => candidate.Hash == commit.Hash);
+        if (currentIndex < 0)
+            return null;
+
+        return _snapshot.Commits
+            .SelectMany((candidate, index) => (candidate.BranchLabels ?? [])
+                .Where(label => label.Color == commit.GraphColor)
+                .Select(label => (Label: label, Distance: Math.Abs(index - currentIndex), Index: index)))
+            .OrderBy(item => item.Distance)
+            .ThenBy(item => item.Index < currentIndex ? 1 : 0)
+            .Select(item => item.Label)
+            .FirstOrDefault();
     }
 
     private static IReadOnlyList<DiffDisplayLine> GetDiffLines(string diff)

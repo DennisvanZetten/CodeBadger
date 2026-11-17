@@ -10,12 +10,12 @@ public sealed class AiCommitMessageService
     public async Task<AiCommitMessageResult> GenerateAsync(LauncherSettings settings, string diff)
     {
         if (string.IsNullOrWhiteSpace(diff))
-            return new AiCommitMessageResult(false, string.Empty, "Stage minstens één wijziging voordat je een commitbericht genereert.");
+            return new AiCommitMessageResult(false, string.Empty, string.Empty, "Stage minstens één wijziging voordat je een commitbericht genereert.");
 
         var provider = settings.AiProvider;
         var endpoint = ResolveCompletionEndpoint(settings);
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
-            return new AiCommitMessageResult(false, string.Empty, "Vul een geldige provider-URL in.");
+            return new AiCommitMessageResult(false, string.Empty, string.Empty, "Vul een geldige provider-URL in.");
 
         var boundedDiff = LimitInput(diff, settings.AiMaxInputTokens);
         try
@@ -25,24 +25,24 @@ public sealed class AiCommitMessageService
             using var response = await client.SendAsync(request);
             var responseBody = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
-                return new AiCommitMessageResult(false, string.Empty, $"Provider gaf {(int)response.StatusCode} voor {uri.AbsolutePath}: {ExtractError(responseBody)}");
+                return new AiCommitMessageResult(false, string.Empty, string.Empty, $"Provider gaf {(int)response.StatusCode} voor {uri.AbsolutePath}: {ExtractError(responseBody)}");
 
-            var message = ExtractMessage(provider, responseBody);
-            return string.IsNullOrWhiteSpace(message)
-                ? new AiCommitMessageResult(false, string.Empty, "De provider gaf geen commitbericht terug.")
-                : new AiCommitMessageResult(true, message.Trim().Trim('`'), string.Empty);
+            var (title, description) = ExtractMessage(provider, responseBody);
+            return string.IsNullOrWhiteSpace(title)
+                ? new AiCommitMessageResult(false, string.Empty, string.Empty, "De provider gaf geen commit-titel terug.")
+                : new AiCommitMessageResult(true, title.Trim().Trim('`'), description.Trim().Trim('`'), string.Empty);
         }
         catch (TaskCanceledException)
         {
-            return new AiCommitMessageResult(false, string.Empty, "Verbinding met de AI-provider duurde te lang.");
+            return new AiCommitMessageResult(false, string.Empty, string.Empty, "Verbinding met de AI-provider duurde te lang.");
         }
         catch (HttpRequestException exception)
         {
-            return new AiCommitMessageResult(false, string.Empty, $"Verbinding met de AI-provider mislukt: {exception.Message}");
+            return new AiCommitMessageResult(false, string.Empty, string.Empty, $"Verbinding met de AI-provider mislukt: {exception.Message}");
         }
         catch (JsonException exception)
         {
-            return new AiCommitMessageResult(false, string.Empty, $"Ongeldige response van AI-provider: {exception.Message}");
+            return new AiCommitMessageResult(false, string.Empty, string.Empty, $"Ongeldige response van AI-provider: {exception.Message}");
         }
     }
 
@@ -50,13 +50,13 @@ public sealed class AiCommitMessageService
     {
         var result = await GetAvailableModelsAsync(settings);
         return result.Success
-            ? new AiCommitMessageResult(true, $"Verbinding werkt. {result.Models.Count} modellen gevonden.", string.Empty)
-            : new AiCommitMessageResult(false, string.Empty, result.Error);
+            ? new AiCommitMessageResult(true, $"Verbinding werkt. {result.Models.Count} modellen gevonden.", string.Empty, string.Empty)
+            : new AiCommitMessageResult(false, string.Empty, string.Empty, result.Error);
     }
 
     private static HttpRequestMessage CreateRequest(string provider, Uri endpoint, LauncherSettings settings, string diff)
     {
-        var prompt = new StringBuilder("Write one concise Git commit message for the staged changes. Use imperative mood, no quotes, no markdown, at most 72 characters.");
+        var prompt = new StringBuilder("Generate a Git commit title and description for the staged changes. Respond only as JSON with string properties \"title\" and \"description\". The title must be concise, imperative mood, and at most 72 characters. The description may be empty.");
         if (!string.IsNullOrWhiteSpace(settings.AiCustomInstruction))
             prompt.Append("\n\nAdditional user instructions:\n").Append(settings.AiCustomInstruction.Trim());
         prompt.Append("\n\nStaged diff:\n").Append(diff);
@@ -269,17 +269,32 @@ public sealed class AiCommitMessageService
         return diff[..charLimit] + "\n\n[Diff ingekort vanwege de ingestelde input-tokenlimiet.]";
     }
 
-    private static string ExtractMessage(string provider, string response)
+    private static (string Title, string Description) ExtractMessage(string provider, string response)
     {
         using var document = JsonDocument.Parse(response);
         var root = document.RootElement;
+        string text;
         if (provider.Equals("Anthropic", StringComparison.OrdinalIgnoreCase))
-            return root.GetProperty("content").EnumerateArray().FirstOrDefault().GetProperty("text").GetString() ?? string.Empty;
-        if (provider.Equals("Google Gemini", StringComparison.OrdinalIgnoreCase))
-            return root.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString() ?? string.Empty;
-        if (provider.Equals("Ollama", StringComparison.OrdinalIgnoreCase))
-            return root.GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
-        return root.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
+            text = root.GetProperty("content").EnumerateArray().FirstOrDefault().GetProperty("text").GetString() ?? string.Empty;
+        else if (provider.Equals("Google Gemini", StringComparison.OrdinalIgnoreCase))
+            text = root.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString() ?? string.Empty;
+        else if (provider.Equals("Ollama", StringComparison.OrdinalIgnoreCase))
+            text = root.GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
+        else
+            text = root.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
+
+        try
+        {
+            using var message = JsonDocument.Parse(text);
+            var title = message.RootElement.TryGetProperty("title", out var titleElement) ? titleElement.GetString() ?? string.Empty : string.Empty;
+            var description = message.RootElement.TryGetProperty("description", out var descriptionElement) ? descriptionElement.GetString() ?? string.Empty : string.Empty;
+            return (title, description);
+        }
+        catch (JsonException)
+        {
+            var lines = text.Split('\n', 2, StringSplitOptions.TrimEntries);
+            return (lines[0].Trim().Trim('`'), lines.Length > 1 ? lines[1].Trim() : string.Empty);
+        }
     }
 
     private static string ExtractError(string response)
@@ -298,5 +313,5 @@ public sealed class AiCommitMessageService
     }
 }
 
-public sealed record AiCommitMessageResult(bool Success, string Message, string Error);
+public sealed record AiCommitMessageResult(bool Success, string Title, string Description, string Error);
 public sealed record AiModelListResult(bool Success, IReadOnlyList<string> Models, string Error);

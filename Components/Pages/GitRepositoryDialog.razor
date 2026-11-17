@@ -223,10 +223,12 @@
                                                 @(_isGeneratingMessage ? "Genereren..." : "Genereer met AI")
                                             </MudButton>
                                         </MudStack>
-                                        <MudTextField @bind-Value="_commitMessage" Lines="2" Variant="Variant.Outlined"
-                                                      Placeholder="Beschrijf de staged wijzigingen..." />
+                                        <MudTextField @bind-Value="_commitTitle" Label="Titel (verplicht)" Variant="Variant.Outlined"
+                                                      Placeholder="Korte samenvatting van de wijziging" MaxLength="72" Counter="72" Required="true" />
+                                        <MudTextField @bind-Value="_commitDescription" Label="Beschrijving (optioneel)" Lines="2" Variant="Variant.Outlined"
+                                                      Placeholder="Meer context over de wijziging..." />
                                         <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Check"
-                                                   Disabled="@(_isOperating || StagedFiles.Count == 0 || string.IsNullOrWhiteSpace(_commitMessage))"
+                                                   Disabled="@(_isOperating || StagedFiles.Count == 0 || string.IsNullOrWhiteSpace(_commitTitle))"
                                                    OnClick="CommitChangesAsync">Commit (@StagedFiles.Count bestanden)</MudButton>
                                     </MudStack>
                                 </MudPaper>
@@ -254,7 +256,8 @@
     private GitFileChange? _selectedFile;
     private bool _selectedFileIsStaged;
     private string _selectedDiff = string.Empty;
-    private string _commitMessage = string.Empty;
+    private string _commitTitle = string.Empty;
+    private string _commitDescription = string.Empty;
     private bool _isLoading = true;
     private bool _isLoadingDiff;
     private bool _isOperating;
@@ -392,7 +395,10 @@
 
             var result = await AiCommitMessageService.GenerateAsync(AiSettings, diff.Output);
             if (result.Success)
-                _commitMessage = result.Message;
+            {
+                _commitTitle = result.Title;
+                _commitDescription = result.Description;
+            }
             else
                 Snackbar.Add(result.Error, Severity.Error, config => config.VisibleStateDuration = 10000);
         }
@@ -407,12 +413,16 @@
         _isOperating = true;
         try
         {
-            var result = await GitBranchService.CommitAsync(RepositoryPath, _commitMessage.Trim());
+            var commitMessage = string.IsNullOrWhiteSpace(_commitDescription)
+                ? _commitTitle.Trim()
+                : $"{_commitTitle.Trim()}\n\n{_commitDescription.Trim()}";
+            var result = await GitBranchService.CommitAsync(RepositoryPath, commitMessage);
             Snackbar.Add(result.Success ? "Commit gemaakt." : $"Commit mislukt: {result.Message}",
                 result.Success ? Severity.Success : Severity.Error, config => config.VisibleStateDuration = 8000);
             if (result.Success)
             {
-                _commitMessage = string.Empty;
+                _commitTitle = string.Empty;
+                _commitDescription = string.Empty;
                 _selectedFile = null;
                 _selectedDiff = string.Empty;
                 await RefreshAsync();

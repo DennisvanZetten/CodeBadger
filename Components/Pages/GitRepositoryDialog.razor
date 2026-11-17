@@ -247,11 +247,11 @@
                                                 @(_isGeneratingMessage ? "Genereren..." : "Genereer met AI")
                                             </MudButton>
                                         </MudStack>
-                                        <MudTextField @bind-Value="_commitTitle" Label="Titel (verplicht)" Variant="Variant.Outlined"
+                                        <MudTextField @bind-Value="_commitTitle" Label="Titel (verplicht)" Margin="Margin.Dense" Variant="Variant.Outlined"
                                                       Placeholder="Korte samenvatting van de wijziging" MaxLength="72" Counter="72" Required="true" />
-                                        <MudTextField @bind-Value="_commitDescription" Label="Beschrijving (optioneel)" Lines="2" Variant="Variant.Outlined"
+                                        <MudTextField @bind-Value="_commitDescription" Label="Beschrijving (optioneel)" Lines="2" Margin="Margin.Dense" Variant="Variant.Outlined"
                                                       Placeholder="Meer context over de wijziging..." />
-                                        <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Check"
+                                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Check"
                                                    Disabled="@(_isOperating || StagedFiles.Count == 0 || string.IsNullOrWhiteSpace(_commitTitle))"
                                                    OnClick="CommitChangesAsync">Commit (@StagedFiles.Count bestanden)</MudButton>
                                     </MudStack>

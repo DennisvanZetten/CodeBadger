@@ -27,11 +27,11 @@ body {
 }
 
 .mud-typography-body1 {
-    font-size: 0.85rem;
+    font-size: 0.76rem !important;
 }
 
 .mud-typography-body2 {
-    font-size: 0.78rem;
+    font-size: 0.7rem !important;
 }
 
 .mud-typography-h4 {
@@ -39,15 +39,30 @@ body {
 }
 
 .mud-typography-h6 {
-    font-size: 0.98rem;
+    font-size: 0.88rem !important;
 }
 
 .mud-typography-subtitle1 {
-    font-size: 0.9rem;
+    font-size: 0.78rem !important;
 }
 
 .mud-typography-subtitle2 {
-    font-size: 0.82rem;
+    font-size: 0.72rem !important;
+}
+
+.mud-chip,
+.mud-chip-content,
+.mud-alert,
+.mud-list-item,
+.mud-menu-item,
+.mud-table-cell,
+.mud-input-label,
+.mud-input-helper-text,
+.mud-input-control .mud-input-label,
+.mud-input-control .mud-input-helper-text,
+.mud-input-control .mud-input-control-helper-container {
+    font-size: 0.7rem !important;
+    line-height: 1.35;
 }
 
 .mud-button-root {
@@ -611,6 +626,7 @@ h1:focus {
 
 .git-overview-status {
     flex: 0 0 auto;
+    font-size: 0.68rem !important;
 }
 
 .git-history-workspace {

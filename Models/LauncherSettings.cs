@@ -8,6 +8,7 @@ public sealed class LauncherSettings
     public string AiCustomUrl { get; set; } = string.Empty;
     public string AiModel { get; set; } = "gpt-4o-mini";
     public int AiMaxInputTokens { get; set; } = 12000;
+    public string AiCustomInstruction { get; set; } = string.Empty;
     [System.Text.Json.Serialization.JsonIgnore]
     public string AiApiKey { get; set; } = string.Empty;
     public List<RepositoryEntry> Repositories { get; set; } = [];

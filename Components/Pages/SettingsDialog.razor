@@ -10,7 +10,8 @@
         </MudStack>
     </TitleContent>
     <DialogContent>
-        <MudTabs Position="Position.Left" Rounded="true" Border="true" ApplyEffectsToContainer="true" TabPanelsClass="pa-4 settings-tab-panel">
+        <MudTabs Position="Position.Left" Rounded="true" Border="true" ApplyEffectsToContainer="true"
+                 TabPanelsClass="pa-4 settings-tab-panel" Class="settings-tabs">
             <MudTabPanel Text="Starten" Icon="@Icons.Material.Filled.Terminal">
                 <MudStack Spacing="3">
                     <MudText Typo="Typo.h6">Startinstellingen</MudText>
@@ -23,7 +24,7 @@
             <MudTabPanel Text="AI-provider" Icon="@Icons.Material.Filled.AutoAwesome">
                 <MudStack Spacing="3">
                     <MudText Typo="Typo.h6">AI voor commitberichten</MudText>
-                    <MudSelect T="string" Label="Provider" Variant="Variant.Outlined" @bind-Value="Settings.AiProvider">
+                    <MudSelect T="string" Label="Provider" Variant="Variant.Outlined" @bind-Value="Settings.AiProvider" @bind-Value:after="ResetModelList">
                         @foreach (var provider in AiProviders)
                         {
                             <MudSelectItem T="string" Value="@provider">@provider</MudSelectItem>
@@ -31,21 +32,30 @@
                     </MudSelect>
                     @if (Settings.AiProvider is "Custom URL" or "Azure OpenAI")
                     {
-                        <MudTextField @bind-Value="Settings.AiCustomUrl" Label="Provider URL" Variant="Variant.Outlined"
-                                      HelperText="OpenAI-compatible chat-completions URL; Azure: volledige deployment-URL inclusief api-version." />
+                        <MudTextField @bind-Value="Settings.AiCustomUrl" @bind-Value:after="ResetModelList" Label="Provider URL" Variant="Variant.Outlined"
+                                      HelperText="OpenAI-compatible basis-URL (bijv. https://host/v1) of volledig /chat/completions-endpoint; Azure: deployment-URL inclusief api-version." />
                     }
-                    <MudTextField @bind-Value="Settings.AiModel" Label="Model" Variant="Variant.Outlined"
-                                  HelperText="Bijvoorbeeld gpt-4o-mini, claude-3-5-sonnet of llama3" />
+                    <MudSelect T="string" Label="Model" Variant="Variant.Outlined" @bind-Value="Settings.AiModel"
+                               Disabled="@(!_hasTestedConnection || _availableModels.Count == 0)"
+                               HelperText="@(_hasTestedConnection ? "Kies een model uit de provider." : "Test eerst de verbinding om modellen op te halen.")">
+                        @foreach (var model in _availableModels)
+                        {
+                            <MudSelectItem T="string" Value="@model">@model</MudSelectItem>
+                        }
+                    </MudSelect>
                     <MudNumericField T="int" @bind-Value="Settings.AiMaxInputTokens" Label="Max. inputtokens"
                                      Min="256" Max="200000" Variant="Variant.Outlined" />
+                    <MudTextField @bind-Value="Settings.AiCustomInstruction" Label="Eigen instructie voor commitberichten"
+                                  HelperText="Bijvoorbeeld: gebruik Conventional Commits en schrijf in het Nederlands."
+                                  Lines="3" Variant="Variant.Outlined" />
                     @if (Settings.AiProvider != "Ollama")
                     {
-                        <MudTextField @bind-Value="Settings.AiApiKey" Label="Provider API key" Variant="Variant.Outlined"
+                        <MudTextField @bind-Value="Settings.AiApiKey" @bind-Value:after="ResetModelList" Label="Provider API key" Variant="Variant.Outlined"
                                       InputType="InputType.Password" HelperText="Wordt veilig lokaal opgeslagen." />
                     }
                     <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.WifiTethering"
                                OnClick="TestAiConnectionAsync" Disabled="@_isTestingAi" Class="align-self-start">
-                        @(_isTestingAi ? "Testen..." : "Verbinding testen")
+                        @(_isTestingAi ? "Verbinding en modellen ophalen..." : "Verbinding testen & modellen ophalen")
                     </MudButton>
                 </MudStack>
             </MudTabPanel>
@@ -70,15 +80,26 @@
 
     private bool _isTestingAi;
     private bool _isSaving;
+    private bool _hasTestedConnection;
+    private IReadOnlyList<string> _availableModels = [];
     private static readonly string[] AiProviders = ["OpenAI", "Azure OpenAI", "Anthropic", "Google Gemini", "Ollama", "Custom URL"];
 
     private async Task TestAiConnectionAsync()
     {
         _isTestingAi = true;
+        _hasTestedConnection = false;
+        _availableModels = [];
         try
         {
-            var result = await AiCommitMessageService.TestConnectionAsync(Settings);
-            Snackbar.Add(result.Success ? result.Message : result.Error,
+            var result = await AiCommitMessageService.GetAvailableModelsAsync(Settings);
+            if (result.Success)
+            {
+                _availableModels = result.Models;
+                _hasTestedConnection = true;
+                if (!_availableModels.Contains(Settings.AiModel, StringComparer.OrdinalIgnoreCase))
+                    Settings.AiModel = _availableModels[0];
+            }
+            Snackbar.Add(result.Success ? $"Verbinding werkt. {_availableModels.Count} modellen gevonden." : result.Error,
                 result.Success ? Severity.Success : Severity.Error,
                 config => config.VisibleStateDuration = 10000);
         }
@@ -86,6 +107,12 @@
         {
             _isTestingAi = false;
         }
+    }
+
+    private void ResetModelList()
+    {
+        _hasTestedConnection = false;
+        _availableModels = [];
     }
 
     private async Task SaveAsync()

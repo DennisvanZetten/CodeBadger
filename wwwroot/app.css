@@ -89,11 +89,31 @@ h1:focus {
 }
 
 .settings-dialog {
+    width: min(760px, 90vw);
     min-width: min(760px, 90vw);
+    height: min(620px, 85vh);
+    min-height: min(620px, 85vh);
+    max-height: 85vh;
+}
+
+.settings-dialog .mud-dialog-content {
+    height: 100%;
+    overflow: hidden;
+}
+
+.settings-tabs,
+.settings-tabs .mud-tabs-panels,
+.settings-tab-panel {
+    height: 100%;
+}
+
+.settings-tabs .mud-tabs-panels {
+    overflow-y: auto;
 }
 
 .settings-tab-panel {
-    min-height: 24rem;
+    min-height: 100%;
+    box-sizing: border-box;
 }
 
 .git-dialog-list {

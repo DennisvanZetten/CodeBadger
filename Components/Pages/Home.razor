@@ -173,7 +173,7 @@
             { dialog => dialog.RepositoryPath, repository.Path },
             { dialog => dialog.AiSettings, _settings }
         };
-        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.ExtraExtraLarge, CloseButton = true, NoHeader = false };
+        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.ExtraExtraLarge, CloseButton = true, NoHeader = true, CloseOnEscapeKey = true };
         var dialog = await DialogService.ShowAsync<GitRepositoryDialog>("Git-overzicht", parameters, options);
         await dialog.Result;
         await RefreshBranches();

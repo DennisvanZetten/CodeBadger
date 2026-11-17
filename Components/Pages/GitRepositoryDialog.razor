@@ -4,47 +4,51 @@
 @inject ISnackbar Snackbar
 
 <MudDialog Class="git-overview-dialog">
-    <TitleContent>
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-            <MudIcon Icon="@Icons.Material.Filled.AccountTree" Color="Color.Primary" />
-            <div>
-                <MudText Typo="Typo.h6">@RepositoryName</MudText>
-                <MudText Typo="Typo.caption" Color="Color.Secondary">@RepositoryPath</MudText>
-            </div>
-        </MudStack>
-    </TitleContent>
     <DialogContent>
-        @if (_isLoading)
-        {
-            <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-3" />
-        }
-        else if (_snapshot is null || !_snapshot.IsValid)
-        {
-            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@(_snapshot?.Error ?? "Git-status niet beschikbaar.")</MudAlert>
-        }
-        else
-        {
-            <MudStack Spacing="3">
-                @if (!string.IsNullOrWhiteSpace(_snapshot.Warning))
-                {
-                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@_snapshot.Warning</MudAlert>
-                }
+        <div class="git-overview-content">
+            @if (_isLoading && _snapshot is null)
+            {
+                <div class="git-overview-loading">
+                    <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Medium" />
+                </div>
+            }
+            else if (_snapshot is null || !_snapshot.IsValid)
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@(_snapshot?.Error ?? "Git-status niet beschikbaar.")</MudAlert>
+                <MudIconButton Class="git-overview-close" Icon="@Icons.Material.Filled.Close" aria-label="Sluiten" OnClick="Close" />
+            }
+            else
+            {
+              <MudStack Spacing="3" Class="git-overview-main">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
-                    <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.CallSplit">@_snapshot.Branch</MudChip>
-                    <MudStack Row="true" Spacing="1">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.CallSplit">@_snapshot.Branch</MudChip>
+                        @if (_isLoading)
+                        {
+                            <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Small" />
+                        }
+                    </MudStack>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Download"
                                    Disabled="@_isOperating" OnClick="PullAsync">Pull (@_snapshot.Behind)</MudButton>
                         <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Upload"
                                    Disabled="@_isOperating" OnClick="PushAsync">Push (@_snapshot.Ahead)</MudButton>
                         <MudIconButton Icon="@Icons.Material.Filled.Refresh" aria-label="Git-status vernieuwen"
-                                       Disabled="@_isOperating" OnClick="@(() => RefreshAsync())" />
+                                       Disabled="@_isOperating" OnClick="@(() => RefreshAsync(fetch: true))" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="Sluiten" OnClick="Close" />
                     </MudStack>
                 </MudStack>
+                @if (!string.IsNullOrWhiteSpace(_snapshot.Warning))
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@_snapshot.Warning</MudAlert>
+                }
 
                 <MudButtonGroup Color="Color.Primary" Variant="Variant.Outlined" Class="git-view-switch">
-                    <MudButton StartIcon="@Icons.Material.Filled.AccountTree" Variant="@(_view == GitView.History ? Variant.Filled : Variant.Outlined)"
+                    <MudButton Class="@(_view == GitView.History ? "git-view-active" : "git-view-inactive")"
+                               StartIcon="@Icons.Material.Filled.AccountTree" Color="@(_view == GitView.History ? Color.Primary : Color.Default)" Variant="@(_view == GitView.History ? Variant.Filled : Variant.Outlined)"
                                OnClick="@(() => _view = GitView.History)">Branches &amp; commits</MudButton>
-                    <MudButton StartIcon="@Icons.Material.Filled.EditNote" Variant="@(_view == GitView.Commit ? Variant.Filled : Variant.Outlined)"
+                    <MudButton Class="@(_view == GitView.Commit ? "git-view-active" : "git-view-inactive")"
+                               StartIcon="@Icons.Material.Filled.EditNote" Color="@(_view == GitView.Commit ? Color.Primary : Color.Default)" Variant="@(_view == GitView.Commit ? Variant.Filled : Variant.Outlined)"
                                OnClick="@(() => SwitchToCommitViewAsync())">Commit maken</MudButton>
                 </MudButtonGroup>
 
@@ -67,7 +71,7 @@
 
                 @if (_view == GitView.History)
                 {
-                    <MudGrid Spacing="3">
+                    <MudGrid Spacing="3" Class="git-history-workspace">
                         <MudItem xs="12" md="4">
                             <MudPaper Class="pa-3 git-dialog-panel" Outlined="true" Elevation="0">
                                 <MudText Typo="Typo.subtitle1" Class="mb-2">Branches (@_snapshot.Branches.Count)</MudText>
@@ -226,13 +230,13 @@
                     </div>
                 }
 
-                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="git-overview-status">
                     @_snapshot.ChangedFiles gewijzigde bestanden · @_snapshot.StagedFiles staged · @_snapshot.UnstagedFiles niet-staged · @_snapshot.Ahead vooruit / @_snapshot.Behind achter
                 </MudText>
-            </MudStack>
-        }
+              </MudStack>
+            }
+        </div>
     </DialogContent>
-    <DialogActions><MudButton OnClick="Close">Sluiten</MudButton></DialogActions>
 </MudDialog>
 
 @code {
@@ -259,7 +263,17 @@
     private IReadOnlyList<GitFileChange> StagedFiles => _files.Where(file => file.IsStaged).ToList();
     private IReadOnlyList<GitFileChange> UnstagedFiles => _files.Where(file => file.IsUnstaged || file.IsUntracked).ToList();
 
-    protected override async Task OnInitializedAsync() => await RefreshAsync(fetch: true);
+    protected override Task OnInitializedAsync() => Task.CompletedTask;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        await RefreshAsync(fetch: true);
+        _view = _files.Count > 0 ? GitView.Commit : GitView.History;
+        await InvokeAsync(StateHasChanged);
+    }
 
     private async Task RefreshAsync(bool fetch = false)
     {
@@ -268,6 +282,10 @@
         {
             _snapshot = await GitBranchService.GetRepositorySnapshotAsync(RepositoryPath, fetch);
             _files = await GitBranchService.GetFileChangesAsync(RepositoryPath);
+            if (_snapshot?.IsValid == true && _files.Count > 0)
+                _view = GitView.Commit;
+            else if (_snapshot?.IsValid == true && _view == GitView.Commit)
+                _view = GitView.History;
             if (_selectedFile is not null)
             {
                 _selectedFile = _files.FirstOrDefault(file => file.Path == _selectedFile.Path);

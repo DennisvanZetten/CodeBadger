@@ -111,7 +111,7 @@
                         <MudItem xs="12" md="9" xl="10">
                             <MudPaper Class="pa-3 git-dialog-panel" Outlined="true" Elevation="0">
                                 <MudText Typo="Typo.subtitle1" Class="mb-2">Recente commits</MudText>
-                                <MudStack Spacing="0" Class="git-dialog-list">
+                                 <MudStack Spacing="0" Class="git-dialog-list git-commit-list">
                                     @foreach (var commit in _snapshot.Commits)
                                     {
                                         <div @key="commit.Hash"
@@ -154,8 +154,8 @@
                                                     }
                                                 }
                                             </div>
-                                            <svg class="git-commit-graph" width="220" height="52"
-                                                 viewBox="0 0 220 52" preserveAspectRatio="xMinYMid meet" aria-hidden="true">
+                                             <svg class="git-commit-graph" width="@GraphPixelWidth" height="52"
+                                                  viewBox="0 0 @GraphPixelWidth 52" preserveAspectRatio="xMinYMid meet" aria-hidden="true">
                                                 @if (commit.GraphEdges is not null)
                                                 {
                                                     @foreach (var edge in commit.GraphEdges)
@@ -642,10 +642,7 @@
     private static string FormatDate(string date) => DateTimeOffset.TryParse(date, CultureInfo.InvariantCulture, out var parsed)
         ? parsed.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
         : date;
-    private int GraphX(int column)
-    {
-        return 10 + column * 20;
-    }
+    private int GraphX(int column) => 10 + column * 24;
 
     private static readonly int[] GraphPalette = [0xB38CFF, 0x55A6FF, 0xFFB454, 0x42D6B5, 0xFF6B81, 0xD6D95A, 0x53C7D9, 0xF080D0];
     private static string GraphColor(int color) => $"#{GraphPalette[Math.Abs(color % GraphPalette.Length)]:X6}";
@@ -654,10 +651,16 @@
     {
         var startX = GraphX(edge.FromColumn);
         var endX = GraphX(edge.ToColumn);
-        return edge.FromColumn == edge.ToColumn
-            ? $"M {startX} {edge.FromY} L {endX} {edge.ToY}"
-            : $"M {startX} {edge.FromY} C {startX} {edge.FromY + (edge.ToY - edge.FromY) / 3d:0.##}, {endX} {edge.ToY - (edge.ToY - edge.FromY) / 3d:0.##}, {endX} {edge.ToY}";
+        if (edge.FromColumn == edge.ToColumn)
+            return $"M {startX} {edge.FromY} L {endX} {edge.ToY}";
+
+        // Keep branch transitions monotonic and vertical at both endpoints.
+        // This avoids sharp kinks where one commit row joins the next.
+        var middleY = (edge.FromY + edge.ToY) / 2d;
+        return $"M {startX} {edge.FromY} C {startX} {middleY:0.##}, {endX} {middleY:0.##}, {endX} {edge.ToY}";
     }
+
+    private int GraphPixelWidth => Math.Max(220, (_snapshot?.Commits.Select(commit => Math.Max(commit.GraphWidth, commit.GraphColumn + 1)).DefaultIfEmpty(1).Max() ?? 1) * 24 + 20);
 
     private void Close() => MudDialog.Close();
 }

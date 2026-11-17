@@ -146,6 +146,8 @@ h1:focus {
     list-style: none;
     font-size: 0.875rem;
     font-weight: 600;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .git-branch-group > summary::-webkit-details-marker {
@@ -164,9 +166,12 @@ h1:focus {
 
 .git-branch-count {
     margin-left: auto;
+    flex: 0 0 2rem;
     color: var(--mud-palette-text-secondary);
     font-size: 0.75rem;
     font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
 }
 
 .git-branch-list {
@@ -189,6 +194,8 @@ h1:focus {
     border-radius: 4px;
     color: var(--mud-palette-text-secondary);
     font-size: 0.8rem;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .git-branch-folder > summary::-webkit-details-marker {
@@ -369,6 +376,7 @@ h1:focus {
 }
 
 .git-diff-view {
+    display: block;
     min-height: 0;
     flex: 1 1 auto;
     height: 0;
@@ -382,6 +390,38 @@ h1:focus {
     font-family: Consolas, 'Courier New', monospace;
     font-size: 0.75rem;
     white-space: pre;
+}
+
+.git-diff-line {
+    display: block;
+    width: max-content;
+    min-width: 100%;
+    padding: 0 0.35rem;
+    box-sizing: border-box;
+    white-space: pre;
+}
+
+.git-diff-added {
+    background: color-mix(in srgb, #3fb950 20%, transparent);
+    color: #7ee787;
+}
+
+.git-diff-removed {
+    background: color-mix(in srgb, #f85149 20%, transparent);
+    color: #ffa198;
+}
+
+.git-diff-changed {
+    background: color-mix(in srgb, #d29922 22%, transparent);
+    color: #eac54f;
+}
+
+.git-diff-meta {
+    color: var(--mud-palette-text-secondary);
+}
+
+.git-diff-hunk {
+    color: #d2a8ff;
 }
 
 .git-diff-panel {

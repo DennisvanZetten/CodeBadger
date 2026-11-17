@@ -2,7 +2,6 @@ namespace RepoLauncher.Models;
 
 public sealed class LauncherSettings
 {
-    public string PowerShellExecutable { get; set; } = "pwsh.exe";
     public string ToolCommand { get; set; } = "opencode";
     public string AiProvider { get; set; } = "OpenAI";
     public string AiCustomUrl { get; set; } = string.Empty;
@@ -16,6 +15,7 @@ public sealed class LauncherSettings
 
 public sealed class RepositoryEntry
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = string.Empty;
     public string Path { get; set; } = string.Empty;
     public bool IsActive { get; set; } = true;

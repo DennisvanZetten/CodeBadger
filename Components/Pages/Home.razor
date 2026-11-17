@@ -1,134 +1,119 @@
 @page "/"
 @inject LauncherSettingsService SettingsService
-@inject PowerShellLauncher PowerShellLauncher
 @inject GitBranchService GitBranchService
-@inject RepositoryFolderPicker FolderPicker
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@implements IDisposable
 
 <PageTitle>Repo Launcher</PageTitle>
 
-<MudContainer MaxWidth="MaxWidth.Large" Class="py-8">
-    <MudStack Spacing="5">
-        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-            <div>
-                <MudText Typo="Typo.h4" Class="fw-bold">Repo Launcher</MudText>
-                <MudText Typo="Typo.body1" Color="Color.Secondary">Start OpenCode in je repositories.</MudText>
-            </div>
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Default" Size="Size.Large"
-                               aria-label="Instellingen openen" OnClick="OpenSettingsAsync" />
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large"
-                           StartIcon="@Icons.Material.Filled.RocketLaunch" Disabled="@(!_settings.Repositories.Any(r => r.IsActive))"
-                           OnClick="LaunchAll">
-                    Start alle actief
-                </MudButton>
+<MudContainer MaxWidth="MaxWidth.False" Class="py-5 repository-home">
+    @if (_activeRepositories.Count == 0)
+    {
+        <MudPaper Class="pa-6" Outlined="true" Elevation="0">
+            <MudStack Spacing="2" AlignItems="AlignItems.Center">
+                <MudIcon Icon="@Icons.Material.Filled.FolderOpen" Size="Size.Large" Color="Color.Secondary" />
+                <MudText Typo="Typo.h6">Nog geen actieve repositories</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">Open Instellingen rechtsboven en voeg repositories toe of activeer ze.</MudText>
             </MudStack>
-        </MudStack>
-
-        <MudPaper Class="pa-5" Outlined="true" Elevation="0">
-            <MudStack Spacing="3">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                    <div>
-                        <MudText Typo="Typo.h6">Repositories</MudText>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">@ActiveCount actief van @_settings.Repositories.Count</MudText>
-                    </div>
-                    <MudStack Row="true" Spacing="2" Class="flex-wrap">
-                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddRepository">
-                            Repository toevoegen
-                        </MudButton>
-                        <MudButton Variant="Variant.Filled" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.Save"
-                                   OnClick="SaveRepositoriesAsync">
-                            Repositories opslaan
-                        </MudButton>
-                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh"
-                                   OnClick="RefreshAllAsync" Disabled="@_isRefreshingBranches">
-                            Git-status vernieuwen
-                        </MudButton>
-                    </MudStack>
-                </MudStack>
-
-                @if (_settings.Repositories.Count == 0)
-                {
-                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                        Voeg een repositorymap toe om te beginnen.
-                    </MudAlert>
-                }
-                else
-                {
-                    <MudStack Spacing="2">
-                        @foreach (var repository in _settings.Repositories)
+        </MudPaper>
+    }
+    else
+    {
+        <MudTabs @bind-ActivePanelIndex="_activeTabIndex" KeepPanelsAlive="true" Rounded="true" Border="true" ApplyEffectsToContainer="true" Class="repository-tabs">
+            @foreach (var repository in _activeRepositories)
+            {
+                <MudTabPanel @key="repository.Id" Text="@RepositoryTitle(repository)" Icon="@Icons.Material.Filled.Folder">
+                    <div class="repository-workspace">
+                        @if (!Directory.Exists(repository.Path))
                         {
-                            <MudPaper @key="repository" Class="pa-3" Outlined="true" Elevation="0">
-                                <MudGrid Spacing="2">
-                                    <MudItem xs="12" sm="1">
-                                        <MudSwitch @bind-Value="repository.IsActive" Color="Color.Primary" />
-                                    </MudItem>
-                                    <MudItem xs="12" sm="4">
-                                        <MudTextField @bind-Value="repository.Name" Label="Naam" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                                    </MudItem>
-                                     <MudItem xs="12" sm="6">
-                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                            <MudTextField @bind-Value="repository.Path" Label="Pad" Variant="Variant.Outlined" Margin="Margin.Dense" Class="flex-grow-1" />
-                                            <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" Color="Color.Primary"
-                                                           aria-label="Repositorymap zoeken"
-                                                           Disabled="@(!FolderPicker.IsSupported)"
-                                                           OnClick="@(() => BrowseRepositoryAsync(repository))" />
-                                        </MudStack>
-                                    </MudItem>
-                                    <MudItem xs="12" sm="1" Class="d-flex justify-end">
-                                        <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error"
-                                                       aria-label="Repository verwijderen" OnClick="@(() => RemoveRepository(repository))" />
-                                    </MudItem>
-                                    <MudItem xs="12">
+                            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">Repositorypad bestaat niet: @repository.Path. Pas het pad aan via Instellingen.</MudAlert>
+                        }
+                        else
+                        {
+                            <MudPaper Outlined="true" Elevation="0" Class="repository-terminal-panel">
+                                <RepositoryTerminal @key="repository.Id" SessionId="repository.Id" RepositoryPath="@repository.Path"
+                                                    Command="@_settings.ToolCommand" IsVisible="@(_activeRepositories.IndexOf(repository) == _activeTabIndex)" />
+                            </MudPaper>
+                            <MudPaper Outlined="true" Elevation="0" Class="pa-4 repository-git-panel">
+                                <MudStack Spacing="2">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
                                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="flex-wrap">
+                                            <MudText Typo="Typo.subtitle1">Git</MudText>
                                             <MudText Typo="Typo.caption" Color="Color.Secondary">@BranchLabel(repository)</MudText>
                                             @if (_gitSnapshots.TryGetValue(repository, out var snapshot) && snapshot.IsValid)
                                             {
                                                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@snapshot.ChangedFiles gewijzigd</MudChip>
                                                 <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">↑ @snapshot.Ahead</MudChip>
                                                 <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">↓ @snapshot.Behind</MudChip>
-                                                <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
-                                                           StartIcon="@Icons.Material.Filled.AccountTree"
-                                                           OnClick="@(() => OpenGitDialogAsync(repository))">Git-overzicht</MudButton>
                                             }
                                         </MudStack>
-                                    </MudItem>
-                                </MudGrid>
+                                        <MudStack Row="true" Spacing="1">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Refresh" aria-label="Git-status vernieuwen" Disabled="@_isRefreshingBranches" OnClick="@(() => RefreshRepositoryAsync(repository))" />
+                                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AccountTree"
+                                                       Disabled="@(!_gitSnapshots.TryGetValue(repository, out var gitSnapshot) || !gitSnapshot.IsValid)"
+                                                       OnClick="@(() => OpenGitDialogAsync(repository))">Git-overzicht</MudButton>
+                                        </MudStack>
+                                    </MudStack>
+                                    @if (_gitSnapshots.TryGetValue(repository, out var status) && !status.IsValid)
+                                    {
+                                        <MudAlert Dense="true" Severity="Severity.Warning" Variant="Variant.Outlined">@status.Error — controleer of Git is geïnstalleerd en het pad een repository is.</MudAlert>
+                                    }
+                                </MudStack>
                             </MudPaper>
                         }
-                    </MudStack>
-                }
-            </MudStack>
-        </MudPaper>
-
-    </MudStack>
+                    </div>
+                </MudTabPanel>
+            }
+        </MudTabs>
+    }
 </MudContainer>
 
 @code {
     private LauncherSettings _settings = new();
-    private int ActiveCount => _settings.Repositories.Count(r => r.IsActive);
+    private List<RepositoryEntry> _activeRepositories = [];
     private readonly Dictionary<RepositoryEntry, GitBranchInfo> _branches = [];
     private readonly Dictionary<RepositoryEntry, GitRepositorySnapshot> _gitSnapshots = [];
     private bool _isRefreshingBranches;
+    private int _activeTabIndex;
 
     protected override async Task OnInitializedAsync()
     {
         _settings = await SettingsService.LoadAsync();
+        SettingsService.SettingsSaved += HandleSettingsSaved;
+        SyncRepositories();
         await RefreshBranches();
     }
 
-    private void AddRepository()
+    private void HandleSettingsSaved()
     {
-        _settings.Repositories.Add(new RepositoryEntry { Name = "Nieuwe repository" });
+        _ = InvokeAsync(async () =>
+        {
+            var oldTab = _activeTabIndex;
+            _settings = await SettingsService.LoadAsync();
+            SyncRepositories();
+            _activeTabIndex = Math.Clamp(oldTab, 0, Math.Max(0, _activeRepositories.Count - 1));
+            await RefreshBranches();
+            StateHasChanged();
+        });
     }
 
-    private void RemoveRepository(RepositoryEntry repository)
+    private void SyncRepositories()
     {
-        _settings.Repositories.Remove(repository);
-        _branches.Remove(repository);
-        _gitSnapshots.Remove(repository);
+        foreach (var repository in _settings.Repositories)
+            if (repository.Id == Guid.Empty)
+                repository.Id = Guid.NewGuid();
+        _activeRepositories = _settings.Repositories.Where(repository => repository.IsActive).ToList();
+        _activeTabIndex = Math.Clamp(_activeTabIndex, 0, Math.Max(0, _activeRepositories.Count - 1));
+        foreach (var repository in _branches.Keys.Where(repository => !_settings.Repositories.Contains(repository)).ToList())
+            _branches.Remove(repository);
+        foreach (var repository in _gitSnapshots.Keys.Where(repository => !_settings.Repositories.Contains(repository)).ToList())
+            _gitSnapshots.Remove(repository);
     }
+
+    private static string RepositoryTitle(RepositoryEntry repository) => string.IsNullOrWhiteSpace(repository.Name)
+        ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path))
+        : repository.Name;
 
     private async Task RefreshBranches(bool force = false)
     {
@@ -138,7 +123,7 @@
         _isRefreshingBranches = true;
         try
         {
-            var results = await Task.WhenAll(_settings.Repositories.Select(async repository =>
+            var results = await Task.WhenAll(_activeRepositories.Select(async repository =>
                 (Repository: repository,
                  Snapshot: await GitBranchService.GetRepositorySnapshotAsync(repository.Path),
                  Branch: await GitBranchService.GetCurrentBranchAsync(repository.Path))));
@@ -155,18 +140,6 @@
         {
             _isRefreshingBranches = false;
         }
-    }
-
-    private async Task BrowseRepositoryAsync(RepositoryEntry repository)
-    {
-        var path = await FolderPicker.PickFolderAsync();
-        if (string.IsNullOrWhiteSpace(path))
-            return;
-
-        repository.Path = path;
-        if (string.IsNullOrWhiteSpace(repository.Name) || repository.Name == "Nieuwe repository")
-            repository.Name = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
-        await RefreshBranches();
     }
 
     private async Task OpenGitDialogAsync(RepositoryEntry repository)
@@ -191,13 +164,32 @@
         _isRefreshingBranches = true;
         try
         {
-            var fetchResults = await Task.WhenAll(_settings.Repositories
+            var fetchResults = await Task.WhenAll(_activeRepositories
                 .Where(repository => !string.IsNullOrWhiteSpace(repository.Path) && Directory.Exists(repository.Path))
                 .Select(repository => GitBranchService.FetchAsync(repository.Path)));
             var failures = fetchResults.Count(result => !result.Success);
             if (failures > 0)
                 Snackbar.Add($"Fetch mislukt voor {failures} repository(s).", Severity.Warning);
 
+            await RefreshBranches(force: true);
+        }
+        finally
+        {
+            _isRefreshingBranches = false;
+        }
+    }
+
+    private async Task RefreshRepositoryAsync(RepositoryEntry repository)
+    {
+        _isRefreshingBranches = true;
+        try
+        {
+            if (Directory.Exists(repository.Path))
+            {
+                var fetch = await GitBranchService.FetchAsync(repository.Path);
+                if (!fetch.Success)
+                    Snackbar.Add($"Git fetch mislukt: {fetch.Message}", Severity.Warning);
+            }
             await RefreshBranches(force: true);
         }
         finally
@@ -219,51 +211,5 @@
             : $"Branch: {branchInfo.Status}";
     }
 
-    private async Task OpenSettingsAsync()
-    {
-        var parameters = new DialogParameters<SettingsDialog>
-        {
-            { dialog => dialog.Settings, _settings }
-        };
-        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Large, CloseButton = true };
-        var dialog = await DialogService.ShowAsync<SettingsDialog>("Instellingen", parameters, options);
-        var result = await dialog.Result;
-        if (result is { Canceled: false })
-            await RefreshBranches();
-    }
-
-    private async Task SaveRepositoriesAsync()
-    {
-        await SettingsService.SaveAsync(_settings);
-        await RefreshBranches();
-        Snackbar.Add("Repositories opgeslagen.", Severity.Success);
-    }
-
-    private void LaunchAll()
-    {
-        var activeRepositories = _settings.Repositories.Where(r => r.IsActive).ToList();
-        var invalidRepositories = activeRepositories
-            .Where(repository => !Directory.Exists(repository.Path))
-            .Select(repository => string.IsNullOrWhiteSpace(repository.Name) ? repository.Path : repository.Name)
-            .ToList();
-
-        try
-        {
-            var startedCount = PowerShellLauncher.LaunchAll(_settings, activeRepositories);
-            if (startedCount == 0)
-            {
-                Snackbar.Add("Geen geldige repositorypaden om te starten.", Severity.Warning);
-                return;
-            }
-
-            if (invalidRepositories.Count == 0)
-                Snackbar.Add($"Windows Terminal gestart met {startedCount} tabblad(en).", Severity.Success);
-            else
-                Snackbar.Add($"{startedCount} tabblad(en) gestart. Overgeslagen (pad bestaat niet): {string.Join(", ", invalidRepositories)}", Severity.Warning, config => config.VisibleStateDuration = 10000);
-        }
-        catch (Exception exception)
-        {
-            Snackbar.Add($"Windows Terminal starten is mislukt: {exception.Message}", Severity.Error, config => config.VisibleStateDuration = 10000);
-        }
-    }
+    public void Dispose() => SettingsService.SettingsSaved -= HandleSettingsSaved;
 }

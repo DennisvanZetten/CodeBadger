@@ -8,6 +8,7 @@ public sealed class LauncherSettingsService
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private readonly string _settingsPath = Path.Combine(FileSystem.AppDataDirectory, "settings.json");
     private const string AiApiKeyStorageKey = "repolauncher-ai-api-key";
+    public event Action? SettingsSaved;
 
     public async Task<LauncherSettings> LoadAsync()
     {
@@ -37,5 +38,6 @@ public sealed class LauncherSettingsService
             SecureStorage.Default.Remove(AiApiKeyStorageKey);
         else
             await SecureStorage.Default.SetAsync(AiApiKeyStorageKey, settings.AiApiKey);
+        SettingsSaved?.Invoke();
     }
 }

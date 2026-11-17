@@ -1,4 +1,7 @@
 ﻿@inherits LayoutComponentBase
+@inject LauncherSettingsService SettingsService
+@inject IDialogService DialogService
+@using RepoLauncher.Components.Pages
 
 <MudThemeProvider IsDarkMode="true" />
 <MudPopoverProvider />
@@ -8,8 +11,25 @@
     <MudAppBar Elevation="0" Color="Color.Surface" Dense="true">
         <MudIcon Icon="@Icons.Material.Filled.Terminal" Color="Color.Primary" Class="mr-3" />
         <MudText Typo="Typo.h6">Repo Launcher</MudText>
+        <MudSpacer />
+        <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Default" Size="Size.Large"
+                       aria-label="Instellingen openen" OnClick="OpenSettingsAsync" />
     </MudAppBar>
     <MudMainContent>
         @Body
     </MudMainContent>
 </MudLayout>
+
+@code {
+    private async Task OpenSettingsAsync()
+    {
+        var settings = await SettingsService.LoadAsync();
+        var parameters = new DialogParameters<SettingsDialog>
+        {
+            { dialog => dialog.Settings, settings }
+        };
+        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.ExtraExtraLarge, CloseButton = true };
+        var dialog = await DialogService.ShowAsync<SettingsDialog>("Instellingen", parameters, options);
+        await dialog.Result;
+    }
+}

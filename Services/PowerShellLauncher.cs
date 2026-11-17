@@ -32,7 +32,7 @@ public sealed class PowerShellLauncher
                 : repository.Name);
             startInfo.ArgumentList.Add("-d");
             startInfo.ArgumentList.Add(repository.Path);
-            startInfo.ArgumentList.Add(settings.PowerShellExecutable);
+            startInfo.ArgumentList.Add("pwsh.exe");
             startInfo.ArgumentList.Add("-NoExit");
             startInfo.ArgumentList.Add("-Command");
             startInfo.ArgumentList.Add(settings.ToolCommand);

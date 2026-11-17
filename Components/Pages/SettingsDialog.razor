@@ -1,5 +1,6 @@
 @inject LauncherSettingsService SettingsService
 @inject AiCommitMessageService AiCommitMessageService
+@inject RepositoryFolderPicker FolderPicker
 @inject ISnackbar Snackbar
 
 <MudDialog Class="settings-dialog">
@@ -12,13 +13,47 @@
     <DialogContent>
         <MudTabs Position="Position.Left" Rounded="true" Border="true" ApplyEffectsToContainer="true"
                  TabPanelsClass="pa-4 settings-tab-panel" Class="settings-tabs">
+            <MudTabPanel Text="Repositories" Icon="@Icons.Material.Filled.Folder">
+                <MudStack Spacing="3">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <div>
+                            <MudText Typo="Typo.h6">Repositories beheren</MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Actieve repositories krijgen een eigen starttab.</MudText>
+                        </div>
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddRepository">Toevoegen</MudButton>
+                    </MudStack>
+                    @if (Settings.Repositories.Count == 0)
+                    {
+                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">Voeg een repositorymap toe om te beginnen.</MudAlert>
+                    }
+                    @foreach (var repository in Settings.Repositories)
+                    {
+                        <MudPaper @key="repository" Class="pa-3" Outlined="true" Elevation="0">
+                            <MudGrid Spacing="2">
+                                <MudItem xs="12" sm="1"><MudSwitch @bind-Value="repository.IsActive" Color="Color.Primary" /></MudItem>
+                                <MudItem xs="12" sm="3"><MudTextField @bind-Value="repository.Name" Label="Naam" Variant="Variant.Outlined" Margin="Margin.Dense" /></MudItem>
+                                <MudItem xs="12" sm="7">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                        <MudTextField @bind-Value="repository.Path" Label="Pad" Variant="Variant.Outlined" Margin="Margin.Dense" Class="flex-grow-1" />
+                                        <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" Color="Color.Primary" aria-label="Repositorymap zoeken"
+                                                       Disabled="@(!FolderPicker.IsSupported)" OnClick="@(() => BrowseRepositoryAsync(repository))" />
+                                    </MudStack>
+                                </MudItem>
+                                <MudItem xs="12" sm="1" Class="d-flex justify-end">
+                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" aria-label="Repository verwijderen"
+                                                   OnClick="@(() => Settings.Repositories.Remove(repository))" />
+                                </MudItem>
+                            </MudGrid>
+                        </MudPaper>
+                    }
+                </MudStack>
+            </MudTabPanel>
             <MudTabPanel Text="Starten" Icon="@Icons.Material.Filled.Terminal">
                 <MudStack Spacing="3">
                     <MudText Typo="Typo.h6">Startinstellingen</MudText>
-                    <MudTextField @bind-Value="Settings.PowerShellExecutable" Label="PowerShell executable"
-                                  HelperText="Bijvoorbeeld pwsh.exe of powershell.exe" Variant="Variant.Outlined" />
-                    <MudTextField @bind-Value="Settings.ToolCommand" Label="Tool / commando"
-                                  HelperText="Bijvoorbeeld opencode" Variant="Variant.Outlined" />
+                    <MudTextField @bind-Value="Settings.ToolCommand" Label="Applicatie / opdracht"
+                                  HelperText="Wordt rechtstreeks gestart in de repositorymap, bijvoorbeeld opencode of een volledig exe-pad met argumenten."
+                                  Variant="Variant.Outlined" />
                 </MudStack>
             </MudTabPanel>
             <MudTabPanel Text="AI-provider" Icon="@Icons.Material.Filled.AutoAwesome">
@@ -83,6 +118,18 @@
     private bool _hasTestedConnection;
     private IReadOnlyList<string> _availableModels = [];
     private static readonly string[] AiProviders = ["OpenAI", "Azure OpenAI", "Anthropic", "Google Gemini", "Ollama", "Custom URL"];
+
+    private void AddRepository() => Settings.Repositories.Add(new RepositoryEntry { Name = "Nieuwe repository" });
+
+    private async Task BrowseRepositoryAsync(RepositoryEntry repository)
+    {
+        var path = await FolderPicker.PickFolderAsync();
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+        repository.Path = path;
+        if (string.IsNullOrWhiteSpace(repository.Name) || repository.Name == "Nieuwe repository")
+            repository.Name = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
+    }
 
     private async Task TestAiConnectionAsync()
     {

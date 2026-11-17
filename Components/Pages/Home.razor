@@ -2,6 +2,8 @@
 @inject LauncherSettingsService SettingsService
 @inject PowerShellLauncher PowerShellLauncher
 @inject GitBranchService GitBranchService
+@inject RepositoryFolderPicker FolderPicker
+@inject IDialogService DialogService
 @inject ISnackbar Snackbar
 
 <PageTitle>Repo Launcher</PageTitle>
@@ -43,13 +45,15 @@
                         <MudText Typo="Typo.h6">Repositories</MudText>
                         <MudText Typo="Typo.body2" Color="Color.Secondary">@ActiveCount actief van @_settings.Repositories.Count</MudText>
                     </div>
-                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddRepository">
-                        Repository toevoegen
-                    </MudButton>
-                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh"
-                               OnClick="RefreshBranches" Disabled="@_isRefreshingBranches">
-                        Branches vernieuwen
-                    </MudButton>
+                    <MudStack Row="true" Spacing="2" Class="flex-wrap">
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddRepository">
+                            Repository toevoegen
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh"
+                                   OnClick="RefreshAllAsync" Disabled="@_isRefreshingBranches">
+                            Git-status vernieuwen
+                        </MudButton>
+                    </MudStack>
                 </MudStack>
 
                 @if (_settings.Repositories.Count == 0)
@@ -71,17 +75,32 @@
                                     <MudItem xs="12" sm="4">
                                         <MudTextField @bind-Value="repository.Name" Label="Naam" Variant="Variant.Outlined" Margin="Margin.Dense" />
                                     </MudItem>
-                                    <MudItem xs="12" sm="6">
-                                        <MudTextField @bind-Value="repository.Path" Label="Pad" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                     <MudItem xs="12" sm="6">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                            <MudTextField @bind-Value="repository.Path" Label="Pad" Variant="Variant.Outlined" Margin="Margin.Dense" Class="flex-grow-1" />
+                                            <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" Color="Color.Primary"
+                                                           aria-label="Repositorymap zoeken" Title="Repositorymap zoeken"
+                                                           Disabled="@(!FolderPicker.IsSupported)"
+                                                           OnClick="@(() => BrowseRepositoryAsync(repository))" />
+                                        </MudStack>
                                     </MudItem>
                                     <MudItem xs="12" sm="1" Class="d-flex justify-end">
                                         <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error"
                                                        aria-label="Repository verwijderen" OnClick="@(() => RemoveRepository(repository))" />
                                     </MudItem>
                                     <MudItem xs="12">
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                            @BranchLabel(repository)
-                                        </MudText>
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="flex-wrap">
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@BranchLabel(repository)</MudText>
+                                            @if (_gitSnapshots.TryGetValue(repository, out var snapshot) && snapshot.IsValid)
+                                            {
+                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@snapshot.ChangedFiles gewijzigd</MudChip>
+                                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">↑ @snapshot.Ahead</MudChip>
+                                                <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">↓ @snapshot.Behind</MudChip>
+                                                <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
+                                                           StartIcon="@Icons.Material.Filled.AccountTree"
+                                                           OnClick="@(() => OpenGitDialogAsync(repository))">Git-overzicht</MudButton>
+                                            }
+                                        </MudStack>
                                     </MudItem>
                                 </MudGrid>
                             </MudPaper>
@@ -103,6 +122,7 @@
     private LauncherSettings _settings = new();
     private int ActiveCount => _settings.Repositories.Count(r => r.IsActive);
     private readonly Dictionary<RepositoryEntry, GitBranchInfo> _branches = [];
+    private readonly Dictionary<RepositoryEntry, GitRepositorySnapshot> _gitSnapshots = [];
     private bool _isRefreshingBranches;
 
     protected override async Task OnInitializedAsync()
@@ -120,9 +140,62 @@
     {
         _settings.Repositories.Remove(repository);
         _branches.Remove(repository);
+        _gitSnapshots.Remove(repository);
     }
 
-    private async Task RefreshBranches()
+    private async Task RefreshBranches(bool force = false)
+    {
+        if (_isRefreshingBranches && !force)
+            return;
+
+        _isRefreshingBranches = true;
+        try
+        {
+            var results = await Task.WhenAll(_settings.Repositories.Select(async repository =>
+                (Repository: repository,
+                 Snapshot: await GitBranchService.GetRepositorySnapshotAsync(repository.Path),
+                 Branch: await GitBranchService.GetCurrentBranchAsync(repository.Path))));
+
+            _branches.Clear();
+            _gitSnapshots.Clear();
+            foreach (var result in results)
+            {
+                _branches[result.Repository] = result.Branch;
+                _gitSnapshots[result.Repository] = result.Snapshot;
+            }
+        }
+        finally
+        {
+            _isRefreshingBranches = false;
+        }
+    }
+
+    private async Task BrowseRepositoryAsync(RepositoryEntry repository)
+    {
+        var path = await FolderPicker.PickFolderAsync();
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        repository.Path = path;
+        if (string.IsNullOrWhiteSpace(repository.Name) || repository.Name == "Nieuwe repository")
+            repository.Name = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
+        await RefreshBranches();
+    }
+
+    private async Task OpenGitDialogAsync(RepositoryEntry repository)
+    {
+        var parameters = new DialogParameters<GitRepositoryDialog>
+        {
+            { dialog => dialog.RepositoryName, repository.Name },
+            { dialog => dialog.RepositoryPath, repository.Path }
+        };
+        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.ExtraLarge, CloseButton = true };
+        var dialog = await DialogService.ShowAsync<GitRepositoryDialog>("Git-overzicht", parameters, options);
+        await dialog.Result;
+        await RefreshBranches();
+    }
+
+    private async Task RefreshAllAsync()
     {
         if (_isRefreshingBranches)
             return;
@@ -130,12 +203,14 @@
         _isRefreshingBranches = true;
         try
         {
-            var results = await Task.WhenAll(_settings.Repositories.Select(async repository =>
-                (Repository: repository, Branch: await GitBranchService.GetCurrentBranchAsync(repository.Path))));
+            var fetchResults = await Task.WhenAll(_settings.Repositories
+                .Where(repository => !string.IsNullOrWhiteSpace(repository.Path) && Directory.Exists(repository.Path))
+                .Select(repository => GitBranchService.FetchAsync(repository.Path)));
+            var failures = fetchResults.Count(result => !result.Success);
+            if (failures > 0)
+                Snackbar.Add($"Fetch mislukt voor {failures} repository(s).", Severity.Warning);
 
-            _branches.Clear();
-            foreach (var result in results)
-                _branches[result.Repository] = result.Branch;
+            await RefreshBranches(force: true);
         }
         finally
         {

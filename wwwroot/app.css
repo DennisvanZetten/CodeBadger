@@ -84,6 +84,33 @@ h1:focus {
     display: none;
 }
 
+.git-dialog-panel {
+    height: 100%;
+}
+
+.git-dialog-list {
+    max-height: 52vh;
+    overflow-y: auto;
+}
+
+.git-branch-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.git-commit-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.65rem 0;
+    border-bottom: 1px solid var(--mud-palette-divider);
+}
+
+.git-commit-content {
+    min-width: 0;
+}
+
 @supports (-webkit-touch-callout: none) {
     .status-bar-safe-area {
         display: flex;

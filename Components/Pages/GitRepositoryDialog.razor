@@ -1,0 +1,191 @@
+@using System.Globalization
+@inject GitBranchService GitBranchService
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icons.Material.Filled.AccountTree" Color="Color.Primary" />
+            <div>
+                <MudText Typo="Typo.h6">@RepositoryName</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@RepositoryPath</MudText>
+            </div>
+        </MudStack>
+    </TitleContent>
+    <DialogContent>
+        @if (_isLoading)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-3" />
+        }
+        else if (_snapshot is null || !_snapshot.IsValid)
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@(_snapshot?.Error ?? "Git-status niet beschikbaar.")</MudAlert>
+        }
+        else
+        {
+            <MudStack Spacing="3">
+                @if (!string.IsNullOrWhiteSpace(_snapshot.Warning))
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@_snapshot.Warning</MudAlert>
+                }
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
+                    <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.CallSplit">@_snapshot.Branch</MudChip>
+                    <MudStack Row="true" Spacing="1">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Download"
+                                   Disabled="@_isOperating" OnClick="PullAsync">Pull (@_snapshot.Behind)</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Upload"
+                                   Disabled="@_isOperating" OnClick="PushAsync">Push (@_snapshot.Ahead)</MudButton>
+                        <MudIconButton Icon="@Icons.Material.Filled.Refresh" aria-label="Git-status vernieuwen"
+                                       Disabled="@_isOperating" OnClick="RefreshAsync" />
+                    </MudStack>
+                </MudStack>
+
+                @if (_snapshot.Conflicts.Count > 0)
+                {
+                    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Warning">
+                        <MudText Typo="Typo.subtitle2">Conflicten gevonden (@_snapshot.Conflicts.Count)</MudText>
+                        <MudStack Spacing="1" Class="mt-2">
+                            @foreach (var conflict in _snapshot.Conflicts)
+                            {
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" @key="conflict">
+                                    <MudText Typo="Typo.body2" Class="text-break">@conflict</MudText>
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.CompareArrows"
+                                               OnClick="@(() => OpenConflictAsync(conflict))">Vergelijk in VS Code</MudButton>
+                                </MudStack>
+                            }
+                        </MudStack>
+                    </MudAlert>
+                }
+
+                <MudGrid Spacing="3">
+                    <MudItem xs="12" md="4">
+                        <MudPaper Class="pa-3 git-dialog-panel" Outlined="true" Elevation="0">
+                            <MudText Typo="Typo.subtitle1" Class="mb-2">Branches (@_snapshot.Branches.Count)</MudText>
+                            <MudStack Spacing="1" Class="git-dialog-list">
+                                @foreach (var branch in _snapshot.Branches)
+                                {
+                                    <MudButton @key="branch.Name" FullWidth="true" Variant="@(branch.IsCurrent ? Variant.Filled : Variant.Text)"
+                                               Color="@(branch.IsCurrent ? Color.Primary : Color.Default)" Size="Size.Small"
+                                               StartIcon="@(branch.IsRemote ? Icons.Material.Filled.Cloud : Icons.Material.Filled.CallSplit)"
+                                               Disabled="@(_isOperating || branch.IsCurrent)"
+                                               OnClick="@(() => CheckoutBranchAsync(branch.Name))">
+                                        <span class="git-branch-name">@branch.Name</span>
+                                    </MudButton>
+                                }
+                            </MudStack>
+                        </MudPaper>
+                    </MudItem>
+                    <MudItem xs="12" md="8">
+                        <MudPaper Class="pa-3 git-dialog-panel" Outlined="true" Elevation="0">
+                            <MudText Typo="Typo.subtitle1" Class="mb-2">Recente commits</MudText>
+                            <MudStack Spacing="0" Class="git-dialog-list">
+                                @foreach (var commit in _snapshot.Commits)
+                                {
+                                    <div @key="commit.Hash" class="git-commit-row">
+                                        <MudIcon Icon="@Icons.Material.Filled.RadioButtonUnchecked" Size="Size.Small" Color="Color.Primary" />
+                                        <div class="git-commit-content">
+                                            <MudText Typo="Typo.body2">@commit.Subject</MudText>
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@commit.ShortHash · @commit.Author · @FormatDate(commit.Date)</MudText>
+                                        </div>
+                                    </div>
+                                }
+                                @if (_snapshot.Commits.Count == 0)
+                                {
+                                    <MudText Typo="Typo.body2" Color="Color.Secondary">Geen commits gevonden.</MudText>
+                                }
+                            </MudStack>
+                        </MudPaper>
+                    </MudItem>
+                </MudGrid>
+
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    @_snapshot.ChangedFiles gewijzigde bestanden · @_snapshot.StagedFiles staged · @_snapshot.UnstagedFiles niet-staged · @_snapshot.Ahead vooruit / @_snapshot.Behind achter
+                </MudText>
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close">Sluiten</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public string RepositoryName { get; set; } = string.Empty;
+    [Parameter] public string RepositoryPath { get; set; } = string.Empty;
+
+    private GitRepositorySnapshot? _snapshot;
+    private bool _isLoading = true;
+    private bool _isOperating;
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync(fetch: true);
+
+    private async Task RefreshAsync(bool fetch = false)
+    {
+        _isLoading = true;
+        try
+        {
+            _snapshot = await GitBranchService.GetRepositorySnapshotAsync(RepositoryPath, fetch);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task PullAsync()
+    {
+        await RunOperationAsync(() => GitBranchService.PullAsync(RepositoryPath), "Pull");
+    }
+
+    private async Task PushAsync()
+    {
+        await RunOperationAsync(() => GitBranchService.PushAsync(RepositoryPath), "Push");
+    }
+
+    private async Task RunOperationAsync(Func<Task<GitOperationResult>> operation, string name)
+    {
+        _isOperating = true;
+        try
+        {
+            var result = await operation();
+            Snackbar.Add(result.Success ? $"{name} voltooid." : $"{name} mislukt: {result.Message}",
+                result.Success ? Severity.Success : Severity.Error,
+                config => config.VisibleStateDuration = 8000);
+            await RefreshAsync(fetch: true);
+        }
+        finally
+        {
+            _isOperating = false;
+        }
+    }
+
+    private async Task CheckoutBranchAsync(string branch)
+    {
+        _isOperating = true;
+        try
+        {
+            var result = await GitBranchService.CheckoutBranchAsync(RepositoryPath, branch);
+            Snackbar.Add(result.Success ? $"Branch '{branch}' uitgecheckt." : result.Message,
+                result.Success ? Severity.Success : Severity.Error);
+            await RefreshAsync();
+        }
+        finally
+        {
+            _isOperating = false;
+        }
+    }
+
+    private async Task OpenConflictAsync(string path)
+    {
+        var result = await GitBranchService.OpenConflictInVsCodeAsync(RepositoryPath, path);
+        Snackbar.Add(result.Message, result.Success ? Severity.Success : Severity.Error,
+            config => config.VisibleStateDuration = 8000);
+    }
+
+    private static string FormatDate(string date) => DateTimeOffset.TryParse(date, CultureInfo.InvariantCulture, out var parsed)
+        ? parsed.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
+        : date;
+
+    private void Close() => MudDialog.Close();
+}

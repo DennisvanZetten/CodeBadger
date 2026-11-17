@@ -90,6 +90,55 @@ public sealed class GitBranchService
             warning);
     }
 
+    public async Task<IReadOnlyList<GitFileChange>> GetFileChangesAsync(string path)
+    {
+        var result = await RunGitAsync(path, "status", "--porcelain=v1", "-uall");
+        if (!result.Success)
+            return [];
+
+        return result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r'))
+            .Where(line => line.Length >= 4)
+            .Select(line =>
+            {
+                var indexStatus = line[0];
+                var workTreeStatus = line[1];
+                var filePath = line[3..].Trim().Trim('"');
+                var conflicted = indexStatus == 'U' || workTreeStatus == 'U' ||
+                                 line.StartsWith("AA", StringComparison.Ordinal) ||
+                                 line.StartsWith("DD", StringComparison.Ordinal);
+                return new GitFileChange(
+                    filePath,
+                    indexStatus != ' ' && indexStatus != '?',
+                    workTreeStatus != ' ' || line.StartsWith("??", StringComparison.Ordinal),
+                    conflicted,
+                    line[..2]);
+            })
+            .ToList();
+    }
+
+    public async Task<GitOperationResult> GetFileDiffAsync(string path, GitFileChange file, bool staged)
+    {
+        if (file.IsUntracked)
+            return await RunGitAllowExitOneAsync(path, "diff", "--no-index", "--", "/dev/null", file.Path);
+
+        return staged
+            ? await RunGitAsync(path, "diff", "--cached", "--", file.Path)
+            : await RunGitAsync(path, "diff", "--", file.Path);
+    }
+
+    public async Task<GitOperationResult> GetStagedDiffAsync(string path) =>
+        await RunGitAsync(path, "diff", "--cached", "--no-ext-diff", "--", ".");
+
+    public async Task<GitOperationResult> StageFileAsync(string path, string filePath) =>
+        await RunGitAsync(path, "add", "--", filePath);
+
+    public async Task<GitOperationResult> UnstageFileAsync(string path, string filePath) =>
+        await RunGitAsync(path, "restore", "--staged", "--", filePath);
+
+    public async Task<GitOperationResult> CommitAsync(string path, string message) =>
+        await RunGitAsync(path, "commit", "-m", message);
+
     private static IReadOnlyList<GitCommitEntry> AssignGraphLayout(
         IReadOnlyList<GitCommitEntry> commits,
         IReadOnlyList<GitBranchEntry> branches,
@@ -306,7 +355,13 @@ public sealed class GitBranchService
             : result.Message.Contains("Pad bestaat niet", StringComparison.OrdinalIgnoreCase) ? "Pad bestaat niet" : "Branch niet beschikbaar");
     }
 
-    private static async Task<GitOperationResult> RunGitAsync(string path, params string[] arguments)
+    private static async Task<GitOperationResult> RunGitAsync(string path, params string[] arguments) =>
+        await RunGitCoreAsync(path, false, arguments);
+
+    private static async Task<GitOperationResult> RunGitAllowExitOneAsync(string path, params string[] arguments) =>
+        await RunGitCoreAsync(path, true, arguments);
+
+    private static async Task<GitOperationResult> RunGitCoreAsync(string path, bool allowExitCodeOne, params string[] arguments)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -330,7 +385,8 @@ public sealed class GitBranchService
             await process.WaitForExitAsync();
             var output = await outputTask;
             var error = await errorTask;
-            return new GitOperationResult(process.ExitCode == 0, process.ExitCode == 0 ? output.Trim() : error.Trim(), output);
+            var success = process.ExitCode == 0 || (allowExitCodeOne && process.ExitCode == 1);
+            return new GitOperationResult(success, success ? output.Trim() : error.Trim(), output);
         }
         catch (Win32Exception)
         {
@@ -348,6 +404,10 @@ public sealed class GitBranchService
 }
 
 public sealed record GitBranchInfo(string? Branch, string? Status);
+public sealed record GitFileChange(string Path, bool IsStaged, bool IsUnstaged, bool IsConflicted, string Status)
+{
+    public bool IsUntracked => Status == "??";
+}
 public sealed record GitOperationResult(bool Success, string Message, string Output);
 public sealed record GitBranchEntry(string Name, bool IsCurrent, bool IsRemote, string TipHash);
 public sealed record GitCommitEntry(

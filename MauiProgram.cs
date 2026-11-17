@@ -22,6 +22,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<PowerShellLauncher>();
 		builder.Services.AddSingleton<GitBranchService>();
 		builder.Services.AddSingleton<RepositoryFolderPicker>();
+		builder.Services.AddSingleton<AiCommitMessageService>();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();

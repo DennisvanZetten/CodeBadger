@@ -88,6 +88,14 @@ h1:focus {
     height: 100%;
 }
 
+.settings-dialog {
+    min-width: min(760px, 90vw);
+}
+
+.settings-tab-panel {
+    min-height: 24rem;
+}
+
 .git-dialog-list {
     max-height: 52vh;
     overflow-y: auto;
@@ -209,6 +217,86 @@ h1:focus {
 .git-branch-list .git-branch-name {
     font-size: 0.68rem !important;
     line-height: 1.2;
+}
+
+.git-overview-dialog {
+    width: min(96vw, 1440px);
+    max-width: 96vw;
+}
+
+.git-view-switch {
+    align-self: flex-start;
+}
+
+.git-commit-workspace {
+    min-height: 55vh;
+}
+
+.git-commit-editor {
+    display: flex;
+    flex-direction: column;
+    min-height: 50vh;
+}
+
+.git-diff-section {
+    min-height: 0;
+    flex: 1 1 auto;
+}
+
+.git-diff-view {
+    min-height: 18rem;
+    max-height: 42vh;
+    margin: 0;
+    padding: 0.75rem;
+    overflow: auto;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 4px;
+    background: var(--mud-palette-background-grey);
+    color: var(--mud-palette-text-primary);
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.75rem;
+    white-space: pre;
+}
+
+.git-file-row {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    min-width: 0;
+    border-radius: 4px;
+}
+
+.git-file-row.selected {
+    background: color-mix(in srgb, #B38CFF 15%, transparent);
+}
+
+.git-file-select {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0.4rem;
+    border: 0;
+    background: transparent;
+    color: var(--mud-palette-text-primary);
+    text-align: left;
+    cursor: pointer;
+}
+
+.git-file-path {
+    flex: 1 1 auto;
+    overflow: hidden;
+    font-size: 0.75rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.git-file-status {
+    flex: 0 0 auto;
+    color: var(--mud-palette-text-secondary);
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.7rem;
 }
 
 .git-commit-row {

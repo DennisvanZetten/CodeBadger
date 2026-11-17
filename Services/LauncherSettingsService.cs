@@ -7,6 +7,7 @@ public sealed class LauncherSettingsService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private readonly string _settingsPath = Path.Combine(FileSystem.AppDataDirectory, "settings.json");
+    private const string AiApiKeyStorageKey = "repolauncher-ai-api-key";
 
     public async Task<LauncherSettings> LoadAsync()
     {
@@ -16,8 +17,10 @@ public sealed class LauncherSettingsService
         try
         {
             await using var stream = File.OpenRead(_settingsPath);
-            return await JsonSerializer.DeserializeAsync<LauncherSettings>(stream, JsonOptions)
+            var settings = await JsonSerializer.DeserializeAsync<LauncherSettings>(stream, JsonOptions)
                 ?? new LauncherSettings();
+            settings.AiApiKey = await SecureStorage.Default.GetAsync(AiApiKeyStorageKey) ?? string.Empty;
+            return settings;
         }
         catch (JsonException)
         {
@@ -30,5 +33,9 @@ public sealed class LauncherSettingsService
         Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
         await using var stream = File.Create(_settingsPath);
         await JsonSerializer.SerializeAsync(stream, settings, JsonOptions);
+        if (string.IsNullOrWhiteSpace(settings.AiApiKey))
+            SecureStorage.Default.Remove(AiApiKeyStorageKey);
+        else
+            await SecureStorage.Default.SetAsync(AiApiKeyStorageKey, settings.AiApiKey);
     }
 }

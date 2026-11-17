@@ -15,28 +15,16 @@
                 <MudText Typo="Typo.h4" Class="fw-bold">Repo Launcher</MudText>
                 <MudText Typo="Typo.body1" Color="Color.Secondary">Start OpenCode in je repositories.</MudText>
             </div>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large"
-                       StartIcon="@Icons.Material.Filled.RocketLaunch" Disabled="@(!_settings.Repositories.Any(r => r.IsActive))"
-                       OnClick="LaunchAll">
-                Start alle actief
-            </MudButton>
-        </MudStack>
-
-        <MudPaper Class="pa-5" Outlined="true" Elevation="0">
-            <MudStack Spacing="3">
-                <MudText Typo="Typo.h6">Startinstellingen</MudText>
-                <MudGrid>
-                    <MudItem xs="12" md="6">
-                        <MudTextField @bind-Value="_settings.PowerShellExecutable" Label="PowerShell executable"
-                                      HelperText="Bijvoorbeeld pwsh.exe of powershell.exe" Variant="Variant.Outlined" />
-                    </MudItem>
-                    <MudItem xs="12" md="6">
-                        <MudTextField @bind-Value="_settings.ToolCommand" Label="Tool / commando"
-                                      HelperText="Bijvoorbeeld opencode" Variant="Variant.Outlined" />
-                    </MudItem>
-                </MudGrid>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Default" Size="Size.Large"
+                               aria-label="Instellingen openen" OnClick="OpenSettingsAsync" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large"
+                           StartIcon="@Icons.Material.Filled.RocketLaunch" Disabled="@(!_settings.Repositories.Any(r => r.IsActive))"
+                           OnClick="LaunchAll">
+                    Start alle actief
+                </MudButton>
             </MudStack>
-        </MudPaper>
+        </MudStack>
 
         <MudPaper Class="pa-5" Outlined="true" Elevation="0">
             <MudStack Spacing="3">
@@ -110,11 +98,6 @@
             </MudStack>
         </MudPaper>
 
-        <MudStack Row="true" Justify="Justify.FlexEnd" AlignItems="AlignItems.Center" Spacing="2">
-            <MudText Typo="Typo.caption" Color="Color.Secondary">Instellingen worden lokaal opgeslagen.</MudText>
-            <MudButton Variant="Variant.Filled" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.Save"
-                       OnClick="SaveSettings">Instellingen opslaan</MudButton>
-        </MudStack>
     </MudStack>
 </MudContainer>
 
@@ -187,9 +170,10 @@
         var parameters = new DialogParameters<GitRepositoryDialog>
         {
             { dialog => dialog.RepositoryName, repository.Name },
-            { dialog => dialog.RepositoryPath, repository.Path }
+            { dialog => dialog.RepositoryPath, repository.Path },
+            { dialog => dialog.AiSettings, _settings }
         };
-        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.ExtraLarge, CloseButton = true };
+        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.ExtraExtraLarge, CloseButton = true, NoHeader = false };
         var dialog = await DialogService.ShowAsync<GitRepositoryDialog>("Git-overzicht", parameters, options);
         await dialog.Result;
         await RefreshBranches();
@@ -231,11 +215,17 @@
             : $"Branch: {branchInfo.Status}";
     }
 
-    private async Task SaveSettings()
+    private async Task OpenSettingsAsync()
     {
-        await SettingsService.SaveAsync(_settings);
-        await RefreshBranches();
-        Snackbar.Add("Instellingen opgeslagen.", Severity.Success);
+        var parameters = new DialogParameters<SettingsDialog>
+        {
+            { dialog => dialog.Settings, _settings }
+        };
+        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Large, CloseButton = true };
+        var dialog = await DialogService.ShowAsync<SettingsDialog>("Instellingen", parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+            await RefreshBranches();
     }
 
     private void LaunchAll()

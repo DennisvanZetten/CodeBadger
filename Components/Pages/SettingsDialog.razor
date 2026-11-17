@@ -1,0 +1,107 @@
+@inject LauncherSettingsService SettingsService
+@inject AiCommitMessageService AiCommitMessageService
+@inject ISnackbar Snackbar
+
+<MudDialog Class="settings-dialog">
+    <TitleContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icons.Material.Filled.Settings" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">Instellingen</MudText>
+        </MudStack>
+    </TitleContent>
+    <DialogContent>
+        <MudTabs Position="Position.Left" Rounded="true" Border="true" ApplyEffectsToContainer="true" TabPanelsClass="pa-4 settings-tab-panel">
+            <MudTabPanel Text="Starten" Icon="@Icons.Material.Filled.Terminal">
+                <MudStack Spacing="3">
+                    <MudText Typo="Typo.h6">Startinstellingen</MudText>
+                    <MudTextField @bind-Value="Settings.PowerShellExecutable" Label="PowerShell executable"
+                                  HelperText="Bijvoorbeeld pwsh.exe of powershell.exe" Variant="Variant.Outlined" />
+                    <MudTextField @bind-Value="Settings.ToolCommand" Label="Tool / commando"
+                                  HelperText="Bijvoorbeeld opencode" Variant="Variant.Outlined" />
+                </MudStack>
+            </MudTabPanel>
+            <MudTabPanel Text="AI-provider" Icon="@Icons.Material.Filled.AutoAwesome">
+                <MudStack Spacing="3">
+                    <MudText Typo="Typo.h6">AI voor commitberichten</MudText>
+                    <MudSelect T="string" Label="Provider" Variant="Variant.Outlined" @bind-Value="Settings.AiProvider">
+                        @foreach (var provider in AiProviders)
+                        {
+                            <MudSelectItem T="string" Value="@provider">@provider</MudSelectItem>
+                        }
+                    </MudSelect>
+                    @if (Settings.AiProvider is "Custom URL" or "Azure OpenAI")
+                    {
+                        <MudTextField @bind-Value="Settings.AiCustomUrl" Label="Provider URL" Variant="Variant.Outlined"
+                                      HelperText="OpenAI-compatible chat-completions URL; Azure: volledige deployment-URL inclusief api-version." />
+                    }
+                    <MudTextField @bind-Value="Settings.AiModel" Label="Model" Variant="Variant.Outlined"
+                                  HelperText="Bijvoorbeeld gpt-4o-mini, claude-3-5-sonnet of llama3" />
+                    <MudNumericField T="int" @bind-Value="Settings.AiMaxInputTokens" Label="Max. inputtokens"
+                                     Min="256" Max="200000" Variant="Variant.Outlined" />
+                    @if (Settings.AiProvider != "Ollama")
+                    {
+                        <MudTextField @bind-Value="Settings.AiApiKey" Label="Provider API key" Variant="Variant.Outlined"
+                                      InputType="InputType.Password" HelperText="Wordt veilig lokaal opgeslagen." />
+                    }
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.WifiTethering"
+                               OnClick="TestAiConnectionAsync" Disabled="@_isTestingAi" Class="align-self-start">
+                        @(_isTestingAi ? "Testen..." : "Verbinding testen")
+                    </MudButton>
+                </MudStack>
+            </MudTabPanel>
+            <MudTabPanel Text="Overig" Icon="@Icons.Material.Filled.Tune">
+                <MudStack Spacing="3">
+                    <MudText Typo="Typo.h6">Overige instellingen</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Instellingen worden lokaal opgeslagen. API-sleutels worden beveiligd opgeslagen.</MudText>
+                </MudStack>
+            </MudTabPanel>
+        </MudTabs>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Annuleren</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save"
+                   Disabled="@_isSaving" OnClick="SaveAsync">Opslaan</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter, EditorRequired] public LauncherSettings Settings { get; set; } = new();
+
+    private bool _isTestingAi;
+    private bool _isSaving;
+    private static readonly string[] AiProviders = ["OpenAI", "Azure OpenAI", "Anthropic", "Google Gemini", "Ollama", "Custom URL"];
+
+    private async Task TestAiConnectionAsync()
+    {
+        _isTestingAi = true;
+        try
+        {
+            var result = await AiCommitMessageService.TestConnectionAsync(Settings);
+            Snackbar.Add(result.Success ? result.Message : result.Error,
+                result.Success ? Severity.Success : Severity.Error,
+                config => config.VisibleStateDuration = 10000);
+        }
+        finally
+        {
+            _isTestingAi = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _isSaving = true;
+        try
+        {
+            await SettingsService.SaveAsync(Settings);
+            Snackbar.Add("Instellingen opgeslagen.", Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

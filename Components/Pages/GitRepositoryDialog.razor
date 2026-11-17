@@ -154,39 +154,8 @@
                 }
                 else
                 {
-                    <MudGrid Spacing="3" Class="git-commit-workspace">
-                        <MudItem xs="12" md="5">
-                            <MudPaper Class="pa-3 git-dialog-panel" Outlined="true" Elevation="0">
-                                <MudStack Spacing="2">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                        <MudText Typo="Typo.subtitle1">Staged (@StagedFiles.Count)</MudText>
-                                    </MudStack>
-                                    @if (StagedFiles.Count == 0)
-                                    {
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">Geen staged wijzigingen.</MudText>
-                                    }
-                                    @foreach (var file in StagedFiles)
-                                    {
-                                        @FileRow(file, true)
-                                    }
-                                    <MudDivider Class="my-2" />
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                        <MudText Typo="Typo.subtitle1">Niet staged (@UnstagedFiles.Count)</MudText>
-                                        <MudButton Size="Size.Small" Disabled="@(_isOperating || UnstagedFiles.Count == 0)" OnClick="StageAllAsync">Stage alles</MudButton>
-                                    </MudStack>
-                                    @if (UnstagedFiles.Count == 0)
-                                    {
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">Geen niet-staged wijzigingen.</MudText>
-                                    }
-                                    @foreach (var file in UnstagedFiles)
-                                    {
-                                        @FileRow(file, false)
-                                    }
-                                </MudStack>
-                            </MudPaper>
-                        </MudItem>
-                        <MudItem xs="12" md="7">
-                            <MudPaper Class="pa-3 git-dialog-panel git-commit-editor" Outlined="true" Elevation="0">
+                    <div class="git-commit-workspace">
+                            <MudPaper Class="pa-3 git-dialog-panel git-diff-panel" Outlined="true" Elevation="0">
                                 <MudStack Spacing="2" Class="git-diff-section">
                                     <MudText Typo="Typo.subtitle1">Verschil @(_selectedFile is null ? "" : $"— {_selectedFile.Path}")</MudText>
                                     @if (_selectedFile is null)
@@ -202,24 +171,59 @@
                                         <pre class="git-diff-view">@_selectedDiff</pre>
                                     }
                                 </MudStack>
-                                <MudDivider Class="my-3" />
-                                <MudStack Spacing="2">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                        <MudText Typo="Typo.subtitle1">Commitbericht</MudText>
-                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AutoAwesome"
-                                                   Disabled="@(_isGeneratingMessage || StagedFiles.Count == 0)" OnClick="GenerateCommitMessageAsync">
-                                            @(_isGeneratingMessage ? "Genereren..." : "Genereer met AI")
-                                        </MudButton>
-                                    </MudStack>
-                                    <MudTextField @bind-Value="_commitMessage" Lines="3" Variant="Variant.Outlined"
-                                                  Placeholder="Beschrijf de staged wijzigingen..." />
-                                    <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Check"
-                                               Disabled="@(_isOperating || StagedFiles.Count == 0 || string.IsNullOrWhiteSpace(_commitMessage))"
-                                               OnClick="CommitChangesAsync">Commit (@StagedFiles.Count bestanden)</MudButton>
-                                </MudStack>
                             </MudPaper>
-                        </MudItem>
-                    </MudGrid>
+                            <div class="git-commit-side-panel">
+                                <MudPaper Class="pa-3 git-dialog-panel git-file-panel" Outlined="true" Elevation="0">
+                                    <MudStack Spacing="1" Class="git-file-list-section">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                            <MudText Typo="Typo.subtitle1">Niet staged (@UnstagedFiles.Count)</MudText>
+                                            <MudButton Size="Size.Small" Disabled="@(_isOperating || UnstagedFiles.Count == 0)" OnClick="StageAllAsync">Stage alles</MudButton>
+                                        </MudStack>
+                                        @if (UnstagedFiles.Count == 0)
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">Geen niet-staged wijzigingen.</MudText>
+                                        }
+                                        <div class="git-file-list-scroll">
+                                            @foreach (var file in UnstagedFiles)
+                                            {
+                                                @FileRow(file, false)
+                                            }
+                                        </div>
+                                    </MudStack>
+                                </MudPaper>
+                                <MudPaper Class="pa-3 git-dialog-panel git-file-panel" Outlined="true" Elevation="0">
+                                    <MudStack Spacing="1" Class="git-file-list-section">
+                                        <MudText Typo="Typo.subtitle1">Staged (@StagedFiles.Count)</MudText>
+                                        @if (StagedFiles.Count == 0)
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">Geen staged wijzigingen.</MudText>
+                                        }
+                                        <div class="git-file-list-scroll">
+                                            @foreach (var file in StagedFiles)
+                                            {
+                                                @FileRow(file, true)
+                                            }
+                                        </div>
+                                    </MudStack>
+                                </MudPaper>
+                                <MudPaper Class="pa-3 git-dialog-panel git-message-panel" Outlined="true" Elevation="0">
+                                    <MudStack Spacing="2">
+                                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                            <MudText Typo="Typo.subtitle1">Commitbericht</MudText>
+                                            <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AutoAwesome"
+                                                       Disabled="@(_isGeneratingMessage || StagedFiles.Count == 0)" OnClick="GenerateCommitMessageAsync">
+                                                @(_isGeneratingMessage ? "Genereren..." : "Genereer met AI")
+                                            </MudButton>
+                                        </MudStack>
+                                        <MudTextField @bind-Value="_commitMessage" Lines="2" Variant="Variant.Outlined"
+                                                      Placeholder="Beschrijf de staged wijzigingen..." />
+                                        <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Check"
+                                                   Disabled="@(_isOperating || StagedFiles.Count == 0 || string.IsNullOrWhiteSpace(_commitMessage))"
+                                                   OnClick="CommitChangesAsync">Commit (@StagedFiles.Count bestanden)</MudButton>
+                                    </MudStack>
+                                </MudPaper>
+                            </div>
+                    </div>
                 }
 
                 <MudText Typo="Typo.caption" Color="Color.Secondary">

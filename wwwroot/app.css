@@ -249,23 +249,60 @@ h1:focus {
 }
 
 .git-commit-workspace {
-    min-height: 55vh;
+    display: grid;
+    grid-template-columns: minmax(0, 7fr) minmax(20rem, 5fr);
+    gap: 1rem;
+    height: min(62vh, 56rem) !important;
+    min-height: 32rem;
+    align-items: stretch;
 }
 
-.git-commit-editor {
+.git-commit-side-panel {
+    display: grid;
+    grid-template-rows: minmax(8rem, 1fr) minmax(8rem, 1fr) auto;
+    gap: 0.75rem;
+    height: 100% !important;
+    min-height: 0;
+    align-self: stretch;
+}
+
+.git-file-panel {
+    display: flex;
+    height: 100% !important;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.git-file-list-section {
     display: flex;
     flex-direction: column;
-    min-height: 50vh;
+    flex: 1 1 auto;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+}
+
+.git-file-list-scroll {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-y: auto;
+}
+
+.git-message-panel {
+    min-height: 0;
 }
 
 .git-diff-section {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
     min-height: 0;
-    flex: 1 1 auto;
 }
 
 .git-diff-view {
-    min-height: 18rem;
-    max-height: 42vh;
+    min-height: 0;
+    flex: 1 1 auto;
+    height: 0;
     margin: 0;
     padding: 0.75rem;
     overflow: auto;
@@ -276,6 +313,26 @@ h1:focus {
     font-family: Consolas, 'Courier New', monospace;
     font-size: 0.75rem;
     white-space: pre;
+}
+
+.git-diff-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+@media (max-width: 960px) {
+    .git-commit-workspace {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(24rem, 1fr) minmax(30rem, 1fr);
+        height: auto;
+    }
+
+    .git-commit-side-panel {
+        min-height: 30rem;
+    }
 }
 
 .git-file-row {

@@ -15,21 +15,21 @@ public sealed class GitBranchService
 
         var branchResult = await RunGitAsync(path, "rev-parse", "--abbrev-ref", "HEAD");
         if (!branchResult.Success)
-            return GitRepositorySnapshot.Invalid(branchResult.Error.Contains("not a git repository", StringComparison.OrdinalIgnoreCase)
+            return GitRepositorySnapshot.Invalid(branchResult.Message.Contains("not a git repository", StringComparison.OrdinalIgnoreCase)
                 ? "Geen Git-repository"
-                : branchResult.Error);
+                : branchResult.Message);
 
         string? warning = null;
         if (fetch)
         {
             var fetchResult = await RunGitAsync(path, "fetch", "--all", "--prune");
             if (!fetchResult.Success)
-                warning = $"Ophalen van remotes mislukt: {fetchResult.Error}";
+                warning = $"Ophalen van remotes mislukt: {fetchResult.Message}";
         }
 
         var statusResult = await RunGitAsync(path, "status", "--porcelain=v1", "-uall");
-        var branchesResult = await RunGitAsync(path, "for-each-ref", "--format=%(refname)%09%(HEAD)", "refs/heads", "refs/remotes");
-        var historyResult = await RunGitAsync(path, "log", "--all", "-n", "100", "--date=iso-strict", "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ad");
+        var branchesResult = await RunGitAsync(path, "for-each-ref", "--format=%(refname)%09%(HEAD)%09%(objectname)", "refs/heads", "refs/remotes");
+        var historyResult = await RunGitAsync(path, "log", "--all", "--date-order", "-n", "100", "--date=iso-strict", "--format=%H%x1f%P%x1f%h%x1f%s%x1f%an%x1f%ad");
 
         if (!statusResult.Success || !branchesResult.Success || !historyResult.Success)
             return GitRepositorySnapshot.Invalid("Git-status kon niet worden opgehaald.");
@@ -55,6 +55,27 @@ public sealed class GitBranchService
             .Select(line => line[3..].Trim().Trim('"'))
             .ToList();
 
+        var branches = branchesResult.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r').Split('\t'))
+            .Where(parts => parts.Length == 3 && !parts[0].EndsWith("/HEAD", StringComparison.Ordinal))
+            .Select(parts => new GitBranchEntry(
+                parts[0].StartsWith("refs/heads/", StringComparison.Ordinal) ? parts[0][11..] : parts[0][13..],
+                parts[1] == "*",
+                parts[0].StartsWith("refs/remotes/", StringComparison.Ordinal),
+                parts[2]))
+            .ToList();
+
+        var defaultBranchResult = await RunGitAsync(path, "symbolic-ref", "--short", "refs/remotes/origin/HEAD");
+        var defaultBranch = defaultBranchResult.Success ? defaultBranchResult.Output.Trim() : null;
+
+        var commits = historyResult.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r').Split('\u001f'))
+            .Where(parts => parts.Length == 6)
+            .Select(parts => new GitCommitEntry(
+                parts[0], parts[1], parts[2], parts[3], parts[4], parts[5],
+                parts[1].Split(' ', StringSplitOptions.RemoveEmptyEntries)))
+            .ToList();
+
         return new GitRepositorySnapshot(
             branchResult.Output.Trim(),
             statusLines.Length,
@@ -62,23 +83,144 @@ public sealed class GitBranchService
             statusLines.Count(line => line.Length >= 2 && (line[1] != ' ' || line.StartsWith("??", StringComparison.Ordinal))),
             ahead,
             behind,
-            branchesResult.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                .Select(line => line.Split('\t', 2))
-                .Where(parts => parts.Length == 2 && !parts[0].EndsWith("/HEAD", StringComparison.Ordinal))
-                .Select(parts => new GitBranchEntry(
-                    parts[0].StartsWith("refs/heads/", StringComparison.Ordinal) ? parts[0][11..] : parts[0][13..],
-                    parts[1] == "*",
-                    parts[0].StartsWith("refs/remotes/", StringComparison.Ordinal)))
-                .ToList(),
-            historyResult.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                .Select(line => line.Split('\u001f'))
-                .Where(parts => parts.Length == 5)
-                .Select(parts => new GitCommitEntry(parts[0], parts[1], parts[2], parts[3], parts[4]))
-                .ToList(),
+            branches,
+            AssignGraphLayout(commits, branches, defaultBranch),
             conflicts,
             null,
             warning);
     }
+
+    private static IReadOnlyList<GitCommitEntry> AssignGraphLayout(
+        IReadOnlyList<GitCommitEntry> commits,
+        IReadOnlyList<GitBranchEntry> branches,
+        string? defaultBranch)
+    {
+        var colors = new[] { 0xB38CFF, 0x55A6FF, 0xFFB454, 0x42D6B5, 0xFF6B81, 0xD6D95A, 0x53C7D9, 0xF080D0 };
+        var branchColors = branches
+            .OrderByDescending(branch => IsDefaultBranch(branch.Name, defaultBranch))
+            .ThenByDescending(branch => branch.IsCurrent)
+            .ThenBy(branch => branch.IsRemote)
+            .ThenBy(branch => branch.Name, StringComparer.OrdinalIgnoreCase)
+            .Select((branch, index) => (branch.TipHash, Color: index % colors.Length))
+            .GroupBy(item => item.TipHash, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First().Color, StringComparer.Ordinal);
+
+        var lanes = new List<GraphLane>();
+        var laidOut = new List<GitCommitEntry>(commits.Count);
+        var baseColor = branchColors.Values.Distinct().Count() <= 1
+            ? branchColors.Values.FirstOrDefault(0)
+            : 0;
+        var nextColor = branchColors.Values.DefaultIfEmpty(-1).Max() + 1;
+
+        foreach (var commit in commits)
+        {
+            var column = lanes.FindIndex(lane => lane.Hash == commit.Hash);
+            if (column < 0)
+            {
+                column = 0;
+                var color = branchColors.TryGetValue(commit.Hash, out var branchColor)
+                    ? branchColor
+                    : branchColors.Count <= 1 ? baseColor : nextColor++ % colors.Length;
+                lanes.Insert(column, new GraphLane(commit.Hash, color));
+            }
+
+            var lanesBefore = lanes.ToList();
+            var currentLane = lanes[column];
+            lanes.RemoveAt(column);
+            var parentColors = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            for (var parentIndex = 0; parentIndex < commit.Parents.Count; parentIndex++)
+            {
+                var parentHash = commit.Parents[parentIndex];
+                var existingParentColumn = lanes.FindIndex(lane => lane.Hash == parentHash);
+                if (existingParentColumn >= 0)
+                {
+                    parentColors[parentHash] = lanes[existingParentColumn].Color;
+                    continue;
+                }
+
+                var parentColumn = Math.Min(column + parentIndex, lanes.Count);
+                var color = parentIndex == 0
+                    ? currentLane.Color
+                    : branchColors.TryGetValue(parentHash, out var parentColor)
+                        ? parentColor
+                        : branchColors.Count <= 1 ? baseColor : nextColor++ % colors.Length;
+                lanes.Insert(parentColumn, new GraphLane(parentHash, color));
+                parentColors[parentHash] = color;
+            }
+
+            var edges = new List<GitGraphEdge>();
+            for (var oldColumn = 0; oldColumn < lanesBefore.Count; oldColumn++)
+            {
+                var lane = lanesBefore[oldColumn];
+                if (lane.Hash == commit.Hash)
+                {
+                    edges.Add(new GitGraphEdge(oldColumn, -1, oldColumn, 26, lane.Color));
+                    for (var parentIndex = 0; parentIndex < commit.Parents.Count; parentIndex++)
+                    {
+                        var parentHash = commit.Parents[parentIndex];
+                        var parentColumn = lanes.FindIndex(nextLane => nextLane.Hash == parentHash);
+                        if (parentColumn >= 0)
+                        {
+                            // The first parent continues the current branch; merge-side parents keep
+                            // the color of their own branch lane into the merge.
+                            var edgeColor = parentIndex == 0 ? lane.Color : parentColors[parentHash];
+                            edges.Add(new GitGraphEdge(oldColumn, 26, parentColumn, 53, edgeColor));
+                        }
+                    }
+                }
+                else
+                {
+                    var nextColumn = lanes.FindIndex(nextLane => nextLane.Hash == lane.Hash);
+                    if (nextColumn >= 0)
+                        edges.Add(new GitGraphEdge(oldColumn, -1, nextColumn, 53, lane.Color));
+                }
+            }
+
+            laidOut.Add(commit with
+            {
+                GraphColumn = column,
+                GraphColor = currentLane.Color,
+                GraphEdges = edges,
+                GraphWidth = Math.Max(lanesBefore.Count, lanes.Count),
+                BranchLabels = branches
+                    .Where(branch => branch.TipHash == commit.Hash)
+                    .GroupBy(branch => branch.IsRemote ? GetLocalBranchName(branch.Name) : branch.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(group => new GitCommitBranchLabel(
+                        group.Key,
+                        group.Any(branch => !branch.IsRemote),
+                        group.Any(branch => branch.IsRemote),
+                        branchColors[group.First().TipHash]))
+                    .ToList()
+            });
+        }
+
+        return laidOut;
+    }
+
+    private static bool IsDefaultBranch(string branchName, string? defaultBranch)
+    {
+        if (!string.IsNullOrWhiteSpace(defaultBranch) &&
+            (branchName.Equals(defaultBranch, StringComparison.OrdinalIgnoreCase) ||
+             GetLocalBranchName(branchName).Equals(GetLocalBranchName(defaultBranch), StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        return string.IsNullOrWhiteSpace(defaultBranch) &&
+               (branchName.Equals("main", StringComparison.OrdinalIgnoreCase) ||
+                branchName.Equals("master", StringComparison.OrdinalIgnoreCase) ||
+                branchName.Equals("origin/main", StringComparison.OrdinalIgnoreCase) ||
+                branchName.Equals("origin/master", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string GetLocalBranchName(string remoteBranchName)
+    {
+        var separator = remoteBranchName.IndexOf('/');
+        return separator >= 0 && separator < remoteBranchName.Length - 1
+            ? remoteBranchName[(separator + 1)..]
+            : remoteBranchName;
+    }
+
+    private sealed record GraphLane(string Hash, int Color);
 
     public async Task<GitOperationResult> FetchAsync(string path) => await RunGitAsync(path, "fetch", "--all", "--prune");
 
@@ -159,9 +301,9 @@ public sealed class GitBranchService
                 ? new GitBranchInfo(null, "Detached HEAD")
                 : new GitBranchInfo(result.Output.Trim(), null);
 
-        return new GitBranchInfo(null, result.Error.Contains("not a git repository", StringComparison.OrdinalIgnoreCase)
+        return new GitBranchInfo(null, result.Message.Contains("not a git repository", StringComparison.OrdinalIgnoreCase)
             ? "Geen Git-repository"
-            : result.Error.Contains("Pad bestaat niet", StringComparison.OrdinalIgnoreCase) ? "Pad bestaat niet" : "Branch niet beschikbaar");
+            : result.Message.Contains("Pad bestaat niet", StringComparison.OrdinalIgnoreCase) ? "Pad bestaat niet" : "Branch niet beschikbaar");
     }
 
     private static async Task<GitOperationResult> RunGitAsync(string path, params string[] arguments)
@@ -207,8 +349,22 @@ public sealed class GitBranchService
 
 public sealed record GitBranchInfo(string? Branch, string? Status);
 public sealed record GitOperationResult(bool Success, string Message, string Output);
-public sealed record GitBranchEntry(string Name, bool IsCurrent, bool IsRemote);
-public sealed record GitCommitEntry(string Hash, string ShortHash, string Subject, string Author, string Date);
+public sealed record GitBranchEntry(string Name, bool IsCurrent, bool IsRemote, string TipHash);
+public sealed record GitCommitEntry(
+    string Hash,
+    string ParentHashes,
+    string ShortHash,
+    string Subject,
+    string Author,
+    string Date,
+    IReadOnlyList<string> Parents,
+    int GraphColumn = 0,
+    int GraphColor = 0,
+    IReadOnlyList<GitGraphEdge>? GraphEdges = null,
+    int GraphWidth = 1,
+    IReadOnlyList<GitCommitBranchLabel>? BranchLabels = null);
+public sealed record GitGraphEdge(int FromColumn, double FromY, int ToColumn, double ToY, int Color);
+public sealed record GitCommitBranchLabel(string Name, bool IsLocal, bool IsRemote, int Color);
 public sealed record GitRepositorySnapshot(
     string? Branch,
     int ChangedFiles,

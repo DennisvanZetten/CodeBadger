@@ -99,16 +99,186 @@ h1:focus {
     white-space: nowrap;
 }
 
-.git-commit-row {
+.git-branch-groups {
     display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-    padding: 0.65rem 0;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.git-branch-group {
     border-bottom: 1px solid var(--mud-palette-divider);
 }
 
+.git-branch-group > summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.25rem;
+    cursor: pointer;
+    list-style: none;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.git-branch-group > summary::-webkit-details-marker {
+    display: none;
+}
+
+.git-branch-group > summary::before {
+    content: "▸";
+    display: inline-block;
+    transition: transform 120ms ease;
+}
+
+.git-branch-group[open] > summary::before {
+    transform: rotate(90deg);
+}
+
+.git-branch-count {
+    margin-left: auto;
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.75rem;
+    font-weight: 400;
+}
+
+.git-branch-list {
+    max-height: 28vh;
+    padding: 0 0.15rem 0.5rem;
+}
+
+.git-branch-folder {
+    padding-left: 0.35rem;
+}
+
+.git-branch-folder > summary {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-height: 2rem;
+    padding: 0.2rem 0.35rem;
+    cursor: pointer;
+    list-style: none;
+    border-radius: 4px;
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.8rem;
+}
+
+.git-branch-folder > summary::-webkit-details-marker {
+    display: none;
+}
+
+.git-branch-folder > summary::before {
+    content: "▸";
+    display: inline-block;
+    transition: transform 120ms ease;
+}
+
+.git-branch-folder[open] > summary::before {
+    transform: rotate(90deg);
+}
+
+.git-branch-folder > summary .mud-icon-root {
+    color: #B38CFF;
+}
+
+.git-branch-folder-children {
+    padding-left: 1.5rem;
+}
+
+.git-branch-list .mud-button-root {
+    justify-content: flex-start;
+    min-height: 1.65rem;
+    padding: 0.1rem 0.35rem;
+    font-size: 0.68rem !important;
+    line-height: 1.2;
+    text-align: left;
+}
+
+.git-branch-list .mud-button-label {
+    justify-content: flex-start;
+    width: 100%;
+    font-size: 0.68rem !important;
+    line-height: 1.2;
+}
+
+.git-branch-list .mud-button-start-icon {
+    margin-inline-start: 0;
+    margin-inline-end: 0.45rem;
+}
+
+.git-branch-list .git-branch-name {
+    font-size: 0.68rem !important;
+    line-height: 1.2;
+}
+
+.git-commit-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0.35rem;
+    height: 52px;
+    min-height: 52px;
+    border-bottom: 1px solid var(--mud-palette-divider);
+}
+
+.git-commit-graph {
+    flex: 0 0 auto;
+    overflow: visible;
+    height: 52px;
+}
+
+.git-commit-graph path {
+    fill: none;
+    stroke-width: 2.5px;
+    stroke-linecap: round;
+}
+
+.git-commit-branch-labels {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    align-content: center;
+    justify-content: flex-end;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+    width: 11rem;
+    min-height: 52px;
+    padding: 0.3rem 0.5rem 0.3rem 0;
+}
+
+.git-commit-branch-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    max-width: 100%;
+    padding: 0.1rem 0.45rem;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, #B38CFF 65%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, #B38CFF 14%, transparent);
+    color: #B38CFF;
+    line-height: 1.4;
+}
+
+.git-branch-label-icon {
+    flex: 0 0 auto;
+    color: #B38CFF !important;
+}
+
+.git-commit-branch-name {
+    overflow: hidden;
+    font-size: 0.72rem;
+    color: #B38CFF;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .git-commit-content {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    flex: 1 1 auto;
     min-width: 0;
+    padding: 0.4rem 0;
 }
 
 @supports (-webkit-touch-callout: none) {

@@ -79,7 +79,7 @@
                                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                                             <MudTextField @bind-Value="repository.Path" Label="Pad" Variant="Variant.Outlined" Margin="Margin.Dense" Class="flex-grow-1" />
                                             <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" Color="Color.Primary"
-                                                           aria-label="Repositorymap zoeken" Title="Repositorymap zoeken"
+                                                           aria-label="Repositorymap zoeken"
                                                            Disabled="@(!FolderPicker.IsSupported)"
                                                            OnClick="@(() => BrowseRepositoryAsync(repository))" />
                                         </MudStack>

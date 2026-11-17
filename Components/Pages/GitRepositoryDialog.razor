@@ -36,7 +36,7 @@
                         <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Upload"
                                    Disabled="@_isOperating" OnClick="PushAsync">Push (@_snapshot.Ahead)</MudButton>
                         <MudIconButton Icon="@Icons.Material.Filled.Refresh" aria-label="Git-status vernieuwen"
-                                       Disabled="@_isOperating" OnClick="RefreshAsync" />
+                                       Disabled="@_isOperating" OnClick="@(() => RefreshAsync())" />
                     </MudStack>
                 </MudStack>
 
@@ -61,18 +61,85 @@
                     <MudItem xs="12" md="4">
                         <MudPaper Class="pa-3 git-dialog-panel" Outlined="true" Elevation="0">
                             <MudText Typo="Typo.subtitle1" Class="mb-2">Branches (@_snapshot.Branches.Count)</MudText>
-                            <MudStack Spacing="1" Class="git-dialog-list">
-                                @foreach (var branch in _snapshot.Branches)
-                                {
-                                    <MudButton @key="branch.Name" FullWidth="true" Variant="@(branch.IsCurrent ? Variant.Filled : Variant.Text)"
-                                               Color="@(branch.IsCurrent ? Color.Primary : Color.Default)" Size="Size.Small"
-                                               StartIcon="@(branch.IsRemote ? Icons.Material.Filled.Cloud : Icons.Material.Filled.CallSplit)"
-                                               Disabled="@(_isOperating || branch.IsCurrent)"
-                                               OnClick="@(() => CheckoutBranchAsync(branch.Name))">
-                                        <span class="git-branch-name">@branch.Name</span>
-                                    </MudButton>
-                                }
-                            </MudStack>
+                            <div class="git-branch-groups">
+                                <details class="git-branch-group" open>
+                                    <summary>
+                                        <span>Lokale branches</span>
+                                        <span class="git-branch-count">@LocalBranches.Count</span>
+                                    </summary>
+                                    <div class="git-dialog-list git-branch-list">
+                                        @foreach (var folder in LocalBranchFolders)
+                                        {
+                                            @if (folder.Name is not null)
+                                            {
+                                                <details class="git-branch-folder">
+                                                    <summary>
+                                                        <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" />
+                                                        <span>@folder.Name</span>
+                                                        <span class="git-branch-count">@folder.Branches.Count</span>
+                                                    </summary>
+                                                    <MudStack Spacing="1" Class="git-branch-folder-children">
+                                                        @foreach (var branch in folder.Branches)
+                                                        {
+                                                            @BranchButton(branch, false)
+                                                        }
+                                                    </MudStack>
+                                                </details>
+                                            }
+                                            else
+                                            {
+                                                @foreach (var branch in folder.Branches)
+                                                {
+                                                    @BranchButton(branch, false)
+                                                }
+                                            }
+                                        }
+                                    </div>
+                                        @if (LocalBranches.Count == 0)
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">Geen lokale branches.</MudText>
+                                        }
+                                </details>
+
+                                <details class="git-branch-group" open>
+                                    <summary>
+                                        <span>Remote branches</span>
+                                        <span class="git-branch-count">@RemoteBranches.Count</span>
+                                    </summary>
+                                    <div class="git-dialog-list git-branch-list">
+                                        @foreach (var folder in RemoteBranchFolders)
+                                        {
+                                            @if (folder.Name is not null)
+                                            {
+                                                <details class="git-branch-folder">
+                                                    <summary>
+                                                        <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" />
+                                                        <span>@folder.Name</span>
+                                                        <span class="git-branch-count">@folder.Branches.Count</span>
+                                                    </summary>
+                                                    <MudStack Spacing="1" Class="git-branch-folder-children">
+                                                        @foreach (var branch in folder.Branches)
+                                                        {
+                                                            @BranchButton(branch, true)
+                                                        }
+                                                    </MudStack>
+                                                </details>
+                                            }
+                                            else
+                                            {
+                                                @foreach (var branch in folder.Branches)
+                                                {
+                                                    @BranchButton(branch, true)
+                                                }
+                                            }
+                                        }
+                                        @if (RemoteBranches.Count == 0)
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">Geen remote branches.</MudText>
+                                        }
+                                    </div>
+                                </details>
+                            </div>
                         </MudPaper>
                     </MudItem>
                     <MudItem xs="12" md="8">
@@ -82,7 +149,44 @@
                                 @foreach (var commit in _snapshot.Commits)
                                 {
                                     <div @key="commit.Hash" class="git-commit-row">
-                                        <MudIcon Icon="@Icons.Material.Filled.RadioButtonUnchecked" Size="Size.Small" Color="Color.Primary" />
+                                        <div class="git-commit-branch-labels">
+                                            @if (commit.BranchLabels is { Count: > 0 })
+                                            {
+                                                @foreach (var label in commit.BranchLabels)
+                                                {
+                                                    <span @key="label.Name" class="git-commit-branch-label" title="@label.Name">
+                                                        @if (label.IsLocal)
+                                                        {
+                                                            <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small"
+                                                                     aria-label="Lokaal" Class="git-branch-label-icon" Style="color: #B38CFF" />
+                                                        }
+                                                        @if (label.IsRemote)
+                                                        {
+                                                            <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small"
+                                                                     aria-label="Remote" Class="git-branch-label-icon" Style="color: #B38CFF" />
+                                                        }
+                                                        <span class="git-commit-branch-name">@label.Name</span>
+                                                    </span>
+                                                }
+                                            }
+                                        </div>
+                                        <svg class="git-commit-graph" width="@GraphWidth(commit)" height="52"
+                                             viewBox="0 0 @GraphWidth(commit) 52" aria-hidden="true">
+                                            @if (commit.GraphEdges is not null)
+                                            {
+                                                @foreach (var edge in commit.GraphEdges)
+                                                {
+                                                    <path d="@GraphPath(edge)" fill="none"
+                                                          stroke="@GraphColor(edge.Color)"
+                                                          style="@GraphStrokeStyle(edge.Color)" stroke-width="2.5"
+                                                          stroke-linecap="round" />
+                                                }
+                                            }
+                                            <circle cx="@GraphX(commit.GraphColumn)" cy="26" r="5.5"
+                                                    fill="var(--mud-palette-surface)"
+                                                    stroke="@GraphColor(commit.GraphColor)"
+                                                    style="@GraphStrokeStyle(commit.GraphColor)" stroke-width="3" />
+                                        </svg>
                                         <div class="git-commit-content">
                                             <MudText Typo="Typo.body2">@commit.Subject</MudText>
                                             <MudText Typo="Typo.caption" Color="Color.Secondary">@commit.ShortHash · @commit.Author · @FormatDate(commit.Date)</MudText>
@@ -117,6 +221,44 @@
     private GitRepositorySnapshot? _snapshot;
     private bool _isLoading = true;
     private bool _isOperating;
+    private IReadOnlyList<GitBranchEntry> LocalBranches => _snapshot?.Branches.Where(branch => !branch.IsRemote).ToList() ?? [];
+    private IReadOnlyList<GitBranchEntry> RemoteBranches => _snapshot?.Branches.Where(branch => branch.IsRemote).ToList() ?? [];
+    private IReadOnlyList<BranchFolder> LocalBranchFolders => GroupBranchesIntoFolders(LocalBranches);
+    private IReadOnlyList<BranchFolder> RemoteBranchFolders => GroupBranchesIntoFolders(RemoteBranches);
+
+    private RenderFragment BranchButton(GitBranchEntry branch, bool remote) => @<MudButton @key="branch.Name" FullWidth="true"
+        Variant="@(branch.IsCurrent ? Variant.Filled : Variant.Text)"
+        Color="@(branch.IsCurrent ? Color.Primary : Color.Default)" Size="Size.Small"
+        StartIcon="@(remote ? Icons.Material.Filled.Cloud : Icons.Material.Filled.CallSplit)"
+        Disabled="@(_isOperating || (!remote && branch.IsCurrent))"
+        OnClick="@(() => CheckoutBranchAsync(branch.Name))">
+        <span class="git-branch-name">@BranchLeafName(branch.Name)</span>
+    </MudButton>;
+
+    private static IReadOnlyList<BranchFolder> GroupBranchesIntoFolders(IReadOnlyList<GitBranchEntry> branches)
+    {
+        return branches
+            .Select(branch =>
+            {
+                var separator = branch.Name.LastIndexOf('/');
+                return separator < 0
+                    ? new BranchFolder(null, new[] { branch })
+                    : new BranchFolder(branch.Name[..separator], new[] { branch });
+            })
+            .GroupBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new BranchFolder(group.Key, group.SelectMany(item => item.Branches).ToList()))
+            .OrderBy(folder => folder.Name is null ? 1 : 0)
+            .ThenBy(folder => folder.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string BranchLeafName(string branchName)
+    {
+        var separator = branchName.LastIndexOf('/');
+        return separator < 0 ? branchName : branchName[(separator + 1)..];
+    }
+
+    private sealed record BranchFolder(string? Name, IReadOnlyList<GitBranchEntry> Branches);
 
     protected override async Task OnInitializedAsync() => await RefreshAsync(fetch: true);
 
@@ -186,6 +328,20 @@
     private static string FormatDate(string date) => DateTimeOffset.TryParse(date, CultureInfo.InvariantCulture, out var parsed)
         ? parsed.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
         : date;
+
+    private static int GraphX(int column) => column * 20 + 10;
+    private static int GraphWidth(GitCommitEntry commit) => Math.Max(28, Math.Max(commit.GraphWidth, commit.GraphColumn + 1) * 20);
+    private static readonly int[] GraphPalette = [0xB38CFF, 0x55A6FF, 0xFFB454, 0x42D6B5, 0xFF6B81, 0xD6D95A, 0x53C7D9, 0xF080D0];
+    private static string GraphColor(int color) => $"#{GraphPalette[Math.Abs(color % GraphPalette.Length)]:X6}";
+    private static string GraphStrokeStyle(int color) => $"stroke: {GraphColor(color)}";
+    private static string GraphPath(GitGraphEdge edge)
+    {
+        var startX = GraphX(edge.FromColumn);
+        var endX = GraphX(edge.ToColumn);
+        return edge.FromColumn == edge.ToColumn
+            ? $"M {startX} {edge.FromY} L {endX} {edge.ToY}"
+            : $"M {startX} {edge.FromY} C {startX} 35, {endX} 44, {endX} {edge.ToY}";
+    }
 
     private void Close() => MudDialog.Close();
 }

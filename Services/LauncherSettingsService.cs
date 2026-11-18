@@ -37,6 +37,7 @@ public sealed class LauncherSettingsService
             _localization.SetLanguage(settings.Language);
             settings.Language = _localization.CurrentLanguage;
             settings.Theme = LauncherThemes.Get(settings.Theme).Id;
+            settings.CompletionSound = CompletionSounds.Normalize(settings.CompletionSound);
             settings.AiApiKey = await SecureStorage.Default.GetAsync(AiApiKeyStorageKey) ?? string.Empty;
             return settings;
         }
@@ -53,6 +54,7 @@ public sealed class LauncherSettingsService
         {
             settings.Language = LocalizationService.NormalizeLanguage(settings.Language);
             settings.Theme = LauncherThemes.Get(settings.Theme).Id;
+            settings.CompletionSound = CompletionSounds.Normalize(settings.CompletionSound);
             Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
             await using (var stream = File.Create(_settingsPath))
                 await JsonSerializer.SerializeAsync(stream, settings, JsonOptions);

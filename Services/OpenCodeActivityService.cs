@@ -20,30 +20,37 @@ public sealed class OpenCodeActivityService
             && !arguments.Contains("--server", StringComparison.OrdinalIgnoreCase);
     }
 
-    public async Task<HashSet<string>> GetActiveDirectoriesAsync(CancellationToken cancellationToken)
+    public async Task<HashSet<string>?> GetActiveDirectoriesAsync(CancellationToken cancellationToken)
     {
         var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         using var active = await RequestAsync("/api/session/active", cancellationToken);
         if (active is null || !active.RootElement.TryGetProperty("data", out var sessions) || sessions.ValueKind != JsonValueKind.Object)
-            return directories;
+            return null;
 
         var ids = sessions.EnumerateObject().Select(session => session.Name)
             .Where(id => id.StartsWith("ses_", StringComparison.Ordinal) && id.All(c => char.IsAsciiLetterOrDigit(c) || c == '_'))
             .ToArray();
         var responses = await Task.WhenAll(ids.Select(id => RequestAsync($"/api/session/{id}", cancellationToken)));
-        foreach (var response in responses)
+        try
         {
-            using (response)
+            foreach (var response in responses)
             {
-                if (response is not null && response.RootElement.TryGetProperty("data", out var session)
-                    && session.TryGetProperty("location", out var location)
-                    && location.TryGetProperty("directory", out var directory)
-                    && directory.GetString() is { Length: > 0 } path
-                    && NormalizePath(path) is { } normalized)
-                    directories.Add(normalized);
+                if (response is null || !response.RootElement.TryGetProperty("data", out var session)
+                    || !session.TryGetProperty("location", out var location)
+                    || !location.TryGetProperty("directory", out var directory)
+                    || directory.ValueKind != JsonValueKind.String
+                    || directory.GetString() is not { Length: > 0 } path
+                    || NormalizePath(path) is not { } normalized)
+                    return null;
+                directories.Add(normalized);
             }
+            return directories;
         }
-        return directories;
+        finally
+        {
+            foreach (var response in responses)
+                response?.Dispose();
+        }
     }
 
     public static string? NormalizePath(string path)

@@ -3,6 +3,7 @@
 @inject LocalizationService L
 @inject GitBranchService GitBranchService
 @inject OpenCodeActivityService OpenCodeActivity
+@inject IJSRuntime JS
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @implements IDisposable
@@ -89,6 +90,7 @@
     private readonly Dictionary<RepositoryEntry, GitBranchInfo> _branches = [];
     private readonly Dictionary<RepositoryEntry, GitRepositorySnapshot> _gitSnapshots = [];
     private readonly HashSet<Guid> _runningSessions = [];
+    private bool _activityNeedsBaseline = true;
     private bool _isRefreshingBranches;
     private int _activeTabIndex;
     private readonly CancellationTokenSource _statusMonitorCancellation = new();
@@ -111,6 +113,8 @@
             var oldTab = _activeTabIndex;
             _settings = await SettingsService.LoadAsync();
             SyncRepositories();
+            _runningSessions.Clear();
+            _activityNeedsBaseline = true;
             _activeTabIndex = Math.Clamp(oldTab, 0, Math.Max(0, _activeRepositories.Count - 1));
             await RefreshBranches();
             StateHasChanged();
@@ -264,20 +268,39 @@
         {
             do
             {
-                var directories = OpenCodeActivityService.SupportsCommand(_settings.ToolCommand)
-                    ? await OpenCodeActivity.GetActiveDirectoriesAsync(cancellationToken)
-                    : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                await InvokeAsync(() =>
+                var command = _settings.ToolCommand;
+                var supported = OpenCodeActivityService.SupportsCommand(command);
+                var directories = supported ? await OpenCodeActivity.GetActiveDirectoriesAsync(cancellationToken) : null;
+                await InvokeAsync(async () =>
                 {
+                    if (command != _settings.ToolCommand)
+                        return;
+                    if (directories is null)
+                    {
+                        _activityNeedsBaseline = true;
+                        if (_runningSessions.Count > 0)
+                        {
+                            _runningSessions.Clear();
+                            StateHasChanged();
+                        }
+                        return;
+                    }
                     var running = _activeRepositories
                         .Where(repository => !string.IsNullOrWhiteSpace(repository.Path) &&
                             OpenCodeActivityService.NormalizePath(repository.Path) is { } path && directories.Contains(path))
                         .Select(repository => repository.Id).ToHashSet();
-                    if (_runningSessions.SetEquals(running))
-                        return;
+                    var finished = !_activityNeedsBaseline && _runningSessions.Except(running).Any();
+                    _activityNeedsBaseline = false;
+                    var changed = !_runningSessions.SetEquals(running);
                     _runningSessions.Clear();
                     _runningSessions.UnionWith(running);
-                    StateHasChanged();
+                    if (changed)
+                        StateHasChanged();
+                    if (finished && _settings.CompletionSoundEnabled)
+                    {
+                        try { await JS.InvokeVoidAsync("repoLauncherSounds.play", CompletionSounds.Normalize(_settings.CompletionSound)); }
+                        catch (JSException) { }
+                    }
                 });
             } while (await timer.WaitForNextTickAsync(cancellationToken));
         }

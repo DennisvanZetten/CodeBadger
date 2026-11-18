@@ -894,6 +894,25 @@ h1:focus {
     background: color-mix(in srgb, var(--git-accent, #B38CFF) 15%, transparent);
 }
 
+.git-file-list-heading {
+    min-width: 0;
+}
+
+.git-file-actions {
+    flex: 0 0 auto;
+}
+
+.git-file-action-button {
+    width: 2rem;
+    height: 2rem;
+    min-width: 2rem;
+    padding: 0.25rem;
+}
+
+.git-file-status-icon {
+    flex: 0 0 auto;
+}
+
 .git-file-select {
     display: flex;
     align-items: center;

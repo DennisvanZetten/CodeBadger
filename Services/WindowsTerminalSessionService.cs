@@ -14,10 +14,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
     public WindowsTerminalSessionService(LocalizationService localization) => _localization = localization;
 
     public event Action<Guid, string>? OutputReceived;
-    public event Action<Guid>? SessionStarted;
     public event Action<Guid, int>? SessionExited;
-
-    public bool IsRunning(Guid id) => _sessions.TryGetValue(id, out var session) && !session.Process.HasExited;
 
     public async Task StartAsync(Guid id, string workingDirectory, string commandLine, int columns = 120, int rows = 30)
     {
@@ -33,7 +30,6 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
 
         var session = CreateSession(workingDirectory, commandLine, Math.Max(columns, 1), Math.Max(rows, 1));
         _sessions[id] = session;
-        SessionStarted?.Invoke(id);
         _ = Task.Run(() => ReadOutputAsync(id, session));
         _ = WatchProcessAsync(id, session);
     }

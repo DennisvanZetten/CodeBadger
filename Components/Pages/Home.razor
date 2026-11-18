@@ -2,7 +2,7 @@
 @inject LauncherSettingsService SettingsService
 @inject LocalizationService L
 @inject GitBranchService GitBranchService
-@inject WindowsTerminalSessionService TerminalService
+@inject OpenCodeActivityService OpenCodeActivity
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @implements IDisposable
@@ -32,9 +32,7 @@
                             <MudText>@RepositoryTitle(repository)</MudText>
                             @if (_runningSessions.Contains(repository.Id))
                             {
-                                <span title="@L.T("Tool is running")">
-                                    <MudProgressCircular Size="Size.Small" Color="Color.Primary" Indeterminate="true" />
-                                </span>
+                                <span class="repository-activity-spinner" role="status" aria-label="@L.T("OpenCode session is working")" title="@L.T("OpenCode session is working")"></span>
                             }
                         </MudStack>
                     </TabContent>
@@ -100,14 +98,10 @@
         _settings = await SettingsService.LoadAsync();
         SettingsService.SettingsSaved += HandleSettingsSaved;
         L.LanguageChanged += HandleLanguageChanged;
-        TerminalService.SessionStarted += HandleSessionStarted;
-        TerminalService.SessionExited += HandleSessionExited;
         SyncRepositories();
-        _runningSessions.Clear();
-        foreach (var repository in _activeRepositories.Where(repository => TerminalService.IsRunning(repository.Id)))
-            _runningSessions.Add(repository.Id);
         await RefreshBranches();
         _ = MonitorActiveRepositoryStatusAsync(_statusMonitorCancellation.Token);
+        _ = MonitorOpenCodeActivityAsync(_statusMonitorCancellation.Token);
     }
 
     private void HandleSettingsSaved()
@@ -124,18 +118,6 @@
     }
 
     private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);
-
-    private void HandleSessionStarted(Guid id) => _ = InvokeAsync(() =>
-    {
-        _runningSessions.Add(id);
-        StateHasChanged();
-    });
-
-    private void HandleSessionExited(Guid id, int exitCode) => _ = InvokeAsync(() =>
-    {
-        _runningSessions.Remove(id);
-        StateHasChanged();
-    });
 
     private void SyncRepositories()
     {
@@ -275,6 +257,34 @@
         catch (ObjectDisposedException) { }
     }
 
+    private async Task MonitorOpenCodeActivityAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        try
+        {
+            do
+            {
+                var directories = OpenCodeActivityService.SupportsCommand(_settings.ToolCommand)
+                    ? await OpenCodeActivity.GetActiveDirectoriesAsync(cancellationToken)
+                    : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                await InvokeAsync(() =>
+                {
+                    var running = _activeRepositories
+                        .Where(repository => !string.IsNullOrWhiteSpace(repository.Path) &&
+                            OpenCodeActivityService.NormalizePath(repository.Path) is { } path && directories.Contains(path))
+                        .Select(repository => repository.Id).ToHashSet();
+                    if (_runningSessions.SetEquals(running))
+                        return;
+                    _runningSessions.Clear();
+                    _runningSessions.UnionWith(running);
+                    StateHasChanged();
+                });
+            } while (await timer.WaitForNextTickAsync(cancellationToken));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (ObjectDisposedException) { }
+    }
+
     private string BranchLabel(RepositoryEntry repository)
     {
         if (_isRefreshingBranches)
@@ -294,7 +304,5 @@
         _statusMonitorCancellation.Dispose();
         SettingsService.SettingsSaved -= HandleSettingsSaved;
         L.LanguageChanged -= HandleLanguageChanged;
-        TerminalService.SessionStarted -= HandleSessionStarted;
-        TerminalService.SessionExited -= HandleSessionExited;
     }
 }

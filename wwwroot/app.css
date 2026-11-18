@@ -930,6 +930,27 @@ h1:focus {
     height: 100%;
 }
 
+.repository-activity-spinner {
+    display: inline-block;
+    flex: 0 0 10px;
+    width: 10px;
+    height: 10px;
+    box-sizing: border-box;
+    border: 1.5px solid transparent;
+    border-top-color: var(--mud-palette-success);
+    border-right-color: var(--mud-palette-success);
+    border-radius: 50%;
+    animation: repository-activity-spin 1s linear infinite;
+}
+
+@keyframes repository-activity-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .repository-activity-spinner { animation: none; }
+}
+
 .repository-tabs > .mud-tabs-panels {
     height: calc(100% - 48px);
 }

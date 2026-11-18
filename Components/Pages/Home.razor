@@ -2,6 +2,7 @@
 @inject LauncherSettingsService SettingsService
 @inject LocalizationService L
 @inject GitBranchService GitBranchService
+@inject WindowsTerminalSessionService TerminalService
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @implements IDisposable
@@ -24,7 +25,20 @@
         <MudTabs @bind-ActivePanelIndex="_activeTabIndex" KeepPanelsAlive="true" Rounded="true" Border="true" ApplyEffectsToContainer="true" Class="repository-tabs">
             @foreach (var repository in _activeRepositories)
             {
-                <MudTabPanel @key="repository.Id" Text="@RepositoryTitle(repository)" Icon="@Icons.Material.Filled.Folder">
+                <MudTabPanel @key="repository.Id">
+                    <TabContent>
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                            <MudIcon Icon="@Icons.Material.Filled.Folder" />
+                            <MudText>@RepositoryTitle(repository)</MudText>
+                            @if (_runningSessions.Contains(repository.Id))
+                            {
+                                <span title="@L.T("Tool is running")">
+                                    <MudProgressCircular Size="Size.Small" Color="Color.Primary" Indeterminate="true" />
+                                </span>
+                            }
+                        </MudStack>
+                    </TabContent>
+                    <ChildContent>
                     <div class="repository-workspace">
                         @if (!Directory.Exists(repository.Path))
                         {
@@ -64,6 +78,7 @@
                             </MudPaper>
                         }
                     </div>
+                    </ChildContent>
                 </MudTabPanel>
             }
         </MudTabs>
@@ -75,6 +90,7 @@
     private List<RepositoryEntry> _activeRepositories = [];
     private readonly Dictionary<RepositoryEntry, GitBranchInfo> _branches = [];
     private readonly Dictionary<RepositoryEntry, GitRepositorySnapshot> _gitSnapshots = [];
+    private readonly HashSet<Guid> _runningSessions = [];
     private bool _isRefreshingBranches;
     private int _activeTabIndex;
     private readonly CancellationTokenSource _statusMonitorCancellation = new();
@@ -84,7 +100,12 @@
         _settings = await SettingsService.LoadAsync();
         SettingsService.SettingsSaved += HandleSettingsSaved;
         L.LanguageChanged += HandleLanguageChanged;
+        TerminalService.SessionStarted += HandleSessionStarted;
+        TerminalService.SessionExited += HandleSessionExited;
         SyncRepositories();
+        _runningSessions.Clear();
+        foreach (var repository in _activeRepositories.Where(repository => TerminalService.IsRunning(repository.Id)))
+            _runningSessions.Add(repository.Id);
         await RefreshBranches();
         _ = MonitorActiveRepositoryStatusAsync(_statusMonitorCancellation.Token);
     }
@@ -103,6 +124,18 @@
     }
 
     private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private void HandleSessionStarted(Guid id) => _ = InvokeAsync(() =>
+    {
+        _runningSessions.Add(id);
+        StateHasChanged();
+    });
+
+    private void HandleSessionExited(Guid id, int exitCode) => _ = InvokeAsync(() =>
+    {
+        _runningSessions.Remove(id);
+        StateHasChanged();
+    });
 
     private void SyncRepositories()
     {
@@ -261,5 +294,7 @@
         _statusMonitorCancellation.Dispose();
         SettingsService.SettingsSaved -= HandleSettingsSaved;
         L.LanguageChanged -= HandleLanguageChanged;
+        TerminalService.SessionStarted -= HandleSessionStarted;
+        TerminalService.SessionExited -= HandleSessionExited;
     }
 }

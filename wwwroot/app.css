@@ -56,12 +56,16 @@ body {
 .mud-list-item,
 .mud-menu-item,
 .mud-table-cell,
-.mud-input-label,
 .mud-input-helper-text,
-.mud-input-control .mud-input-label,
 .mud-input-control .mud-input-helper-text,
 .mud-input-control .mud-input-control-helper-container {
     font-size: 0.7rem !important;
+    line-height: 1.35;
+}
+
+.mud-input-label,
+.mud-input-control .mud-input-label {
+    font-size: 0.78rem !important;
     line-height: 1.35;
 }
 

@@ -315,12 +315,32 @@ h1:focus {
 
 .repository-setting-row {
     display: grid;
-    grid-template-columns: 58px minmax(145px, 0.8fr) minmax(220px, 1.8fr) 155px 30px 30px;
+    grid-template-columns: 58px minmax(145px, 0.8fr) minmax(220px, 1.8fr) minmax(180px, 0.8fr) 30px;
     align-items: center;
     gap: 0.5rem;
     width: 100%;
     box-sizing: border-box;
     padding: 0.55rem 0.75rem !important;
+}
+
+.repository-path-control,
+.repository-agent-control {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+}
+
+.repository-name-control .mud-input-control,
+.repository-path-control .mud-input-control,
+.repository-agent-control .mud-input-control {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.repository-path-control .mud-icon-button,
+.repository-agent-control .mud-icon-button {
+    flex: 0 0 34px;
 }
 
 .repository-setting-row .mud-input-control {
@@ -370,7 +390,7 @@ h1:focus {
 
 @media (max-width: 760px) {
     .repository-setting-row {
-        grid-template-columns: 54px minmax(0, 1fr) 30px 30px;
+        grid-template-columns: 54px minmax(0, 1fr) 30px;
         gap: 0.45rem;
     }
 
@@ -379,28 +399,23 @@ h1:focus {
         grid-row: 1;
     }
 
-    .repository-setting-row .mud-input-control:first-of-type {
+    .repository-name-control {
         grid-column: 2;
         grid-row: 1;
     }
 
-    .repository-setting-row .mud-input-control:nth-of-type(2) {
+    .repository-path-control {
         grid-column: 1 / -1;
         grid-row: 2;
     }
 
-    .repository-setting-row .mud-input-control:nth-of-type(3) {
+    .repository-agent-control {
         grid-column: 1 / -1;
         grid-row: 3;
     }
 
-    .repository-setting-row .mud-icon-button:nth-last-of-type(2) {
+    .repository-setting-row > .mud-icon-button:last-child {
         grid-column: 3;
-        grid-row: 1;
-    }
-
-    .repository-setting-row .mud-icon-button:last-of-type {
-        grid-column: 4;
         grid-row: 1;
     }
 }

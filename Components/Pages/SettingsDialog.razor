@@ -37,30 +37,32 @@
                             <div class="repository-active-toggle">
                                 <MudSwitch @bind-Value="repository.IsActive" Color="Color.Primary" />
                             </div>
-                            <MudTextField @bind-Value="repository.Name" Label="@L.T("Name")" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                            <MudTextField @bind-Value="repository.Path" Label="@L.T("Path")" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                            <MudStack Spacing="1">
+                            <div class="repository-name-control">
+                                <MudTextField @bind-Value="repository.Name" Label="@L.T("Name")" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                            </div>
+                            <div class="repository-path-control">
+                                <MudTextField @bind-Value="repository.Path" Label="@L.T("Path")" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.FolderOpen" Color="Color.Primary" aria-label="@L.T("Browse for repository folder")"
+                                               Disabled="@(!FolderPicker.IsSupported)" OnClick="@(() => BrowseRepositoryAsync(repository))" />
+                            </div>
+                            <div class="repository-agent-control">
                                 <MudSelect T="string" @bind-Value="repository.AgentTool" Label="@L.T("Agent tool")" Variant="Variant.Outlined" Margin="Margin.Dense">
                                     <MudSelectItem T="string" Value="@AgentTools.OpenCode">OpenCode</MudSelectItem>
                                     <MudSelectItem T="string" Value="@AgentTools.ClaudeCode">Claude Code</MudSelectItem>
                                 </MudSelect>
                                 @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.ClaudeCode && !string.IsNullOrWhiteSpace(repository.Path))
                                 {
-                                    <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.SettingsSuggest"
-                                               OnClick="@(() => OpenClaudeRepositoryConfigAsync(repository))">
-                                        @L.T("Claude Code config")
-                                    </MudButton>
+                                    <MudIconButton Size="Size.Small" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.SettingsSuggest"
+                                                   aria-label="@L.T("Claude Code config")"
+                                                   OnClick="@(() => OpenClaudeRepositoryConfigAsync(repository))" />
                                 }
                                 else if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && !string.IsNullOrWhiteSpace(repository.Path))
                                 {
-                                    <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.SettingsSuggest"
-                                               OnClick="@(() => OpenOpenCodeRepositoryConfigAsync(repository))">
-                                        @L.T("OpenCode project config & skills")
-                                    </MudButton>
+                                    <MudIconButton Size="Size.Small" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.SettingsSuggest"
+                                                   aria-label="@L.T("OpenCode project config & skills")"
+                                                   OnClick="@(() => OpenOpenCodeRepositoryConfigAsync(repository))" />
                                 }
-                            </MudStack>
-                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.FolderOpen" Color="Color.Primary" aria-label="@L.T("Browse for repository folder")"
-                                           Disabled="@(!FolderPicker.IsSupported)" OnClick="@(() => BrowseRepositoryAsync(repository))" />
+                            </div>
                             <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" aria-label="@L.T("Remove repository")"
                                            OnClick="@(() => Settings.Repositories.Remove(repository))" />
                         </MudPaper>

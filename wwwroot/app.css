@@ -1215,6 +1215,12 @@ h1:focus {
     height: var(--branch-group-header-height);
 }
 
+.git-history-workspace .git-branch-group > summary > span:first-of-type {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
 .git-history-workspace .git-branch-list {
     /* Native details content does not participate in the outer flex layout. */
     position: absolute;

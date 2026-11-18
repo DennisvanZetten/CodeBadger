@@ -1149,23 +1149,68 @@ h1:focus {
 
 .repository-activity-spinner {
     display: inline-block;
-    flex: 0 0 10px;
-    width: 10px;
-    height: 10px;
-    box-sizing: border-box;
-    border: 1.5px solid transparent;
-    border-top-color: var(--mud-palette-success);
-    border-right-color: var(--mud-palette-success);
-    border-radius: 50%;
-    animation: repository-activity-spin 1s linear infinite;
+    flex: 0 0 1em;
+    width: 1em;
+    height: 1em;
+    overflow: hidden;
+    font-family: 'Segoe UI Symbol', 'Noto Sans Symbols 2', sans-serif;
+    font-size: 1rem;
+    line-height: 1em;
+    text-align: center;
 }
 
-@keyframes repository-activity-spin {
-    to { transform: rotate(360deg); }
+.repository-activity-spinner::before {
+    display: block;
+    white-space: pre;
+    animation-timing-function: steps(10, end);
+    animation-iteration-count: infinite;
+}
+
+.repository-activity-spinner-opencode {
+    color: #5B8DEF;
+}
+
+.repository-activity-spinner-opencode::before {
+    content: "⠋\A⠙\A⠹\A⠸\A⠼\A⠴\A⠦\A⠧\A⠇\A⠏\A⠋";
+    animation-name: repository-opencode-spinner;
+    animation-duration: 800ms;
+}
+
+.repository-activity-spinner-claude {
+    color: #D97757;
+}
+
+.repository-activity-spinner-claude::before {
+    content: "·\A✢\A✱\A✶\A✻\A✽\A✻\A✶\A✱\A✢\A·\A·\A·";
+    animation-name: repository-claude-spinner;
+    animation-duration: 720ms;
+    animation-timing-function: steps(12, end);
+}
+
+.repository-activity-spinner-codex {
+    color: #10A37F;
+}
+
+.repository-activity-spinner-codex::before {
+    content: "⠋\A⠙\A⠹\A⠸\A⠼\A⠴\A⠦\A⠧\A⠇\A⠏\A⠋";
+    animation-name: repository-codex-spinner;
+    animation-duration: 1s;
+}
+
+@keyframes repository-opencode-spinner {
+    to { transform: translateY(-10em); }
+}
+
+@keyframes repository-claude-spinner {
+    to { transform: translateY(-12em); }
+}
+
+@keyframes repository-codex-spinner {
+    to { transform: translateY(-10em); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .repository-activity-spinner { animation: none; }
+    .repository-activity-spinner::before { animation: none; }
 }
 
 .repository-tabs > .mud-tabs-panels {

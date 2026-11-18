@@ -35,7 +35,9 @@
                             <MudText>@RepositoryTitle(repository)</MudText>
                             @if (_runningSessions.Contains(repository.Id))
                             {
-                                <span class="repository-activity-spinner" role="status" aria-label="@L.T("OpenCode session is working")" title="@L.T("OpenCode session is working")"></span>
+                                <span class="repository-activity-spinner @AgentSpinnerClass(repository)" role="status"
+                                      aria-label="@L.T("Agent session is working", AgentTools.Normalize(repository.AgentTool))"
+                                      title="@L.T("Agent session is working", AgentTools.Normalize(repository.AgentTool))"></span>
                             }
                         </MudStack>
                     </TabContent>
@@ -152,9 +154,19 @@
         ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path))
         : repository.Name;
 
-    private static string AgentLogo(RepositoryEntry repository) => AgentTools.Normalize(repository.AgentTool) == AgentTools.ClaudeCode
-        ? "claude-code.svg"
-        : "opencode.svg";
+    private static string AgentLogo(RepositoryEntry repository) => AgentTools.Normalize(repository.AgentTool) switch
+    {
+        AgentTools.ClaudeCode => "claude-code.svg",
+        AgentTools.Codex => "codex.svg",
+        _ => "opencode.svg"
+    };
+
+    private static string AgentSpinnerClass(RepositoryEntry repository) => AgentTools.Normalize(repository.AgentTool) switch
+    {
+        AgentTools.ClaudeCode => "repository-activity-spinner-claude",
+        AgentTools.Codex => "repository-activity-spinner-codex",
+        _ => "repository-activity-spinner-opencode"
+    };
 
     private static string TerminalKey(RepositoryEntry repository) => $"{repository.Id}:{AgentTools.Normalize(repository.AgentTool)}";
 

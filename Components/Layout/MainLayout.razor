@@ -6,6 +6,7 @@
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject StartupDetectionService StartupDetection
+@inject UpdateService UpdateService
 @using RepoLauncher.Components.Pages
 
 <MudThemeProvider Theme="@_theme.Theme" IsDarkMode="@_theme.IsDark" />
@@ -69,6 +70,9 @@ else
         if (firstRender && _isStarting)
         {
             await RunStartupDetectionAsync();
+#if WINDOWS
+            _ = CheckForUpdatesAsync();
+#endif
         }
 
         if (_appliedLanguage != L.CurrentLanguage)
@@ -98,6 +102,7 @@ else
             var settings = await SettingsService.LoadAsync();
             _theme = LauncherThemes.Get(settings.Theme);
             Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
+
             await InvokeAsync(StateHasChanged);
             await Task.Yield();
             await StartupDetection.DetectAsync(settings, async (stage, progress) =>
@@ -112,6 +117,52 @@ else
         {
             _isStarting = false;
             await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        try
+        {
+            var update = await UpdateService.CheckForUpdateAsync();
+            if (update is null)
+                return;
+
+            var settings = await SettingsService.LoadAsync();
+            if (string.Equals(settings.DismissedUpdateVersion, update.Version, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            await InvokeAsync(async () =>
+            {
+                var confirmed = await DialogService.ShowMessageBoxAsync(
+                    L.T("Update available"),
+                    L.T("CodeBadger {0} is available. The current app will close and the update installer will start. Continue?", update.Version) +
+                    "\n" + L.T("With the free self-signed certificate, Windows requires trusting the publisher certificate once on each device."),
+                    yesText: L.T("Download and install"),
+                    cancelText: L.T("Not now"),
+                    options: new DialogOptions { CloseOnEscapeKey = true });
+
+                if (confirmed != true)
+                {
+                    settings.DismissedUpdateVersion = update.Version;
+                    await SettingsService.SaveAsync(settings);
+                    return;
+                }
+
+                try
+                {
+                    await UpdateService.DownloadAndStartInstallAsync(update);
+                    Application.Current?.Quit();
+                }
+                catch (Exception ex)
+                {
+                    Snackbar.Add(L.T("Update failed: {0}", ex.Message), Severity.Error);
+                }
+            });
+        }
+        catch
+        {
+            // Update checks are best-effort and must not block application startup.
         }
     }
 

@@ -6,13 +6,15 @@ namespace RepoLauncher.Services;
 
 public sealed record AgentMcpServer(string Name, bool Enabled);
 
-public sealed class AgentConfigService
+public sealed class AgentConfigService(CodexConfigService codexConfigService)
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public string GetConfigPath(string agentTool)
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (AgentTools.Normalize(agentTool) == AgentTools.Codex)
+            return codexConfigService.GetGlobalConfigPath();
         if (AgentTools.Normalize(agentTool) == AgentTools.ClaudeCode)
             return Path.Combine(home, ".claude.json");
 
@@ -27,7 +29,7 @@ public sealed class AgentConfigService
     {
         var path = GetConfigPath(agentTool);
         if (!File.Exists(path))
-            return "{}";
+            return AgentTools.Normalize(agentTool) == AgentTools.Codex ? string.Empty : "{}";
 
         return await File.ReadAllTextAsync(path);
     }
@@ -35,6 +37,11 @@ public sealed class AgentConfigService
     public async Task<IReadOnlyList<AgentMcpServer>> GetMcpServersAsync(
         string agentTool, string json, IReadOnlyCollection<RepositoryEntry> repositories)
     {
+        if (AgentTools.Normalize(agentTool) == AgentTools.Codex)
+            return (await codexConfigService.GetMcpServersAsync(json))
+                .Select(server => new AgentMcpServer(server.Name, server.Enabled))
+                .ToArray();
+
         var root = ParseObject(json);
         var isClaude = AgentTools.Normalize(agentTool) == AgentTools.ClaudeCode;
         var serverConfig = isClaude
@@ -75,6 +82,9 @@ public sealed class AgentConfigService
         string agentTool, string json, string serverName, bool enabled,
         IReadOnlyCollection<RepositoryEntry> repositories)
     {
+        if (AgentTools.Normalize(agentTool) == AgentTools.Codex)
+            return await codexConfigService.SetMcpServerEnabledAsync(GetConfigPath(agentTool), json, serverName, enabled);
+
         var root = ParseObject(json);
         var isClaude = AgentTools.Normalize(agentTool) == AgentTools.ClaudeCode;
         var servers = isClaude
@@ -140,6 +150,12 @@ public sealed class AgentConfigService
 
     public async Task SaveAsync(string agentTool, string json)
     {
+        if (AgentTools.Normalize(agentTool) == AgentTools.Codex)
+        {
+            await codexConfigService.SaveConfigAsync(GetConfigPath(agentTool), json);
+            return;
+        }
+
         _ = ParseObject(json);
         var path = GetConfigPath(agentTool);
         var directory = Path.GetDirectoryName(path)!;

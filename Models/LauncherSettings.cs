@@ -7,6 +7,7 @@ public sealed class LauncherSettings
     public bool CompletionSoundEnabled { get; set; } = true;
     public string CompletionSound { get; set; } = "bell";
     public int ToastDurationSeconds { get; set; } = 1;
+    public string DismissedUpdateVersion { get; set; } = string.Empty;
     public string AiProvider { get; set; } = "OpenAI";
     public string AiCustomUrl { get; set; } = string.Empty;
     public string AiModel { get; set; } = "gpt-4o-mini";
@@ -30,8 +31,19 @@ public static class AgentTools
 {
     public const string OpenCode = "OpenCode";
     public const string ClaudeCode = "Claude Code";
+    public const string Codex = "Codex";
 
-    public static string Normalize(string? agentTool) => agentTool == ClaudeCode ? ClaudeCode : OpenCode;
+    public static string Normalize(string? agentTool) => agentTool switch
+    {
+        ClaudeCode => ClaudeCode,
+        Codex => Codex,
+        _ => OpenCode
+    };
 
-    public static string GetCommand(string? agentTool) => Normalize(agentTool) == ClaudeCode ? "claude" : "opencode";
+    public static string GetCommand(string? agentTool) => Normalize(agentTool) switch
+    {
+        ClaudeCode => "claude",
+        Codex => "codex",
+        _ => "opencode"
+    };
 }

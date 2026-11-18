@@ -37,20 +37,16 @@
                             </div>
                             <MudTextField @bind-Value="repository.Name" Label="@L.T("Name")" Variant="Variant.Outlined" Margin="Margin.Dense" />
                             <MudTextField @bind-Value="repository.Path" Label="@L.T("Path")" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                            <MudSelect T="string" @bind-Value="repository.AgentTool" Label="@L.T("Agent tool")" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                <MudSelectItem T="string" Value="@AgentTools.OpenCode">OpenCode</MudSelectItem>
+                                <MudSelectItem T="string" Value="@AgentTools.ClaudeCode">Claude Code</MudSelectItem>
+                            </MudSelect>
                             <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.FolderOpen" Color="Color.Primary" aria-label="@L.T("Browse for repository folder")"
                                            Disabled="@(!FolderPicker.IsSupported)" OnClick="@(() => BrowseRepositoryAsync(repository))" />
                             <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" aria-label="@L.T("Remove repository")"
                                            OnClick="@(() => Settings.Repositories.Remove(repository))" />
                         </MudPaper>
                     }
-                </MudStack>
-            </MudTabPanel>
-            <MudTabPanel Text="@L.T("Start")" Icon="@Icons.Material.Filled.Terminal">
-                <MudStack Spacing="3">
-                    <MudText Typo="Typo.h6">@L.T("Startup settings")</MudText>
-                    <MudTextField @bind-Value="Settings.ToolCommand" Label="@L.T("Application / command")"
-                                  HelperText="@L.T("Started directly in the repository folder, for example opencode or a full .exe path with arguments.")"
-                                  Margin="Margin.Dense" Variant="Variant.Outlined" />
                 </MudStack>
             </MudTabPanel>
             <MudTabPanel Text="@L.T("AI provider")" Icon="@Icons.Material.Filled.AutoAwesome">

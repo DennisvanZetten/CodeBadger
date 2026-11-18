@@ -39,6 +39,8 @@ public sealed class LauncherSettingsService
             settings.Theme = LauncherThemes.Get(settings.Theme).Id;
             settings.CompletionSound = CompletionSounds.Normalize(settings.CompletionSound);
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
+            foreach (var repository in settings.Repositories)
+                repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
             settings.AiApiKey = await SecureStorage.Default.GetAsync(AiApiKeyStorageKey) ?? string.Empty;
             return settings;
         }
@@ -57,6 +59,8 @@ public sealed class LauncherSettingsService
             settings.Theme = LauncherThemes.Get(settings.Theme).Id;
             settings.CompletionSound = CompletionSounds.Normalize(settings.CompletionSound);
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
+            foreach (var repository in settings.Repositories)
+                repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
             Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
             await using (var stream = File.Create(_settingsPath))
                 await JsonSerializer.SerializeAsync(stream, settings, JsonOptions);

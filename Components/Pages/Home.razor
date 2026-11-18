@@ -29,7 +29,8 @@
                 <MudTabPanel @key="repository.Id">
                     <TabContent>
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                            <MudIcon Icon="@Icons.Material.Filled.Folder" />
+                            <img class="repository-agent-logo" src="@AgentLogo(repository)" alt="@AgentTools.Normalize(repository.AgentTool)"
+                                 title="@AgentTools.Normalize(repository.AgentTool)" />
                             <MudText>@RepositoryTitle(repository)</MudText>
                             @if (_runningSessions.Contains(repository.Id))
                             {
@@ -46,8 +47,8 @@
                         else
                         {
                             <MudPaper Outlined="true" Elevation="0" Class="repository-terminal-panel">
-                                <RepositoryTerminal @key="repository.Id" SessionId="repository.Id" RepositoryPath="@repository.Path"
-                                                    Command="@_settings.ToolCommand" IsVisible="@(_activeRepositories.IndexOf(repository) == _activeTabIndex)" />
+                                <RepositoryTerminal @key="TerminalKey(repository)" SessionId="repository.Id" RepositoryPath="@repository.Path"
+                                                    Command="@AgentTools.GetCommand(repository.AgentTool)" IsVisible="@(_activeRepositories.IndexOf(repository) == _activeTabIndex)" />
                             </MudPaper>
                             <MudPaper Outlined="true" Elevation="0" Class="pa-4 repository-git-panel">
                                 <MudStack Spacing="2">
@@ -126,8 +127,11 @@
     private void SyncRepositories()
     {
         foreach (var repository in _settings.Repositories)
+        {
             if (repository.Id == Guid.Empty)
                 repository.Id = Guid.NewGuid();
+            repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
+        }
         _activeRepositories = _settings.Repositories.Where(repository => repository.IsActive).ToList();
         _activeTabIndex = Math.Clamp(_activeTabIndex, 0, Math.Max(0, _activeRepositories.Count - 1));
         foreach (var repository in _branches.Keys.Where(repository => !_settings.Repositories.Contains(repository)).ToList())
@@ -139,6 +143,12 @@
     private static string RepositoryTitle(RepositoryEntry repository) => string.IsNullOrWhiteSpace(repository.Name)
         ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path))
         : repository.Name;
+
+    private static string AgentLogo(RepositoryEntry repository) => AgentTools.Normalize(repository.AgentTool) == AgentTools.ClaudeCode
+        ? "claude-code.svg"
+        : "opencode.svg";
+
+    private static string TerminalKey(RepositoryEntry repository) => $"{repository.Id}:{AgentTools.Normalize(repository.AgentTool)}";
 
     private async Task RefreshBranches(bool force = false)
     {
@@ -268,13 +278,10 @@
         {
             do
             {
-                var command = _settings.ToolCommand;
-                var supported = OpenCodeActivityService.SupportsCommand(command);
+                var supported = _activeRepositories.Any(repository => AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode);
                 var directories = supported ? await OpenCodeActivity.GetActiveDirectoriesAsync(cancellationToken) : null;
                 await InvokeAsync(async () =>
                 {
-                    if (command != _settings.ToolCommand)
-                        return;
                     if (directories is null)
                     {
                         _activityNeedsBaseline = true;
@@ -286,6 +293,7 @@
                         return;
                     }
                     var running = _activeRepositories
+                        .Where(repository => AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
                         .Where(repository => !string.IsNullOrWhiteSpace(repository.Path) &&
                             OpenCodeActivityService.NormalizePath(repository.Path) is { } path && directories.Contains(path))
                         .Select(repository => repository.Id).ToHashSet();

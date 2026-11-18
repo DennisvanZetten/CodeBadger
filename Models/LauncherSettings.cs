@@ -4,7 +4,6 @@ public sealed class LauncherSettings
 {
     public string Language { get; set; } = "en";
     public string Theme { get; set; } = "midnight";
-    public string ToolCommand { get; set; } = "opencode";
     public bool CompletionSoundEnabled { get; set; } = true;
     public string CompletionSound { get; set; } = "bell";
     public int ToastDurationSeconds { get; set; } = 1;
@@ -24,4 +23,15 @@ public sealed class RepositoryEntry
     public string Name { get; set; } = string.Empty;
     public string Path { get; set; } = string.Empty;
     public bool IsActive { get; set; } = true;
+    public string AgentTool { get; set; } = AgentTools.OpenCode;
+}
+
+public static class AgentTools
+{
+    public const string OpenCode = "OpenCode";
+    public const string ClaudeCode = "Claude Code";
+
+    public static string Normalize(string? agentTool) => agentTool == ClaudeCode ? ClaudeCode : OpenCode;
+
+    public static string GetCommand(string? agentTool) => Normalize(agentTool) == ClaudeCode ? "claude" : "opencode";
 }

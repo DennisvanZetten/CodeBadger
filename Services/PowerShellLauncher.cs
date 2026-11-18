@@ -35,7 +35,7 @@ public sealed class PowerShellLauncher
             startInfo.ArgumentList.Add("pwsh.exe");
             startInfo.ArgumentList.Add("-NoExit");
             startInfo.ArgumentList.Add("-Command");
-            startInfo.ArgumentList.Add(settings.ToolCommand);
+            startInfo.ArgumentList.Add(AgentTools.GetCommand(repository.AgentTool));
             startedCount++;
         }
 

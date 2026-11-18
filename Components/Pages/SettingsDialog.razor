@@ -108,16 +108,12 @@
                         }
                     </MudSelect>
                     <MudSwitch @bind-Value="Settings.CompletionSoundEnabled" Color="Color.Primary" Label="@L.T("Play a sound when a session finishes")" />
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                        <MudSelect T="string" Label="@L.T("Completion sound")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.CompletionSound" Disabled="@(!Settings.CompletionSoundEnabled)">
-                            @foreach (var sound in CompletionSounds.All)
-                            {
-                                <MudSelectItem T="string" Value="@sound">@L.T($"Sound: {sound}")</MudSelectItem>
-                            }
-                        </MudSelect>
-                        <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Color="Color.Primary" aria-label="@L.T("Preview sound")" title="@L.T("Preview sound")"
-                                       Disabled="@(!Settings.CompletionSoundEnabled)" OnClick="PreviewSoundAsync" />
-                    </MudStack>
+                    <MudSelect T="string" Label="@L.T("Completion sound")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.CompletionSound" @bind-Value:after="PreviewSoundAsync" Disabled="@(!Settings.CompletionSoundEnabled)">
+                        @foreach (var sound in CompletionSounds.All)
+                        {
+                            <MudSelectItem T="string" Value="@sound">@L.T($"Sound: {sound}")</MudSelectItem>
+                        }
+                    </MudSelect>
                 </MudStack>
             </MudTabPanel>
         </MudTabs>

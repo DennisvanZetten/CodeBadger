@@ -2,6 +2,7 @@
 @inject LocalizationService L
 @inject AiCommitMessageService AiCommitMessageService
 @inject RepositoryFolderPicker FolderPicker
+@inject AgentConfigService AgentConfigService
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @implements IDisposable
@@ -47,6 +48,49 @@
                                            OnClick="@(() => Settings.Repositories.Remove(repository))" />
                         </MudPaper>
                     }
+                </MudStack>
+            </MudTabPanel>
+            <MudTabPanel Text="@L.T("Agent management")" Icon="@Icons.Material.Filled.Terminal">
+                <MudStack Spacing="3">
+                    <MudText Typo="Typo.h6">@L.T("Agent management")</MudText>
+                    <MudSelect T="string" Value="_selectedAgent" ValueChanged="LoadAgentConfigAsync" Label="@L.T("Agent tool")" Margin="Margin.Dense" Variant="Variant.Outlined">
+                        <MudSelectItem T="string" Value="@AgentTools.OpenCode">OpenCode</MudSelectItem>
+                        <MudSelectItem T="string" Value="@AgentTools.ClaudeCode">Claude Code</MudSelectItem>
+                    </MudSelect>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@_agentConfigPath</MudText>
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                        @if (_selectedAgent == AgentTools.ClaudeCode)
+                        {
+                            @L.T("Claude Code MCP switches apply to all repositories configured in Repo Launcher. Other Claude projects are not changed.")
+                        }
+                        else
+                        {
+                            @L.T("OpenCode MCP switches update the enabled value in this config file.")
+                        }
+                        @L.T("A timestamped backup is created before each change to an existing config file.")
+                    </MudAlert>
+                    @if (_agentMcpServers.Count > 0)
+                    {
+                        <MudText Typo="Typo.subtitle1">@L.T("MCP servers")</MudText>
+                        @foreach (var server in _agentMcpServers)
+                        {
+                            <MudPaper @key="server.Name" Outlined="true" Elevation="0" Class="pa-2">
+                                <MudSwitch T="bool" Value="server.Enabled" ValueChanged="@(enabled => ToggleMcpServerAsync(server.Name, enabled))"
+                                           Color="Color.Primary" Label="@server.Name" Disabled="@_isSavingAgentConfig" />
+                            </MudPaper>
+                        }
+                    }
+                    else if (!_isLoadingAgentConfig)
+                    {
+                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@L.T("No MCP servers found in this config.")</MudAlert>
+                    }
+                    <MudTextField @bind-Value="_agentConfigJson" Label="@L.T("Agent configuration (JSON)")"
+                                  Lines="18" Sizing="InputSizing.Fixed" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                  Disabled="@_isLoadingAgentConfig" />
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Save"
+                               OnClick="SaveAgentConfigAsync" Disabled="@(_isLoadingAgentConfig || _isSavingAgentConfig)" Class="align-self-start">
+                        @L.T("Save agent config")
+                    </MudButton>
                 </MudStack>
             </MudTabPanel>
             <MudTabPanel Text="@L.T("AI provider")" Icon="@Icons.Material.Filled.AutoAwesome">
@@ -143,6 +187,80 @@
     private bool _hasTestedConnection;
     private IReadOnlyList<string> _availableModels = [];
     private static readonly string[] AiProviders = ["OpenAI", "Azure OpenAI", "Anthropic", "Google Gemini", "Ollama", "Custom URL"];
+    private string _selectedAgent = AgentTools.OpenCode;
+    private string _agentConfigJson = "{}";
+    private string _agentConfigPath = string.Empty;
+    private IReadOnlyList<AgentMcpServer> _agentMcpServers = [];
+    private bool _isLoadingAgentConfig;
+    private bool _isSavingAgentConfig;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            await LoadAgentConfigAsync(_selectedAgent);
+    }
+
+    private async Task LoadAgentConfigAsync(string agent)
+    {
+        _selectedAgent = AgentTools.Normalize(agent);
+        _isLoadingAgentConfig = true;
+        try
+        {
+            _agentConfigPath = AgentConfigService.GetConfigPath(_selectedAgent);
+            _agentConfigJson = await AgentConfigService.LoadAsync(_selectedAgent);
+            _agentMcpServers = await AgentConfigService.GetMcpServersAsync(_selectedAgent, _agentConfigJson, Settings.Repositories);
+        }
+        catch (Exception exception)
+        {
+            _agentMcpServers = [];
+            Snackbar.Add(L.T("Could not load agent config: {0}", exception.Message), Severity.Error);
+        }
+        finally
+        {
+            _isLoadingAgentConfig = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ToggleMcpServerAsync(string serverName, bool enabled)
+    {
+        _isSavingAgentConfig = true;
+        try
+        {
+            _agentConfigJson = await AgentConfigService.SetMcpServerEnabledAsync(
+                _selectedAgent, _agentConfigJson, serverName, enabled, Settings.Repositories);
+            _agentMcpServers = await AgentConfigService.GetMcpServersAsync(_selectedAgent, _agentConfigJson, Settings.Repositories);
+            Snackbar.Add(L.T("MCP server updated. Backup created when an existing config was changed."), Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not update MCP server: {0}", exception.Message), Severity.Error);
+            await LoadAgentConfigAsync(_selectedAgent);
+        }
+        finally
+        {
+            _isSavingAgentConfig = false;
+        }
+    }
+
+    private async Task SaveAgentConfigAsync()
+    {
+        _isSavingAgentConfig = true;
+        try
+        {
+            await AgentConfigService.SaveAsync(_selectedAgent, _agentConfigJson);
+            _agentMcpServers = await AgentConfigService.GetMcpServersAsync(_selectedAgent, _agentConfigJson, Settings.Repositories);
+            Snackbar.Add(L.T("Agent config saved. Backup created when an existing config was changed."), Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not save agent config: {0}", exception.Message), Severity.Error);
+        }
+        finally
+        {
+            _isSavingAgentConfig = false;
+        }
+    }
 
     private void AddRepository() => Settings.Repositories.Add(new RepositoryEntry { Name = L.T("New repository") });
 

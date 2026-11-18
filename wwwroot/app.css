@@ -309,6 +309,10 @@ h1:focus {
     flex: 0 0 auto;
 }
 
+.settings-tabs .mud-divider {
+    flex: 0 0 auto;
+}
+
 .repository-setting-row {
     display: grid;
     grid-template-columns: 58px minmax(145px, 0.8fr) minmax(220px, 1.8fr) 30px 30px;

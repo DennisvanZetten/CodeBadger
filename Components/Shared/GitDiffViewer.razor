@@ -1,0 +1,56 @@
+@if (IsLoading)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <pre class="git-diff-view @CssClass">@foreach (var line in GetDiffLines(Diff))
+    {
+        <span class="git-diff-line git-diff-@line.Kind">@line.Text
+</span>
+    }</pre>
+}
+
+@code {
+    [Parameter] public string Diff { get; set; } = string.Empty;
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public string? CssClass { get; set; }
+
+    private static IReadOnlyList<DiffDisplayLine> GetDiffLines(string diff)
+    {
+        var lines = diff.Split('\n').Select(line => line.TrimEnd('\r')).ToArray();
+        var result = new List<DiffDisplayLine>(lines.Length);
+
+        for (var index = 0; index < lines.Length; index++)
+        {
+            var line = lines[index];
+            if (line.StartsWith("+++", StringComparison.Ordinal) || line.StartsWith("---", StringComparison.Ordinal))
+            {
+                result.Add(new DiffDisplayLine(line, "meta"));
+                continue;
+            }
+
+            if (line.StartsWith("-", StringComparison.Ordinal))
+            {
+                if (index + 1 < lines.Length && lines[index + 1].StartsWith("+", StringComparison.Ordinal))
+                {
+                    result.Add(new DiffDisplayLine(line, "changed"));
+                    result.Add(new DiffDisplayLine(lines[++index], "changed"));
+                }
+                else
+                {
+                    result.Add(new DiffDisplayLine(line, "removed"));
+                }
+                continue;
+            }
+
+            result.Add(new DiffDisplayLine(line,
+                line.StartsWith("+", StringComparison.Ordinal) ? "added" :
+                line.StartsWith("@@", StringComparison.Ordinal) ? "hunk" : "context"));
+        }
+
+        return result;
+    }
+
+    private sealed record DiffDisplayLine(string Text, string Kind);
+}

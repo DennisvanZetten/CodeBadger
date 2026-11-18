@@ -1,4 +1,5 @@
 @using System.Globalization
+@using RepoLauncher.Components.Shared
 @inject LocalizationService L
 @inject GitBranchService GitBranchService
 @inject AiCommitMessageService AiCommitMessageService
@@ -240,18 +241,7 @@
                                     @if (_selectedCommitFile is not null)
                                     {
                                         <MudText Typo="Typo.caption" Class="git-commit-file-diff-title" title="@_selectedCommitFile.Path">@_selectedCommitFile.Path</MudText>
-                                        @if (_isLoadingCommitFileDiff)
-                                        {
-                                            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
-                                        }
-                                        else
-                                        {
-                                            <pre class="git-diff-view git-commit-file-diff">@foreach (var line in GetDiffLines(_selectedCommitFileDiff))
-                                            {
-                                                <span class="git-diff-line git-diff-@line.Kind">@line.Text
-</span>
-                                            }</pre>
-                                        }
+                                        <GitDiffViewer Diff="@_selectedCommitFileDiff" IsLoading="@_isLoadingCommitFileDiff" CssClass="git-commit-file-diff" />
                                     }
                                 }
                             }
@@ -279,17 +269,9 @@
                                     {
                                         <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Select a file to view its diff.")</MudText>
                                     }
-                                    else if (_isLoadingDiff)
-                                    {
-                                        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
-                                    }
                                     else
                                     {
-                                        <pre class="git-diff-view">@foreach (var line in GetDiffLines(_selectedDiff))
-                                        {
-                                            <span class="git-diff-line git-diff-@line.Kind">@line.Text
-</span>
-                                        }</pre>
+                                        <GitDiffViewer Diff="@_selectedDiff" IsLoading="@_isLoadingDiff" />
                                     }
                                 </MudStack>
                             </MudPaper>
@@ -734,45 +716,8 @@
             .FirstOrDefault();
     }
 
-    private static IReadOnlyList<DiffDisplayLine> GetDiffLines(string diff)
-    {
-        var lines = diff.Split('\n').Select(line => line.TrimEnd('\r')).ToArray();
-        var result = new List<DiffDisplayLine>(lines.Length);
-
-        for (var index = 0; index < lines.Length; index++)
-        {
-            var line = lines[index];
-            if (line.StartsWith("+++", StringComparison.Ordinal) || line.StartsWith("---", StringComparison.Ordinal))
-            {
-                result.Add(new DiffDisplayLine(line, "meta"));
-                continue;
-            }
-
-            if (line.StartsWith("-", StringComparison.Ordinal))
-            {
-                if (index + 1 < lines.Length && lines[index + 1].StartsWith("+", StringComparison.Ordinal))
-                {
-                    result.Add(new DiffDisplayLine(line, "changed"));
-                    result.Add(new DiffDisplayLine(lines[++index], "changed"));
-                }
-                else
-                {
-                    result.Add(new DiffDisplayLine(line, "removed"));
-                }
-                continue;
-            }
-
-            result.Add(new DiffDisplayLine(line,
-                line.StartsWith("+", StringComparison.Ordinal) ? "added" :
-                line.StartsWith("@@", StringComparison.Ordinal) ? "hunk" : "context"));
-        }
-
-        return result;
-    }
-
     private sealed record BranchFolder(string? Name, IReadOnlyList<GitBranchEntry> Branches);
     private sealed record GitCommitFile(string Path, string Status);
-    private sealed record DiffDisplayLine(string Text, string Kind);
     private enum GitView { History, Commit }
 
     private Task PullAsync() => RunGitOperationAsync(() => GitBranchService.PullAsync(RepositoryPath), "Pull");

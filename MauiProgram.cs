@@ -33,6 +33,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<AgentConfigService>();
 		builder.Services.AddSingleton<ClaudeRepositoryConfigService>();
 		builder.Services.AddSingleton<OpenCodeRepositoryConfigService>();
+		builder.Services.AddSingleton<StartupDetectionService>();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();

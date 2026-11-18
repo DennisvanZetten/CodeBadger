@@ -3,6 +3,7 @@
 @inject LocalizationService L
 @inject GitBranchService GitBranchService
 @inject OpenCodeActivityService OpenCodeActivity
+@inject StartupDetectionService StartupDetection
 @inject IJSRuntime JS
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
@@ -47,8 +48,15 @@
                         else
                         {
                             <MudPaper Outlined="true" Elevation="0" Class="repository-terminal-panel">
-                                <RepositoryTerminal @key="TerminalKey(repository)" SessionId="repository.Id" RepositoryPath="@repository.Path"
-                                                    Command="@AgentTools.GetCommand(repository.AgentTool)" IsVisible="@(_activeRepositories.IndexOf(repository) == _activeTabIndex)" />
+                                @if (StartupDetection.IsAgentAvailable(repository.AgentTool))
+                                {
+                                    <RepositoryTerminal @key="TerminalKey(repository)" SessionId="repository.Id" RepositoryPath="@repository.Path"
+                                                        Command="@AgentTools.GetCommand(repository.AgentTool)" IsVisible="@(_activeRepositories.IndexOf(repository) == _activeTabIndex)" />
+                                }
+                                else
+                                {
+                                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("{0} was not detected. The agent cannot start; install it or choose another agent in Settings, then restart Repo Launcher.", AgentTools.Normalize(repository.AgentTool))</MudAlert>
+                                }
                             </MudPaper>
                             <MudPaper Outlined="true" Elevation="0" Class="pa-4 repository-git-panel">
                                 <MudStack Spacing="2">

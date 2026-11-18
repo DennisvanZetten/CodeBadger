@@ -3,6 +3,7 @@
 @inject AiCommitMessageService AiCommitMessageService
 @inject RepositoryFolderPicker FolderPicker
 @inject AgentConfigService AgentConfigService
+@inject StartupDetectionService StartupDetection
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @inject IDialogService DialogService
@@ -20,12 +21,12 @@
                  TabPanelsClass="settings-tab-panel" Class="settings-tabs">
             <MudTabPanel Text="@L.T("Repositories")" Icon="@Icons.Material.Filled.Folder">
                 <MudStack Spacing="3">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                         <div>
                             <MudText Typo="Typo.h6">@L.T("Manage repositories")</MudText>
                             <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Active repositories get their own tab on the home screen.")</MudText>
                         </div>
-                        <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddRepository">@L.T("Add")</MudButton>
+                         <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddRepository">@L.T("Add")</MudButton>
                     </MudStack>
                     @if (Settings.Repositories.Count == 0)
                     {
@@ -43,13 +44,19 @@
                             <div class="repository-path-control">
                                 <MudTextField @bind-Value="repository.Path" Label="@L.T("Path")" Variant="Variant.Outlined" Margin="Margin.Dense" />
                                 <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.FolderOpen" Color="Color.Primary" aria-label="@L.T("Browse for repository folder")"
-                                               Disabled="@(!FolderPicker.IsSupported)" OnClick="@(() => BrowseRepositoryAsync(repository))" />
+                                                Disabled="@(!FolderPicker.IsSupported)" OnClick="@(() => BrowseRepositoryAsync(repository))" />
                             </div>
                             <div class="repository-agent-control">
                                 <MudSelect T="string" @bind-Value="repository.AgentTool" Label="@L.T("Agent tool")" Variant="Variant.Outlined" Margin="Margin.Dense">
                                     <MudSelectItem T="string" Value="@AgentTools.OpenCode">OpenCode</MudSelectItem>
                                     <MudSelectItem T="string" Value="@AgentTools.ClaudeCode">Claude Code</MudSelectItem>
                                 </MudSelect>
+                                @if (!StartupDetection.IsAgentAvailable(repository.AgentTool))
+                                {
+                                    <MudTooltip Text="@L.T("Agent command not found")">
+                                        <MudIcon Icon="@Icons.Material.Filled.Warning" Color="Color.Warning" Size="Size.Small" />
+                                    </MudTooltip>
+                                }
                                 @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.ClaudeCode && !string.IsNullOrWhiteSpace(repository.Path))
                                 {
                                     <MudIconButton Size="Size.Small" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.SettingsSuggest"
@@ -64,7 +71,7 @@
                                 }
                             </div>
                             <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" aria-label="@L.T("Remove repository")"
-                                           OnClick="@(() => Settings.Repositories.Remove(repository))" />
+                                            OnClick="@(() => Settings.Repositories.Remove(repository))" />
                         </MudPaper>
                     }
                 </MudStack>
@@ -72,11 +79,32 @@
             <MudTabPanel Text="@L.T("Agent management")" Icon="@Icons.Material.Filled.Terminal">
                 <MudStack Spacing="3">
                     <MudText Typo="Typo.h6">@L.T("Agent management")</MudText>
-                    <MudText Typo="Typo.subtitle1">OpenCode</MudText>
-                    <MudText Typo="Typo.caption" Color="Color.Secondary">@_agentConfigPath</MudText>
+                     <MudSelect T="string" Value="_selectedAgent" ValueChanged="LoadAgentConfigAsync" Label="@L.T("Agent tool")" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(_isLoadingAgentConfig || _isSavingAgentConfig)">
+                         <MudSelectItem T="string" Value="@AgentTools.OpenCode">OpenCode</MudSelectItem>
+                         <MudSelectItem T="string" Value="@AgentTools.ClaudeCode">Claude Code</MudSelectItem>
+                     </MudSelect>
+                     <MudText Typo="Typo.subtitle1">@_selectedAgent</MudText>
+                     @if (GetAgentStartupState(_selectedAgent) is { } agentState)
+                     {
+                         <MudStack Row="true" Spacing="1" Class="flex-wrap">
+                             <MudChip T="string" Size="Size.Small" Color="@(agentState.Installed ? Color.Success : Color.Warning)" Variant="Variant.Outlined">
+                                 @L.T(agentState.Installed ? "Agent command detected" : "Agent command not found")
+                             </MudChip>
+                             <MudChip T="string" Size="Size.Small" Color="@(agentState.HasGlobalConfig ? Color.Info : Color.Default)" Variant="Variant.Outlined">
+                                 @L.T(agentState.HasGlobalConfig ? "Global settings found" : "No global settings found")
+                             </MudChip>
+                         </MudStack>
+                     }
+                      <MudText Typo="Typo.caption" Color="Color.Secondary">@_agentConfigPath</MudText>
+                     @if (!StartupDetection.IsAgentAvailable(_selectedAgent))
+                     {
+                         <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("{0} was not detected. Its settings are read-only until it is available.", _selectedAgent)</MudAlert>
+                     }
                     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                        @L.T("OpenCode MCP switches update the disabled value in this config file. Claude Code project config is managed from each repository.")
-                        @L.T("A timestamped backup is created before each change to an existing config file.")
+                         @L.T(_selectedAgent == AgentTools.OpenCode
+                             ? "OpenCode MCP switches update the disabled value in this config file."
+                             : "Claude Code project config is managed from each repository.")
+                         @L.T("A timestamped backup is created before each change to an existing config file.")
                     </MudAlert>
                     @if (_agentMcpServers.Count > 0)
                     {
@@ -85,7 +113,7 @@
                         {
                             <MudPaper @key="server.Name" Outlined="true" Elevation="0" Class="pa-2">
                                 <MudSwitch T="bool" Value="server.Enabled" ValueChanged="@(enabled => ToggleMcpServerAsync(server.Name, enabled))"
-                                           Color="Color.Primary" Label="@server.Name" Disabled="@_isSavingAgentConfig" />
+                                             Color="Color.Primary" Label="@server.Name" Disabled="@(_isLoadingAgentConfig || _agentConfigLoadFailed || _isSavingAgentConfig || !StartupDetection.IsAgentAvailable(_selectedAgent))" />
                             </MudPaper>
                         }
                     }
@@ -98,9 +126,9 @@
                             <MudStack Spacing="2">
                                 <MudTextField @bind-Value="_agentConfigJson" Label="@L.T("Agent configuration (JSON)")"
                                               Lines="18" Sizing="InputSizing.Fixed" Margin="Margin.Dense" Variant="Variant.Outlined"
-                                              Disabled="@_isLoadingAgentConfig" />
+                                                ReadOnly="@(!StartupDetection.IsAgentAvailable(_selectedAgent))" Disabled="@(_isLoadingAgentConfig || _agentConfigLoadFailed)" />
                                 <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Save"
-                                           OnClick="SaveAgentConfigAsync" Disabled="@(_isLoadingAgentConfig || _isSavingAgentConfig)" Class="align-self-start">
+                                             OnClick="SaveAgentConfigAsync" Disabled="@(_isLoadingAgentConfig || _agentConfigLoadFailed || _isSavingAgentConfig || !StartupDetection.IsAgentAvailable(_selectedAgent))" Class="align-self-start">
                                     @L.T("Save agent config")
                                 </MudButton>
                             </MudStack>
@@ -208,6 +236,7 @@
     private IReadOnlyList<AgentMcpServer> _agentMcpServers = [];
     private bool _isLoadingAgentConfig;
     private bool _isSavingAgentConfig;
+    private bool _agentConfigLoadFailed;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -219,6 +248,9 @@
     {
         _selectedAgent = AgentTools.Normalize(agent);
         _isLoadingAgentConfig = true;
+        _agentConfigLoadFailed = false;
+        _agentConfigJson = "{}";
+        _agentMcpServers = [];
         try
         {
             _agentConfigPath = AgentConfigService.GetConfigPath(_selectedAgent);
@@ -227,6 +259,7 @@
         }
         catch (Exception exception)
         {
+            _agentConfigLoadFailed = true;
             _agentMcpServers = [];
             Snackbar.Add(L.T("Could not load agent config: {0}", exception.Message), Severity.Error);
         }
@@ -239,6 +272,9 @@
 
     private async Task ToggleMcpServerAsync(string serverName, bool enabled)
     {
+        if (_agentConfigLoadFailed || !StartupDetection.IsAgentAvailable(_selectedAgent))
+            return;
+
         _isSavingAgentConfig = true;
         try
         {
@@ -260,6 +296,9 @@
 
     private async Task SaveAgentConfigAsync()
     {
+        if (_agentConfigLoadFailed || !StartupDetection.IsAgentAvailable(_selectedAgent))
+            return;
+
         _isSavingAgentConfig = true;
         try
         {
@@ -279,12 +318,18 @@
 
     private void AddRepository() => Settings.Repositories.Add(new RepositoryEntry { Name = L.T("New repository") });
 
+    private bool IsRepositoryConfigReadOnly(RepositoryEntry repository) =>
+        !StartupDetection.IsAgentAvailable(repository.AgentTool);
+
+    private AgentStartupState? GetAgentStartupState(string agent) => StartupDetection.GetAgentState(agent);
+
     private async Task OpenClaudeRepositoryConfigAsync(RepositoryEntry repository)
     {
         var parameters = new DialogParameters<ClaudeRepositoryConfigDialog>
         {
             { dialog => dialog.RepositoryPath, repository.Path },
-            { dialog => dialog.RepositoryName, repository.Name }
+            { dialog => dialog.RepositoryName, repository.Name },
+            { dialog => dialog.ReadOnly, IsRepositoryConfigReadOnly(repository) }
         };
         var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Large, CloseButton = true, CloseOnEscapeKey = true };
         await DialogService.ShowAsync<ClaudeRepositoryConfigDialog>(L.T("Claude Code project config"), parameters, options);
@@ -295,7 +340,8 @@
         var parameters = new DialogParameters<OpenCodeRepositoryConfigDialog>
         {
             { dialog => dialog.RepositoryPath, repository.Path },
-            { dialog => dialog.RepositoryName, repository.Name }
+            { dialog => dialog.RepositoryName, repository.Name },
+            { dialog => dialog.ReadOnly, IsRepositoryConfigReadOnly(repository) }
         };
         var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Large, CloseButton = true, CloseOnEscapeKey = true };
         await DialogService.ShowAsync<OpenCodeRepositoryConfigDialog>(L.T("OpenCode project config & skills"), parameters, options);

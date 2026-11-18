@@ -15,6 +15,10 @@
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
                 @L.T("MCP definitions are stored in .mcp.json. Enable switches are stored in .claude/settings.local.json for this repository only. Existing files are backed up before changes.")
             </MudAlert>
+            @if (ReadOnly)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("{0} was not detected. Its settings are read-only until it is available.", AgentTools.ClaudeCode)</MudAlert>
+            }
             @if (_servers.Count > 0)
             {
                 <MudText Typo="Typo.subtitle1">@L.T("MCP servers")</MudText>
@@ -22,7 +26,7 @@
                 {
                     <MudPaper @key="server.Name" Outlined="true" Elevation="0" Class="pa-2">
                         <MudSwitch T="bool" Value="server.Enabled" ValueChanged="@(enabled => ToggleServerAsync(server.Name, enabled))"
-                                   Color="Color.Primary" Label="@server.Name" Disabled="@_isSaving" />
+                                    Color="Color.Primary" Label="@server.Name" Disabled="@(_isSaving || ReadOnly)" />
                     </MudPaper>
                 }
             }
@@ -35,9 +39,9 @@
                     <MudStack Spacing="2">
                         <MudTextField @bind-Value="_json" Label="@L.T("Project MCP configuration (JSON)")"
                                       Lines="16" Sizing="InputSizing.Fixed" Margin="Margin.Dense" Variant="Variant.Outlined"
-                                      Disabled="@_isLoading" />
+                                      ReadOnly="@ReadOnly" Disabled="@_isLoading" />
                         <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Save"
-                                   OnClick="SaveAsync" Disabled="@(_isLoading || _isSaving)" Class="align-self-start">
+                                    OnClick="SaveAsync" Disabled="@(_isLoading || _isSaving || ReadOnly)" Class="align-self-start">
                             @L.T("Save project config")
                         </MudButton>
                     </MudStack>
@@ -54,6 +58,7 @@
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
     [Parameter, EditorRequired] public string RepositoryPath { get; set; } = string.Empty;
     [Parameter, EditorRequired] public string RepositoryName { get; set; } = string.Empty;
+    [Parameter] public bool ReadOnly { get; set; }
 
     private string _json = "{}";
     private IReadOnlyList<ClaudeProjectMcpServer> _servers = [];
@@ -83,6 +88,8 @@
 
     private async Task ToggleServerAsync(string name, bool enabled)
     {
+        if (ReadOnly)
+            return;
         _isSaving = true;
         try
         {
@@ -103,6 +110,8 @@
 
     private async Task SaveAsync()
     {
+        if (ReadOnly)
+            return;
         _isSaving = true;
         try
         {

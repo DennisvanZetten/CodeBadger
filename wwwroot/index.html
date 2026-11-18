@@ -34,7 +34,16 @@
 
     <div class="status-bar-safe-area"></div>
 
-    <div id="app">Loading...</div>
+    <div id="app">
+        <div class="startup-splash" role="status" aria-live="polite">
+            <div class="startup-logo-halo">
+                <img class="startup-logo" src="repo-launcher.svg" alt="" />
+            </div>
+            <h1 class="startup-title">Repo Launcher</h1>
+            <div class="startup-loading-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+            <span class="startup-loading-label" data-i18n="Loading...">Loading...</span>
+        </div>
+    </div>
 
     <div id="blazor-error-ui" data-nosnippet>
         <span data-i18n="An unhandled error has occurred.">An unhandled error has occurred.</span>

@@ -5,37 +5,51 @@
 @inject IJSRuntime JS
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@inject StartupDetectionService StartupDetection
 @using RepoLauncher.Components.Pages
 
 <MudThemeProvider Theme="@_theme.Theme" IsDarkMode="@_theme.IsDark" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
-<MudLayout>
-    <MudAppBar Elevation="0" Color="Color.Surface" Dense="true">
-        <MudIcon Icon="@Icons.Material.Filled.Terminal" Color="Color.Primary" Class="mr-3" />
-        <MudText Typo="Typo.h6">Repo Launcher</MudText>
-        <MudSpacer />
-        <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Default" Size="Size.Small"
-                        aria-label="@L.T("Open settings")" OnClick="OpenSettingsAsync" />
-    </MudAppBar>
-    <MudMainContent>
-        @Body
-    </MudMainContent>
-</MudLayout>
+@if (_isStarting)
+{
+    <div class="startup-splash" role="status" aria-live="polite">
+        <MudIcon Icon="@Icons.Material.Filled.Terminal" Color="Color.Primary" Size="Size.Large" />
+        <MudText Typo="Typo.h5">Repo Launcher</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T(_startupStage)</MudText>
+        <MudProgressLinear Value="_startupProgress" Color="Color.Primary" Rounded="true" />
+        <MudText Typo="Typo.caption" Color="Color.Secondary">@((int)_startupProgress)%</MudText>
+    </div>
+}
+else
+{
+    <MudLayout>
+        <MudAppBar Elevation="0" Color="Color.Surface" Dense="true">
+            <MudIcon Icon="@Icons.Material.Filled.Terminal" Color="Color.Primary" Class="mr-3" />
+            <MudText Typo="Typo.h6">Repo Launcher</MudText>
+            <MudSpacer />
+            <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Default" Size="Size.Small"
+                            aria-label="@L.T("Open settings")" OnClick="OpenSettingsAsync" />
+        </MudAppBar>
+        <MudMainContent>
+            @Body
+        </MudMainContent>
+    </MudLayout>
+}
 
 @code {
     private string? _appliedLanguage;
     private string? _appliedTheme;
     private LauncherTheme _theme = LauncherThemes.Get(null);
+    private bool _isStarting = true;
+    private string _startupStage = "Detecting OpenCode...";
+    private double _startupProgress;
 
     protected override async Task OnInitializedAsync()
     {
         L.LanguageChanged += HandleLanguageChanged;
         SettingsService.SettingsSaved += HandleSettingsSaved;
-        var settings = await SettingsService.LoadAsync();
-        _theme = LauncherThemes.Get(settings.Theme);
-        Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
     }
 
     private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);
@@ -50,6 +64,11 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender && _isStarting)
+        {
+            await RunStartupDetectionAsync();
+        }
+
         if (_appliedLanguage != L.CurrentLanguage)
         {
             _appliedLanguage = L.CurrentLanguage;
@@ -67,6 +86,30 @@
             {
                 // Theme selection must never prevent the main page from rendering.
             }
+        }
+    }
+
+    private async Task RunStartupDetectionAsync()
+    {
+        try
+        {
+            var settings = await SettingsService.LoadAsync();
+            _theme = LauncherThemes.Get(settings.Theme);
+            Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
+            await InvokeAsync(StateHasChanged);
+            await Task.Yield();
+            await StartupDetection.DetectAsync(settings, async (stage, progress) =>
+            {
+                _startupStage = stage;
+                _startupProgress = progress;
+                await InvokeAsync(StateHasChanged);
+                await Task.Yield();
+            });
+        }
+        finally
+        {
+            _isStarting = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 

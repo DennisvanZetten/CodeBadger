@@ -654,10 +654,22 @@
         if (edge.FromColumn == edge.ToColumn)
             return $"M {startX} {edge.FromY} L {endX} {edge.ToY}";
 
-        // Keep branch transitions monotonic and vertical at both endpoints.
-        // This avoids sharp kinks where one commit row joins the next.
-        var middleY = (edge.FromY + edge.ToY) / 2d;
-        return $"M {startX} {edge.FromY} C {startX} {middleY:0.##}, {endX} {middleY:0.##}, {endX} {edge.ToY}";
+        // Use two short rounded corners around a horizontal bridge. This keeps the
+        // graph lanes mostly vertical and routes merges between commit nodes rather
+        // than drawing a broad S-curve past their centers.
+        const double cornerRadius = 6;
+        var direction = Math.Sign(endX - startX);
+        var cornerY = (edge.FromY + edge.ToY) / 2d;
+        var firstCornerY = cornerY - cornerRadius;
+        var secondCornerY = cornerY + cornerRadius;
+        var firstHorizontalX = startX + direction * cornerRadius;
+        var secondHorizontalX = endX - direction * cornerRadius;
+
+        return $"M {startX} {edge.FromY} L {startX} {firstCornerY:0.##} " +
+               $"Q {startX} {cornerY:0.##} {firstHorizontalX} {cornerY:0.##} " +
+               $"L {secondHorizontalX} {cornerY:0.##} " +
+               $"Q {endX} {cornerY:0.##} {endX} {secondCornerY:0.##} " +
+               $"L {endX} {edge.ToY}";
     }
 
     private int GraphPixelWidth => Math.Max(220, (_snapshot?.Commits.Select(commit => Math.Max(commit.GraphWidth, commit.GraphColumn + 1)).DefaultIfEmpty(1).Max() ?? 1) * 24 + 20);

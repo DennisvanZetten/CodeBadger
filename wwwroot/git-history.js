@@ -1,5 +1,16 @@
 const attachedSplitters = new WeakMap();
 
+export function positionCommitContextMenu(clientX, clientY) {
+    const menu = document.querySelector(".git-commit-context-menu");
+    const backdrop = menu?.closest(".git-context-menu-backdrop");
+    if (!menu || !backdrop)
+        return;
+
+    const bounds = backdrop.getBoundingClientRect();
+    menu.style.left = `${clientX - bounds.left}px`;
+    menu.style.top = `${clientY - bounds.top}px`;
+}
+
 export function attachHistorySplitter() {
     for (const splitter of document.querySelectorAll(".git-history-workspace .git-history-splitter")) {
         const workspace = splitter.closest(".git-history-workspace");

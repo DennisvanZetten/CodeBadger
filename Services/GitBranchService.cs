@@ -201,6 +201,18 @@ public sealed class GitBranchService
     public async Task<GitOperationResult> GetCommitFileDiffAsync(string path, string commitHash, string filePath) =>
         await RunGitAsync(path, "show", "--format=", "--no-ext-diff", "--find-renames", $"{commitHash}", "--", filePath);
 
+    public async Task<GitCommitBranchCheck> IsCommitOnCurrentBranchAsync(string path, string commitHash)
+    {
+        var result = await RunGitAllowExitOneAsync(path, "merge-base", "--is-ancestor", commitHash, "HEAD");
+        if (!result.Success && result.ExitCode != 1)
+            return new GitCommitBranchCheck(null, result.Message);
+
+        return new GitCommitBranchCheck(result.ExitCode == 0, null);
+    }
+
+    public async Task<GitOperationResult> CherryPickCommitAsync(string path, string commitHash) =>
+        await RunGitAsync(path, "cherry-pick", commitHash);
+
     public async Task<GitOperationResult> StageFileAsync(string path, string filePath) =>
         await RunGitAsync(path, "add", "--", filePath);
 
@@ -565,7 +577,7 @@ public sealed class GitBranchService
             var output = await outputTask;
             var error = await errorTask;
             var success = process.ExitCode == 0 || (allowExitCodeOne && process.ExitCode == 1);
-            return new GitOperationResult(success, success ? output.Trim() : error.Trim(), output);
+            return new GitOperationResult(success, success ? output.Trim() : error.Trim(), output, process.ExitCode);
         }
         catch (Win32Exception)
         {
@@ -601,7 +613,8 @@ public sealed record GitFileChange(string Path, bool IsStaged, bool IsUnstaged, 
 {
     public bool IsUntracked => Status == "??";
 }
-public sealed record GitOperationResult(bool Success, string Message, string Output);
+public sealed record GitOperationResult(bool Success, string Message, string Output, int ExitCode = 0);
+public sealed record GitCommitBranchCheck(bool? IsOnCurrentBranch, string? Error);
 public sealed record GitBranchEntry(string Name, bool IsCurrent, bool IsRemote, string TipHash);
 public sealed record GitCommitEntry(
     string Hash,

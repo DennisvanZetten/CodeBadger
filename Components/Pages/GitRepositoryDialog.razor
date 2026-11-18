@@ -147,6 +147,8 @@
                                              class="git-commit-row @(IsSelectedCommit(commit) ? "git-commit-row-selected" : "")"
                                              role="button" tabindex="0" aria-pressed="@IsSelectedCommit(commit)"
                                              @onclick="@(() => SelectCommit(commit))"
+                                             @oncontextmenu:preventDefault="true"
+                                             @oncontextmenu="@(args => OpenCommitContextMenuAsync(commit, args))"
                                              @onkeydown="@(args => HandleCommitRowKeyDown(args, commit))">
                                             <div class="git-commit-branch-labels">
                                                 @if (IsSelectedCommit(commit) && GetPathBranchLabel(commit) is { } pathLabel)
@@ -205,6 +207,19 @@
                                         <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("No commits found.")</MudText>
                                     }
                                 </MudStack>
+                                @if (_contextMenuCommit is not null)
+                                {
+                                    <div class="git-context-menu-backdrop" @onclick="CloseCommitContextMenu">
+                                        <div class="git-commit-context-menu" @onclick:stopPropagation="true">
+                                            <button class="git-commit-context-menu-item" disabled="@(_isCheckingCherryPick || _isCommitOnCurrentBranch != false || _isOperating)"
+                                                    aria-readonly="@(_isCheckingCherryPick || _isCommitOnCurrentBranch != false || _isOperating)"
+                                                    @onclick="CherryPickSelectedCommitAsync">
+                                                <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" />
+                                                <span>@L.T("Cherry-pick commit")</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                }
                         </MudPaper>
                         <div class="git-history-splitter git-history-commit-files-splitter" role="separator" aria-orientation="vertical" aria-label="@L.T("Resize commit files panel")" tabindex="0"></div>
                         <MudPaper Class="pa-3 git-dialog-panel git-commit-files-panel" Outlined="true" Elevation="0">
@@ -368,6 +383,12 @@
     private IReadOnlyList<GitCommitFile> _commitFiles = [];
     private GitCommitFile? _selectedCommitFile;
     private string _selectedCommitFileDiff = string.Empty;
+    private GitCommitEntry? _contextMenuCommit;
+    private double _contextMenuX;
+    private double _contextMenuY;
+    private bool _contextMenuNeedsPosition;
+    private bool _isCheckingCherryPick;
+    private bool? _isCommitOnCurrentBranch;
     private IJSObjectReference? _gitHistoryModule;
     private string? _selectedCommitHash;
     private IReadOnlyList<GitBranchEntry> LocalBranches => _snapshot?.Branches.Where(branch => !branch.IsRemote).ToList() ?? [];
@@ -386,6 +407,12 @@
 
         if (_view == GitView.History && _snapshot?.IsValid == true && _gitHistoryModule is not null)
             await _gitHistoryModule.InvokeVoidAsync("attachHistorySplitter");
+
+        if (_contextMenuNeedsPosition && _contextMenuCommit is not null && _gitHistoryModule is not null)
+        {
+            await _gitHistoryModule.InvokeVoidAsync("positionCommitContextMenu", _contextMenuX, _contextMenuY);
+            _contextMenuNeedsPosition = false;
+        }
 
         if (!firstRender)
             return;
@@ -678,6 +705,63 @@
         finally
         {
             _isLoadingCommitFileDiff = false;
+        }
+    }
+
+    private async Task OpenCommitContextMenuAsync(GitCommitEntry commit, MouseEventArgs args)
+    {
+        _contextMenuCommit = commit;
+        _contextMenuX = args.ClientX;
+        _contextMenuY = args.ClientY;
+        _contextMenuNeedsPosition = true;
+        _isCommitOnCurrentBranch = null;
+        _isCheckingCherryPick = true;
+
+        var check = await GitBranchService.IsCommitOnCurrentBranchAsync(RepositoryPath, commit.Hash);
+        if (_contextMenuCommit?.Hash != commit.Hash)
+            return;
+        _isCommitOnCurrentBranch = check.IsOnCurrentBranch;
+        _isCheckingCherryPick = false;
+        if (check.Error is not null)
+            Snackbar.Add(check.Error, Severity.Error);
+    }
+
+    private void CloseCommitContextMenu()
+    {
+        _contextMenuCommit = null;
+        _isCommitOnCurrentBranch = null;
+    }
+
+    private async Task CherryPickSelectedCommitAsync()
+    {
+        var commit = _contextMenuCommit;
+        if (commit is null || _isCheckingCherryPick || _isCommitOnCurrentBranch != false || _isOperating)
+            return;
+
+        CloseCommitContextMenu();
+        _isOperating = true;
+        try
+        {
+            var branchCheck = await GitBranchService.IsCommitOnCurrentBranchAsync(RepositoryPath, commit.Hash);
+            if (branchCheck.IsOnCurrentBranch != false)
+            {
+                Snackbar.Add(branchCheck.IsOnCurrentBranch == true
+                        ? L.T("Commit is already on the current branch.")
+                        : branchCheck.Error ?? L.T("Git status unavailable."),
+                    branchCheck.Error is null ? Severity.Warning : Severity.Error);
+                return;
+            }
+
+            var result = await GitBranchService.CherryPickCommitAsync(RepositoryPath, commit.Hash);
+            Snackbar.Add(result.Success
+                    ? L.T("Cherry-pick completed for commit {0}.", commit.ShortHash)
+                    : L.T("Cherry-pick failed: {0}", result.Message),
+                result.Success ? Severity.Success : Severity.Error, config => config.VisibleStateDuration = 8000);
+            await RefreshAsync();
+        }
+        finally
+        {
+            _isOperating = false;
         }
     }
 

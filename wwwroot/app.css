@@ -999,6 +999,56 @@ h1:focus {
     background: color-mix(in srgb, var(--mud-palette-primary) 14%, transparent);
 }
 
+.git-context-menu-backdrop {
+    position: fixed;
+    z-index: 1500;
+    inset: 0;
+}
+
+.git-commit-history-panel {
+    position: relative;
+}
+
+.git-commit-context-menu {
+    position: absolute;
+    min-width: 13rem;
+    padding: 0.2rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 4px;
+    background: var(--mud-palette-surface);
+    box-shadow: var(--mud-elevation-8);
+}
+
+.git-commit-context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    min-height: 1.9rem;
+    padding: 0.3rem 0.55rem;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--mud-palette-text-primary);
+    text-align: left;
+    cursor: pointer;
+    font-size: 0.72rem;
+}
+
+.git-commit-context-menu-item .mud-icon-root {
+    font-size: 0.95rem;
+}
+
+.git-commit-context-menu-item:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--mud-palette-primary) 12%, transparent);
+}
+
+.git-commit-context-menu-item:disabled {
+    color: var(--mud-palette-text-disabled, var(--mud-palette-text-secondary));
+    opacity: 0.55;
+    cursor: default;
+}
+
 .git-commit-branch-label-context {
     opacity: 0.62;
     border-style: dashed;

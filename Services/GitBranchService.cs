@@ -137,6 +137,51 @@ public sealed class GitBranchService
             .ToList();
     }
 
+    public async Task<GitRepositoryStatus> GetRepositoryStatusAsync(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+            return GitRepositoryStatus.Invalid(_localization.T("Path does not exist"));
+
+        var branchResult = await RunGitAsync(path, "rev-parse", "--abbrev-ref", "HEAD");
+        if (!branchResult.Success)
+            return GitRepositoryStatus.Invalid(branchResult.Message.Contains("not a git repository", StringComparison.OrdinalIgnoreCase)
+                ? _localization.T("Not a Git repository")
+                : branchResult.Message);
+
+        var statusResult = await RunGitAsync(path, "status", "--porcelain=v1", "-uall");
+        if (!statusResult.Success)
+            return GitRepositoryStatus.Invalid(_localization.T("Git status unavailable."));
+
+        var statusLines = statusResult.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r'))
+            .ToArray();
+        var upstreamResult = await RunGitAsync(path, "rev-list", "--left-right", "--count", "HEAD...@{upstream}");
+        var ahead = 0;
+        var behind = 0;
+        if (upstreamResult.Success)
+        {
+            var counts = upstreamResult.Output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (counts.Length == 2)
+            {
+                int.TryParse(counts[0], out ahead);
+                int.TryParse(counts[1], out behind);
+            }
+        }
+
+        var branchName = branchResult.Output.Trim();
+        var branch = branchName == "HEAD"
+            ? new GitBranchInfo(null, _localization.T("Detached HEAD"))
+            : new GitBranchInfo(branchName, null);
+        return new GitRepositoryStatus(
+            branch,
+            statusLines.Length,
+            statusLines.Count(line => line.Length >= 2 && line[0] != ' ' && line[0] != '?'),
+            statusLines.Count(line => line.Length >= 2 && (line[1] != ' ' || line.StartsWith("??", StringComparison.Ordinal))),
+            ahead,
+            behind,
+            null);
+    }
+
     public async Task<GitOperationResult> GetFileDiffAsync(string path, GitFileChange file, bool staged)
     {
         if (file.IsUntracked)
@@ -532,6 +577,19 @@ public sealed class GitBranchService
 }
 
 public sealed record GitBranchInfo(string? Branch, string? Status);
+public sealed record GitRepositoryStatus(
+    GitBranchInfo Branch,
+    int ChangedFiles,
+    int StagedFiles,
+    int UnstagedFiles,
+    int Ahead,
+    int Behind,
+    string? Error)
+{
+    public bool IsValid => Error is null;
+
+    public static GitRepositoryStatus Invalid(string error) => new(new GitBranchInfo(null, error), 0, 0, 0, 0, 0, error);
+}
 public sealed record GitSnapshotProgress(string Stage, int? BranchCount = null);
 public sealed record GitFileChange(string Path, bool IsStaged, bool IsUnstaged, bool IsConflicted, string Status)
 {

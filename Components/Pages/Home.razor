@@ -77,6 +77,7 @@
     private readonly Dictionary<RepositoryEntry, GitRepositorySnapshot> _gitSnapshots = [];
     private bool _isRefreshingBranches;
     private int _activeTabIndex;
+    private readonly CancellationTokenSource _statusMonitorCancellation = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -85,6 +86,7 @@
         L.LanguageChanged += HandleLanguageChanged;
         SyncRepositories();
         await RefreshBranches();
+        _ = MonitorActiveRepositoryStatusAsync(_statusMonitorCancellation.Token);
     }
 
     private void HandleSettingsSaved()
@@ -202,6 +204,44 @@
         }
     }
 
+    private async Task MonitorActiveRepositoryStatusAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                if (_isRefreshingBranches || _activeTabIndex < 0 || _activeTabIndex >= _activeRepositories.Count)
+                    continue;
+
+                var repository = _activeRepositories[_activeTabIndex];
+                if (!Directory.Exists(repository.Path))
+                    continue;
+
+                var status = await GitBranchService.GetRepositoryStatusAsync(repository.Path);
+                if (!status.IsValid || !_gitSnapshots.TryGetValue(repository, out var snapshot) || !snapshot.IsValid)
+                    continue;
+
+                await InvokeAsync(() =>
+                {
+                    _branches[repository] = status.Branch;
+                    _gitSnapshots[repository] = snapshot with
+                    {
+                        Branch = status.Branch.Branch ?? snapshot.Branch,
+                        ChangedFiles = status.ChangedFiles,
+                        StagedFiles = status.StagedFiles,
+                        UnstagedFiles = status.UnstagedFiles,
+                        Ahead = status.Ahead,
+                        Behind = status.Behind
+                    };
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (ObjectDisposedException) { }
+    }
+
     private string BranchLabel(RepositoryEntry repository)
     {
         if (_isRefreshingBranches)
@@ -217,6 +257,8 @@
 
     public void Dispose()
     {
+        _statusMonitorCancellation.Cancel();
+        _statusMonitorCancellation.Dispose();
         SettingsService.SettingsSaved -= HandleSettingsSaved;
         L.LanguageChanged -= HandleLanguageChanged;
     }

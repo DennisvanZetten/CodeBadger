@@ -7,6 +7,7 @@ public sealed class LauncherSettings
     public string ToolCommand { get; set; } = "opencode";
     public bool CompletionSoundEnabled { get; set; } = true;
     public string CompletionSound { get; set; } = "bell";
+    public int ToastDurationSeconds { get; set; } = 1;
     public string AiProvider { get; set; } = "OpenAI";
     public string AiCustomUrl { get; set; } = string.Empty;
     public string AiModel { get; set; } = "gpt-4o-mini";

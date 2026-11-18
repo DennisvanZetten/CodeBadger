@@ -108,6 +108,8 @@
                         }
                     </MudSelect>
                     <MudSwitch @bind-Value="Settings.CompletionSoundEnabled" Color="Color.Primary" Label="@L.T("Play a sound when a session finishes")" />
+                    <MudNumericField T="int" @bind-Value="Settings.ToastDurationSeconds" Label="@L.T("Toast duration (seconds)")"
+                                     Min="1" Max="10" Margin="Margin.Dense" Variant="Variant.Outlined" />
                     <MudSelect T="string" Label="@L.T("Completion sound")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.CompletionSound" @bind-Value:after="PreviewSoundAsync" Disabled="@(!Settings.CompletionSoundEnabled)">
                         @foreach (var sound in CompletionSounds.All)
                         {
@@ -196,6 +198,7 @@
         try
         {
             await SettingsService.SaveAsync(Settings);
+            Snackbar.Configuration.VisibleStateDuration = Settings.ToastDurationSeconds * 1000;
             Snackbar.Add(L.T("Settings saved."), Severity.Success);
             MudDialog.Close(DialogResult.Ok(true));
         }

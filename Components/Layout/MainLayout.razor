@@ -4,6 +4,7 @@
 @inject LocalizationService L
 @inject IJSRuntime JS
 @inject IDialogService DialogService
+@inject ISnackbar Snackbar
 @using RepoLauncher.Components.Pages
 
 <MudThemeProvider Theme="@_theme.Theme" IsDarkMode="@_theme.IsDark" />
@@ -32,14 +33,18 @@
     {
         L.LanguageChanged += HandleLanguageChanged;
         SettingsService.SettingsSaved += HandleSettingsSaved;
-        _theme = LauncherThemes.Get((await SettingsService.LoadAsync()).Theme);
+        var settings = await SettingsService.LoadAsync();
+        _theme = LauncherThemes.Get(settings.Theme);
+        Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
     }
 
     private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);
 
     private void HandleSettingsSaved() => _ = InvokeAsync(async () =>
     {
-        _theme = LauncherThemes.Get((await SettingsService.LoadAsync()).Theme);
+        var settings = await SettingsService.LoadAsync();
+        _theme = LauncherThemes.Get(settings.Theme);
+        Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
         StateHasChanged();
     });
 

@@ -615,8 +615,9 @@ h1:focus {
     max-height: 92vh;
 }
 
-.git-overview-dialog .mud-typography-color-secondary {
+.git-overview-dialog .mud-secondary-text {
     font-size: 0.7rem !important;
+    line-height: 1.35;
 }
 
 .git-overview-dialog .mud-dialog-content {

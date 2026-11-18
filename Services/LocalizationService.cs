@@ -43,6 +43,7 @@ public sealed class LocalizationService
         ["Other settings"] = ["Other settings", "Overige instellingen", "Weitere Einstellungen", "Autres paramètres"],
         ["Play a sound when a session finishes"] = ["Play a sound when a session finishes", "Geluid afspelen wanneer een sessie klaar is", "Ton abspielen, wenn eine Sitzung endet", "Jouer un son à la fin d’une session"],
         ["Completion sound"] = ["Completion sound", "Voltooiingsgeluid", "Abschlusston", "Son de fin"],
+        ["Toast duration (seconds)"] = ["Toast duration (seconds)", "Duur meldingen (seconden)", "Anzeigedauer der Meldungen (Sekunden)", "Durée des notifications (secondes)"],
         ["Preview sound"] = ["Preview sound", "Geluid beluisteren", "Ton anhören", "Écouter le son"],
         ["Sound: bell"] = ["Bell", "Bel", "Glocke", "Cloche"],
         ["Sound: chime"] = ["Chime", "Klokkenspel", "Glockenspiel", "Carillon"],

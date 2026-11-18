@@ -19,7 +19,7 @@ public static class MauiProgram
 		builder.Services.AddMauiBlazorWebView();
 		builder.Services.AddMudServices(configuration =>
 		{
-			configuration.SnackbarConfiguration.VisibleStateDuration = 3000;
+			configuration.SnackbarConfiguration.VisibleStateDuration = 1000;
 			configuration.SnackbarConfiguration.HideTransitionDuration = 150;
 		});
 		builder.Services.AddSingleton<LocalizationService>();

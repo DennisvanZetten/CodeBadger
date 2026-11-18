@@ -817,11 +817,25 @@ h1:focus {
 }
 
 .git-diff-line {
-    display: block;
+    display: flex;
     width: max-content;
     min-width: 100%;
-    padding: 0 0.35rem;
     box-sizing: border-box;
+    white-space: pre;
+}
+
+.git-diff-number {
+    display: inline-block;
+    flex: 0 0 4ch;
+    padding: 0 0.35rem;
+    color: var(--mud-palette-text-secondary);
+    text-align: right;
+    user-select: none;
+}
+
+.git-diff-text {
+    display: inline-block;
+    padding: 0 0.35rem;
     white-space: pre;
 }
 

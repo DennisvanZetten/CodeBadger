@@ -6,7 +6,7 @@ else
 {
     <pre class="git-diff-view @CssClass">@foreach (var line in GetDiffLines(Diff))
     {
-        <span class="git-diff-line git-diff-@line.Kind">@line.Text
+        <span class="git-diff-line git-diff-@line.Kind"><span class="git-diff-number">@line.OldLineNumber</span><span class="git-diff-number">@line.NewLineNumber</span><span class="git-diff-text">@line.Text</span>
 </span>
     }</pre>
 }
@@ -20,37 +20,84 @@ else
     {
         var lines = diff.Split('\n').Select(line => line.TrimEnd('\r')).ToArray();
         var result = new List<DiffDisplayLine>(lines.Length);
+        int? oldLineNumber = null;
+        int? newLineNumber = null;
 
         for (var index = 0; index < lines.Length; index++)
         {
             var line = lines[index];
+            if (line.StartsWith("@@", StringComparison.Ordinal))
+            {
+                (oldLineNumber, newLineNumber) = GetHunkLineNumbers(line);
+                result.Add(new DiffDisplayLine(line, "hunk", null, null));
+                continue;
+            }
+
             if (line.StartsWith("+++", StringComparison.Ordinal) || line.StartsWith("---", StringComparison.Ordinal))
             {
-                result.Add(new DiffDisplayLine(line, "meta"));
+                result.Add(new DiffDisplayLine(line, "meta", null, null));
+                continue;
+            }
+
+            if (line.StartsWith("\\", StringComparison.Ordinal))
+            {
+                result.Add(new DiffDisplayLine(line, "meta", null, null));
                 continue;
             }
 
             if (line.StartsWith("-", StringComparison.Ordinal))
             {
+                var removedLineNumber = oldLineNumber++;
                 if (index + 1 < lines.Length && lines[index + 1].StartsWith("+", StringComparison.Ordinal))
                 {
-                    result.Add(new DiffDisplayLine(line, "changed"));
-                    result.Add(new DiffDisplayLine(lines[++index], "changed"));
+                    result.Add(new DiffDisplayLine(line, "changed", removedLineNumber, null));
+                    result.Add(new DiffDisplayLine(lines[++index], "changed", null, newLineNumber++));
                 }
                 else
                 {
-                    result.Add(new DiffDisplayLine(line, "removed"));
+                    result.Add(new DiffDisplayLine(line, "removed", removedLineNumber, null));
                 }
                 continue;
             }
 
-            result.Add(new DiffDisplayLine(line,
-                line.StartsWith("+", StringComparison.Ordinal) ? "added" :
-                line.StartsWith("@@", StringComparison.Ordinal) ? "hunk" : "context"));
+            if (line.StartsWith("+", StringComparison.Ordinal))
+            {
+                result.Add(new DiffDisplayLine(line, "added", null, newLineNumber++));
+                continue;
+            }
+
+            if (line.StartsWith(" ", StringComparison.Ordinal))
+            {
+                result.Add(new DiffDisplayLine(line, "context", oldLineNumber++, newLineNumber++));
+                continue;
+            }
+
+            result.Add(new DiffDisplayLine(line, "meta", null, null));
         }
 
         return result;
     }
 
-    private sealed record DiffDisplayLine(string Text, string Kind);
+    private static (int? OldLineNumber, int? NewLineNumber) GetHunkLineNumbers(string hunkHeader)
+    {
+        var parts = hunkHeader.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3 || !TryGetRangeStart(parts[1], '-', out var oldStart) ||
+            !TryGetRangeStart(parts[2], '+', out var newStart))
+            return (null, null);
+
+        return (oldStart, newStart);
+    }
+
+    private static bool TryGetRangeStart(string range, char prefix, out int start)
+    {
+        start = 0;
+        if (range.Length < 2 || range[0] != prefix)
+            return false;
+
+        var commaIndex = range.IndexOf(',');
+        var startText = commaIndex >= 0 ? range[1..commaIndex] : range[1..];
+        return int.TryParse(startText, out start);
+    }
+
+    private sealed record DiffDisplayLine(string Text, string Kind, int? OldLineNumber, int? NewLineNumber);
 }

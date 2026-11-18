@@ -300,32 +300,32 @@
                                     <MudStack Spacing="1" Class="git-file-list-section">
                                         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="git-file-list-heading">
                                             <MudText Typo="Typo.subtitle1">@L.T("Unstaged ({0})", UnstagedFiles.Count)</MudText>
-                                            <MudTooltip Text="@L.T("Stage all")">
-                                                <MudIconButton Class="git-file-action-button" Size="Size.Small" Variant="Variant.Outlined"
-                                                               Icon="@Icons.Material.Filled.PlaylistAddCheck" aria-label="@L.T("Stage all")"
-                                                               Disabled="@(_isOperating || UnstagedFiles.Count == 0)" OnClick="StageAllAsync" />
-                                            </MudTooltip>
+                                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="git-file-actions">
+                                                <MudTooltip Text="@L.T("Stage all")">
+                                                    <MudIconButton Class="git-file-action-button" Size="Size.Small" Variant="Variant.Outlined"
+                                                                   Icon="@Icons.Material.Filled.PlaylistAddCheck" aria-label="@L.T("Stage all")"
+                                                                   Disabled="@(_isOperating || UnstagedFiles.Count == 0)" OnClick="StageAllAsync" />
+                                                </MudTooltip>
+                                                <MudTooltip Text="@L.T("Stage selected ({0})", SelectedUnstagedFiles.Count)">
+                                                    <MudIconButton Class="git-file-action-button" Size="Size.Small" Variant="Variant.Outlined"
+                                                                   Icon="@Icons.Material.Filled.PlaylistAdd" aria-label="@L.T("Stage selected ({0})", SelectedUnstagedFiles.Count)"
+                                                                   Disabled="@(_isOperating || SelectedUnstagedFiles.Count == 0)"
+                                                                   OnClick="StageSelectedAsync" />
+                                                </MudTooltip>
+                                                <MudTooltip Text="@L.T("Undo selected ({0})", SelectedUnstagedFiles.Count)">
+                                                    <MudIconButton Class="git-file-action-button" Size="Size.Small" Variant="Variant.Outlined"
+                                                                   Color="Color.Error" Icon="@Icons.Material.Filled.DeleteOutline"
+                                                                   aria-label="@L.T("Undo selected ({0})", SelectedUnstagedFiles.Count)"
+                                                                   Disabled="@(_isOperating || SelectedUnstagedFiles.Count == 0)"
+                                                                   OnClick="DiscardSelectedUnstagedFilesAsync" />
+                                                </MudTooltip>
+                                            </MudStack>
                                         </MudStack>
                                         @if (UnstagedFiles.Count > 0)
                                         {
                                             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="git-unstaged-actions">
-                                                <MudCheckBox T="bool" Value="@AreAllUnstagedFilesSelected" ValueChanged="SetAllUnstagedFilesSelected"
+                                                <MudCheckBox Class="git-file-checkbox git-select-all-checkbox" T="bool" Value="@AreAllUnstagedFilesSelected" ValueChanged="SetAllUnstagedFilesSelected"
                                                              Label="@L.T("Select all")" Disabled="@_isOperating" Size="Size.Small" />
-                                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="git-file-actions">
-                                                    <MudTooltip Text="@L.T("Stage selected ({0})", SelectedUnstagedFiles.Count)">
-                                                        <MudIconButton Class="git-file-action-button" Size="Size.Small" Variant="Variant.Outlined"
-                                                                       Icon="@Icons.Material.Filled.PlaylistAdd" aria-label="@L.T("Stage selected ({0})", SelectedUnstagedFiles.Count)"
-                                                                       Disabled="@(_isOperating || SelectedUnstagedFiles.Count == 0)"
-                                                                       OnClick="StageSelectedAsync" />
-                                                    </MudTooltip>
-                                                    <MudTooltip Text="@L.T("Undo selected ({0})", SelectedUnstagedFiles.Count)">
-                                                        <MudIconButton Class="git-file-action-button" Size="Size.Small" Variant="Variant.Outlined"
-                                                                       Color="Color.Error" Icon="@Icons.Material.Filled.DeleteOutline"
-                                                                       aria-label="@L.T("Undo selected ({0})", SelectedUnstagedFiles.Count)"
-                                                                       Disabled="@(_isOperating || SelectedUnstagedFiles.Count == 0)"
-                                                                       OnClick="DiscardSelectedUnstagedFilesAsync" />
-                                                    </MudTooltip>
-                                                </MudStack>
                                             </MudStack>
                                         }
                                         @if (UnstagedFiles.Count == 0)
@@ -708,7 +708,7 @@
     private RenderFragment FileRow(GitFileChange file, bool staged) => @<div @key="@(staged + file.Path)" class="git-file-row @( _selectedFile?.Path == file.Path ? "selected" : "")">
         @if (!staged)
         {
-            <MudCheckBox T="bool" Value="@_selectedUnstagedFilePaths.Contains(file.Path)"
+            <MudCheckBox Class="git-file-checkbox" T="bool" Value="@_selectedUnstagedFilePaths.Contains(file.Path)"
                          ValueChanged="@(selected => ToggleUnstagedFileSelection(file, selected))"
                          AriaLabel="@L.T("Select file for undo")" Disabled="@_isOperating" Size="Size.Small" />
         }
@@ -720,7 +720,7 @@
         @if (!file.IsConflicted)
         {
             <MudTooltip Text="@(staged ? L.T("Unstage file") : L.T("Stage file"))">
-                <MudIconButton Class="git-file-action-button" Size="Size.Small" Variant="Variant.Outlined"
+                <MudIconButton Class="git-file-action-button git-file-row-action-button" Size="Size.Small" Variant="Variant.Outlined"
                                Icon="@(staged ? Icons.Material.Filled.Remove : Icons.Material.Filled.Add)"
                                Color="@(staged ? Color.Warning : Color.Success)"
                                aria-label="@(staged ? L.T("Unstage file") : L.T("Stage file"))"

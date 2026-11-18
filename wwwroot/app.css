@@ -900,13 +900,74 @@ h1:focus {
 
 .git-file-actions {
     flex: 0 0 auto;
+    gap: 0.4rem !important;
 }
 
 .git-file-action-button {
-    width: 2rem;
-    height: 2rem;
-    min-width: 2rem;
-    padding: 0.25rem;
+    box-sizing: border-box;
+    flex: 0 0 1.65rem;
+    width: 1.65rem !important;
+    height: 1.65rem !important;
+    min-width: 1.65rem !important;
+    min-height: 1.65rem !important;
+    padding: 0.1rem !important;
+}
+
+.git-file-actions .git-file-action-button {
+    flex-basis: 1.65rem;
+    aspect-ratio: 1;
+}
+
+.git-file-actions .git-file-action-button .mud-icon-root {
+    font-size: 1.1rem;
+}
+
+.git-file-row .git-file-row-action-button {
+    box-sizing: border-box;
+    flex: 0 0 1.25rem;
+    width: 1.25rem !important;
+    height: 1.25rem !important;
+    min-width: 1.25rem !important;
+    min-height: 1.25rem !important;
+    padding: 0 !important;
+    align-self: center;
+}
+
+.git-file-row-action-button .mud-icon-root {
+    font-size: 1rem;
+}
+
+.git-file-checkbox {
+    box-sizing: border-box;
+    flex: 0 0 1.5rem;
+    width: 1.5rem;
+    min-width: 1.5rem;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.git-file-checkbox .mud-checkbox {
+    min-height: 1.5rem;
+    padding: 0 !important;
+}
+
+.git-file-checkbox .mud-icon-button {
+    box-sizing: border-box;
+    width: 1.25rem !important;
+    height: 1.25rem !important;
+    min-width: 1.25rem !important;
+    min-height: 1.25rem !important;
+    padding: 0 !important;
+}
+
+.git-file-checkbox .mud-icon-root {
+    font-size: 0.9rem !important;
+}
+
+.git-select-all-checkbox {
+    flex: 0 0 auto;
+    width: auto;
+    white-space: nowrap;
 }
 
 .git-file-status-icon {

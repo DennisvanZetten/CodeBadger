@@ -15,7 +15,9 @@
 @if (_isStarting)
 {
     <div class="startup-splash" role="status" aria-live="polite">
-        <MudIcon Icon="@Icons.Material.Filled.Terminal" Color="Color.Primary" Size="Size.Large" />
+        <div class="startup-logo-halo">
+            <img class="startup-logo" src="repo-launcher.svg" alt="Repo Launcher" />
+        </div>
         <MudText Typo="Typo.h5">Repo Launcher</MudText>
         <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T(_startupStage)</MudText>
         <MudProgressLinear Value="_startupProgress" Color="Color.Primary" Rounded="true" />
@@ -26,7 +28,7 @@ else
 {
     <MudLayout>
         <MudAppBar Elevation="0" Color="Color.Surface" Dense="true">
-            <MudIcon Icon="@Icons.Material.Filled.Terminal" Color="Color.Primary" Class="mr-3" />
+            <img class="appbar-logo mr-3" src="repo-launcher.svg" alt="Repo Launcher" />
             <MudText Typo="Typo.h6">Repo Launcher</MudText>
             <MudSpacer />
             <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Default" Size="Size.Small"

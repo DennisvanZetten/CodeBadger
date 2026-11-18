@@ -260,6 +260,13 @@ h1:focus {
     height: 100%;
 }
 
+.appbar-logo {
+    width: 40px;
+    height: 40px;
+    flex: 0 0 40px;
+    object-fit: contain;
+}
+
 .startup-title {
     margin: 0 0 24px;
     font-size: 26px;

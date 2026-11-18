@@ -629,7 +629,7 @@
                 _commitDescription = result.Description;
             }
             else
-                Snackbar.Add(result.Error, Severity.Error, config => config.VisibleStateDuration = 10000);
+                Snackbar.Add(result.Error, Severity.Error);
         }
         finally
         {
@@ -647,7 +647,7 @@
                 : $"{_commitTitle.Trim()}\n\n{_commitDescription.Trim()}";
             var result = await GitBranchService.CommitAsync(RepositoryPath, commitMessage);
             Snackbar.Add(result.Success ? L.T("Commit created.") : L.T("Commit failed: {0}", result.Message),
-                result.Success ? Severity.Success : Severity.Error, config => config.VisibleStateDuration = 8000);
+                result.Success ? Severity.Success : Severity.Error);
             if (result.Success)
             {
                 _commitTitle = string.Empty;
@@ -840,7 +840,7 @@
             Snackbar.Add(result.Success
                     ? L.T("Cherry-pick completed for commit {0}.", commit.ShortHash)
                     : L.T("Cherry-pick failed: {0}", result.Message),
-                result.Success ? Severity.Success : Severity.Error, config => config.VisibleStateDuration = 8000);
+                result.Success ? Severity.Success : Severity.Error);
             await RefreshAsync();
         }
         finally
@@ -898,7 +898,7 @@
         {
             var result = await operation();
             Snackbar.Add(result.Success ? L.T($"{name} completed.") : L.T($"{name} failed: {{0}}", result.Message),
-                result.Success ? Severity.Success : Severity.Error, config => config.VisibleStateDuration = 8000);
+                result.Success ? Severity.Success : Severity.Error);
             await RefreshAsync(fetch: true);
         }
         finally
@@ -926,7 +926,7 @@
     private async Task OpenConflictAsync(string path)
     {
         var result = await GitBranchService.OpenConflictInVsCodeAsync(RepositoryPath, path);
-        Snackbar.Add(result.Message, result.Success ? Severity.Success : Severity.Error, config => config.VisibleStateDuration = 8000);
+        Snackbar.Add(result.Message, result.Success ? Severity.Success : Severity.Error);
     }
 
     private static string FormatDate(string date) => DateTimeOffset.TryParse(date, CultureInfo.InvariantCulture, out var parsed)

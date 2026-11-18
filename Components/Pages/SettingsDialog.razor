@@ -162,8 +162,7 @@
                     Settings.AiModel = _availableModels[0];
             }
             Snackbar.Add(result.Success ? L.T("Connection successful. {0} models found.", _availableModels.Count) : result.Error,
-                result.Success ? Severity.Success : Severity.Error,
-                config => config.VisibleStateDuration = 10000);
+                result.Success ? Severity.Success : Severity.Error);
         }
         finally
         {

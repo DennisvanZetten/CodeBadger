@@ -296,6 +296,11 @@ h1:focus {
     box-sizing: border-box;
 }
 
+/* Settings fields should keep their natural height instead of sharing the available space. */
+.settings-tabs .mud-input-control {
+    flex: 0 0 auto;
+}
+
 .repository-setting-row {
     display: grid;
     grid-template-columns: 58px minmax(145px, 0.8fr) minmax(220px, 1.8fr) 30px 30px;
@@ -622,6 +627,14 @@ h1:focus {
     flex: 1 1 auto;
     min-height: 0;
     place-items: center;
+}
+
+.git-overview-loading-content {
+    width: min(100%, 28rem);
+}
+
+.git-overview-progress {
+    flex: 0 0 auto;
 }
 
 .git-overview-status {

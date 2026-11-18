@@ -10,7 +10,14 @@
             @if (_isLoading && _snapshot is null)
             {
                 <div class="git-overview-loading">
-                    <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Medium" />
+                    <MudStack Spacing="2" Class="git-overview-loading-content">
+                        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                        <MudText Typo="Typo.body2">@L.T(_loadingStage)</MudText>
+                        @if (_loadedBranchCount is not null)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Branches loaded: {0}", _loadedBranchCount.Value)</MudText>
+                        }
+                    </MudStack>
                 </div>
             }
             else if (_snapshot is null || !_snapshot.IsValid)
@@ -24,10 +31,6 @@
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                         <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.CallSplit">@_snapshot.Branch</MudChip>
-                        @if (_isLoading)
-                        {
-                            <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Small" />
-                        }
                     </MudStack>
                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Download"
@@ -39,6 +42,19 @@
                                     <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="@L.T("Close")" OnClick="Close" />
                     </MudStack>
                 </MudStack>
+                @if (_isLoading)
+                {
+                    <MudStack Spacing="1" Class="git-overview-progress">
+                        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                            <MudText Typo="Typo.caption">@L.T(_loadingStage)</MudText>
+                            @if (_loadedBranchCount is not null)
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Branches loaded: {0}", _loadedBranchCount.Value)</MudText>
+                            }
+                        </MudStack>
+                    </MudStack>
+                }
                 @if (!string.IsNullOrWhiteSpace(_snapshot.Warning))
                 {
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@_snapshot.Warning</MudAlert>
@@ -284,6 +300,8 @@
     private string _commitTitle = string.Empty;
     private string _commitDescription = string.Empty;
     private bool _isLoading = true;
+    private string _loadingStage = "Checking repository...";
+    private int? _loadedBranchCount;
     private bool _isLoadingDiff;
     private bool _isOperating;
     private bool _isGeneratingMessage;
@@ -311,9 +329,11 @@
     private async Task RefreshAsync(bool fetch = false)
     {
         _isLoading = true;
+        _loadingStage = fetch ? "Fetching remotes..." : "Checking repository...";
+        _loadedBranchCount = null;
         try
         {
-            _snapshot = await GitBranchService.GetRepositorySnapshotAsync(RepositoryPath, fetch);
+            _snapshot = await GitBranchService.GetRepositorySnapshotAsync(RepositoryPath, fetch, ReportSnapshotProgressAsync);
             _files = await GitBranchService.GetFileChangesAsync(RepositoryPath);
             if (_snapshot?.IsValid == true && _files.Count > 0)
                 _view = GitView.Commit;
@@ -330,6 +350,16 @@
         {
             _isLoading = false;
         }
+    }
+
+    private async Task ReportSnapshotProgressAsync(GitSnapshotProgress progress)
+    {
+        _loadingStage = progress.Stage;
+        if (progress.BranchCount is not null)
+            _loadedBranchCount = progress.BranchCount;
+
+        await InvokeAsync(StateHasChanged);
+        await Task.Yield();
     }
 
     private async Task SwitchToCommitViewAsync()

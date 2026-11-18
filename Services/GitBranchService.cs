@@ -12,11 +12,15 @@ public sealed class GitBranchService
 
     public GitBranchService(LocalizationService localization) => _localization = localization;
 
-    public async Task<GitRepositorySnapshot> GetRepositorySnapshotAsync(string path, bool fetch = false)
+    public async Task<GitRepositorySnapshot> GetRepositorySnapshotAsync(
+        string path,
+        bool fetch = false,
+        Func<GitSnapshotProgress, Task>? progress = null)
     {
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
             return GitRepositorySnapshot.Invalid(_localization.T("Path does not exist"));
 
+        await ReportProgressAsync(progress, fetch ? "Fetching remotes..." : "Checking repository...");
         var branchResult = await RunGitAsync(path, "rev-parse", "--abbrev-ref", "HEAD");
         if (!branchResult.Success)
             return GitRepositorySnapshot.Invalid(branchResult.Message.Contains("not a git repository", StringComparison.OrdinalIgnoreCase)
@@ -31,8 +35,16 @@ public sealed class GitBranchService
                 warning = _localization.T("Unable to fetch remotes: {0}", fetchResult.Message);
         }
 
+        await ReportProgressAsync(progress, "Loading working tree...");
         var statusResult = await RunGitAsync(path, "status", "--porcelain=v1", "-uall");
+        await ReportProgressAsync(progress, "Loading branches...");
         var branchesResult = await RunGitAsync(path, "for-each-ref", "--format=%(refname)%09%(HEAD)%09%(objectname)", "refs/heads", "refs/remotes");
+        var branchCount = branchesResult.Success
+            ? branchesResult.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Count(line => !line.TrimEnd('\r').Split('\t')[0].EndsWith("/HEAD", StringComparison.Ordinal))
+            : 0;
+        if (branchesResult.Success)
+            await ReportProgressAsync(progress, "Loading recent commits...", branchCount);
         var historyResult = await RunGitAsync(path, "log", "--all", "--date-order", "-n", "100", "--date=iso-strict", "--format=%H%x1f%P%x1f%h%x1f%s%x1f%an%x1f%ad");
 
         if (!statusResult.Success || !branchesResult.Success || !historyResult.Success)
@@ -80,6 +92,7 @@ public sealed class GitBranchService
                 parts[1].Split(' ', StringSplitOptions.RemoveEmptyEntries)))
             .ToList();
 
+        await ReportProgressAsync(progress, "Building commit graph...", branches.Count);
         return new GitRepositorySnapshot(
             branchResult.Output.Trim(),
             statusLines.Length,
@@ -93,6 +106,9 @@ public sealed class GitBranchService
             null,
             warning);
     }
+
+    private static Task ReportProgressAsync(Func<GitSnapshotProgress, Task>? progress, string stage, int? branchCount = null) =>
+        progress?.Invoke(new GitSnapshotProgress(stage, branchCount)) ?? Task.CompletedTask;
 
     public async Task<IReadOnlyList<GitFileChange>> GetFileChangesAsync(string path)
     {
@@ -516,6 +532,7 @@ public sealed class GitBranchService
 }
 
 public sealed record GitBranchInfo(string? Branch, string? Status);
+public sealed record GitSnapshotProgress(string Stage, int? BranchCount = null);
 public sealed record GitFileChange(string Path, bool IsStaged, bool IsUnstaged, bool IsConflicted, string Status)
 {
     public bool IsUntracked => Status == "??";

@@ -219,6 +219,11 @@ public sealed class GitBranchService
     public async Task<GitOperationResult> UnstageFileAsync(string path, string filePath) =>
         await RunGitAsync(path, "restore", "--staged", "--", filePath);
 
+    public async Task<GitOperationResult> DiscardUnstagedFileAsync(string path, GitFileChange file) =>
+        file.IsUntracked
+            ? await RunGitAsync(path, "--literal-pathspecs", "clean", "-f", "--", file.Path)
+            : await RunGitAsync(path, "--literal-pathspecs", "restore", "--worktree", "--", file.Path);
+
     public async Task<GitOperationResult> CommitAsync(string path, string message) =>
         await RunGitAsync(path, "commit", "-m", message);
 

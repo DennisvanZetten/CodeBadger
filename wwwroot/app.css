@@ -611,6 +611,10 @@ h1:focus {
     max-height: 92vh;
 }
 
+.git-overview-dialog .mud-typography-color-secondary {
+    font-size: 0.7rem !important;
+}
+
 .git-overview-dialog .mud-dialog-content {
     display: flex;
     flex-direction: column;

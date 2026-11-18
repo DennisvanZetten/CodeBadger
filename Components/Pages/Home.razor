@@ -1,5 +1,6 @@
 @page "/"
 @inject LauncherSettingsService SettingsService
+@inject LocalizationService L
 @inject GitBranchService GitBranchService
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
@@ -13,8 +14,8 @@
         <MudPaper Class="pa-6" Outlined="true" Elevation="0">
             <MudStack Spacing="2" AlignItems="AlignItems.Center">
                 <MudIcon Icon="@Icons.Material.Filled.FolderOpen" Size="Size.Large" Color="Color.Secondary" />
-                <MudText Typo="Typo.h6">Nog geen actieve repositories</MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">Open Instellingen rechtsboven en voeg repositories toe of activeer ze.</MudText>
+                <MudText Typo="Typo.h6">@L.T("No active repositories yet")</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Open Settings in the top-right corner to add or activate repositories.")</MudText>
             </MudStack>
         </MudPaper>
     }
@@ -27,7 +28,7 @@
                     <div class="repository-workspace">
                         @if (!Directory.Exists(repository.Path))
                         {
-                            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">Repositorypad bestaat niet: @repository.Path. Pas het pad aan via Instellingen.</MudAlert>
+                            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@L.T("Repository path does not exist: {0}. Update it in Settings.", repository.Path)</MudAlert>
                         }
                         else
                         {
@@ -39,20 +40,20 @@
                                 <MudStack Spacing="2">
                                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
                                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="flex-wrap">
-                                            <MudText Typo="Typo.subtitle1">Git</MudText>
+                                             <MudText Typo="Typo.subtitle1">@L.T("Git")</MudText>
                                             <MudText Typo="Typo.caption" Color="Color.Secondary">@BranchLabel(repository)</MudText>
                                             @if (_gitSnapshots.TryGetValue(repository, out var snapshot) && snapshot.IsValid)
                                             {
-                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@snapshot.ChangedFiles gewijzigd</MudChip>
+                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@snapshot.ChangedFiles @L.T("changed")</MudChip>
                                                 <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">↑ @snapshot.Ahead</MudChip>
                                                 <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">↓ @snapshot.Behind</MudChip>
                                             }
                                         </MudStack>
                                         <MudStack Row="true" Spacing="1">
-                                            <MudIconButton Icon="@Icons.Material.Filled.Refresh" aria-label="Git-status vernieuwen" Disabled="@_isRefreshingBranches" OnClick="@(() => RefreshRepositoryAsync(repository))" />
+                                            <MudIconButton Icon="@Icons.Material.Filled.Refresh" aria-label="@L.T("Refresh Git status")" Disabled="@_isRefreshingBranches" OnClick="@(() => RefreshRepositoryAsync(repository))" />
                                             <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AccountTree"
                                                        Disabled="@(!_gitSnapshots.TryGetValue(repository, out var gitSnapshot) || !gitSnapshot.IsValid)"
-                                                       OnClick="@(() => OpenGitDialogAsync(repository))">Git-overzicht</MudButton>
+                                                        OnClick="@(() => OpenGitDialogAsync(repository))">@L.T("Git overview")</MudButton>
                                         </MudStack>
                                     </MudStack>
                                     @if (_gitSnapshots.TryGetValue(repository, out var status) && !status.IsValid)
@@ -81,6 +82,7 @@
     {
         _settings = await SettingsService.LoadAsync();
         SettingsService.SettingsSaved += HandleSettingsSaved;
+        L.LanguageChanged += HandleLanguageChanged;
         SyncRepositories();
         await RefreshBranches();
     }
@@ -97,6 +99,8 @@
             StateHasChanged();
         });
     }
+
+    private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);
 
     private void SyncRepositories()
     {
@@ -151,7 +155,7 @@
             { dialog => dialog.AiSettings, _settings }
         };
         var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.ExtraExtraLarge, CloseButton = true, NoHeader = true, CloseOnEscapeKey = true };
-        var dialog = await DialogService.ShowAsync<GitRepositoryDialog>("Git-overzicht", parameters, options);
+        var dialog = await DialogService.ShowAsync<GitRepositoryDialog>(L.T("Git overview"), parameters, options);
         await dialog.Result;
         await RefreshBranches();
     }
@@ -169,7 +173,7 @@
                 .Select(repository => GitBranchService.FetchAsync(repository.Path)));
             var failures = fetchResults.Count(result => !result.Success);
             if (failures > 0)
-                Snackbar.Add($"Fetch mislukt voor {failures} repository(s).", Severity.Warning);
+                Snackbar.Add(L.T("Fetch failed for {0} repositories.", failures), Severity.Warning);
 
             await RefreshBranches(force: true);
         }
@@ -188,7 +192,7 @@
             {
                 var fetch = await GitBranchService.FetchAsync(repository.Path);
                 if (!fetch.Success)
-                    Snackbar.Add($"Git fetch mislukt: {fetch.Message}", Severity.Warning);
+                    Snackbar.Add(L.T("Git fetch failed: {0}", fetch.Message), Severity.Warning);
             }
             await RefreshBranches(force: true);
         }
@@ -201,15 +205,19 @@
     private string BranchLabel(RepositoryEntry repository)
     {
         if (_isRefreshingBranches)
-            return "Branch: ophalen...";
+            return L.T("Branch: loading...");
 
         if (!_branches.TryGetValue(repository, out var branchInfo))
-            return "Branch: nog niet opgehaald";
+            return L.T("Branch: not loaded yet");
 
         return branchInfo.Branch is not null
-            ? $"Branch: {branchInfo.Branch}"
-            : $"Branch: {branchInfo.Status}";
+            ? L.T("Branch: {0}", branchInfo.Branch ?? string.Empty)
+            : L.T("Branch: {0}", branchInfo.Status ?? string.Empty);
     }
 
-    public void Dispose() => SettingsService.SettingsSaved -= HandleSettingsSaved;
+    public void Dispose()
+    {
+        SettingsService.SettingsSaved -= HandleSettingsSaved;
+        L.LanguageChanged -= HandleLanguageChanged;
+    }
 }

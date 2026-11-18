@@ -8,15 +8,19 @@ namespace RepoLauncher.Services;
 
 public sealed class GitBranchService
 {
+    private readonly LocalizationService _localization;
+
+    public GitBranchService(LocalizationService localization) => _localization = localization;
+
     public async Task<GitRepositorySnapshot> GetRepositorySnapshotAsync(string path, bool fetch = false)
     {
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
-            return GitRepositorySnapshot.Invalid("Pad bestaat niet");
+            return GitRepositorySnapshot.Invalid(_localization.T("Path does not exist"));
 
         var branchResult = await RunGitAsync(path, "rev-parse", "--abbrev-ref", "HEAD");
         if (!branchResult.Success)
             return GitRepositorySnapshot.Invalid(branchResult.Message.Contains("not a git repository", StringComparison.OrdinalIgnoreCase)
-                ? "Geen Git-repository"
+                ? _localization.T("Not a Git repository")
                 : branchResult.Message);
 
         string? warning = null;
@@ -24,7 +28,7 @@ public sealed class GitBranchService
         {
             var fetchResult = await RunGitAsync(path, "fetch", "--all", "--prune");
             if (!fetchResult.Success)
-                warning = $"Ophalen van remotes mislukt: {fetchResult.Message}";
+                warning = _localization.T("Unable to fetch remotes: {0}", fetchResult.Message);
         }
 
         var statusResult = await RunGitAsync(path, "status", "--porcelain=v1", "-uall");
@@ -32,7 +36,7 @@ public sealed class GitBranchService
         var historyResult = await RunGitAsync(path, "log", "--all", "--date-order", "-n", "100", "--date=iso-strict", "--format=%H%x1f%P%x1f%h%x1f%s%x1f%an%x1f%ad");
 
         if (!statusResult.Success || !branchesResult.Success || !historyResult.Success)
-            return GitRepositorySnapshot.Invalid("Git-status kon niet worden opgehaald.");
+            return GitRepositorySnapshot.Invalid(_localization.T("Git status unavailable."));
 
         var upstreamResult = await RunGitAsync(path, "rev-list", "--left-right", "--count", "HEAD...@{upstream}");
         var ahead = 0;
@@ -370,15 +374,15 @@ public sealed class GitBranchService
     {
         var fetchResult = await FetchAsync(path);
         if (!fetchResult.Success)
-            return new GitOperationResult(false, $"Push afgebroken: remote-status ophalen is mislukt. {fetchResult.Message}", string.Empty);
+            return new GitOperationResult(false, _localization.T("Push aborted: failed to fetch remote status. {0}", fetchResult.Message), string.Empty);
 
         var snapshot = await GetRepositorySnapshotAsync(path);
         if (!snapshot.IsValid)
-            return new GitOperationResult(false, $"Push afgebroken: remote-status controleren is mislukt. {snapshot.Error}", string.Empty);
+            return new GitOperationResult(false, _localization.T("Push aborted: failed to check remote status. {0}", snapshot.Error ?? string.Empty), string.Empty);
 
         if (snapshot.Behind > 0)
             return new GitOperationResult(false,
-                $"Push geblokkeerd: deze branch loopt {snapshot.Behind} commit(s) achter. Pull eerst de remote wijzigingen en probeer daarna opnieuw.",
+                _localization.T("Push blocked: this branch is {0} commit(s) behind. Pull the remote changes first and try again.", snapshot.Behind),
                 string.Empty);
 
         return await PushAsync(path);
@@ -405,17 +409,17 @@ public sealed class GitBranchService
             var fullPath = Path.GetFullPath(Path.Combine(repositoryPath, relativePath));
             var root = Path.GetFullPath(repositoryPath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
             if (!fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-                return new GitOperationResult(false, "Ongeldig conflictenbestand.", string.Empty);
+                return new GitOperationResult(false, _localization.T("Invalid conflict file."), string.Empty);
 
             var baseContent = await RunGitAsync(repositoryPath, "show", $":1:{relativePath}");
             var oursContent = await RunGitAsync(repositoryPath, "show", $":2:{relativePath}");
             var theirsContent = await RunGitAsync(repositoryPath, "show", $":3:{relativePath}");
             if (!baseContent.Success || !oursContent.Success || !theirsContent.Success)
-                return new GitOperationResult(false, "De conflictversies konden niet uit Git worden gelezen (mogelijk een nieuw bestand).", string.Empty);
+                return new GitOperationResult(false, _localization.T("Conflict versions could not be read from Git (possibly a new file)."), string.Empty);
 
             var gitDirectoryResult = await RunGitAsync(repositoryPath, "rev-parse", "--git-path", "repolauncher-conflicts");
             if (!gitDirectoryResult.Success)
-                return new GitOperationResult(false, "De Git-map kon niet worden bepaald.", string.Empty);
+                return new GitOperationResult(false, _localization.T("Unable to determine the Git directory."), string.Empty);
 
             var tempDirectory = Path.IsPathRooted(gitDirectoryResult.Output)
                 ? gitDirectoryResult.Output
@@ -436,16 +440,16 @@ public sealed class GitBranchService
             startInfo.ArgumentList.Add(basePath);
             startInfo.ArgumentList.Add(fullPath);
             if (Process.Start(startInfo) is null)
-                return new GitOperationResult(false, "VS Code kon niet worden gestart.", string.Empty);
-            return new GitOperationResult(true, "VS Code merge-editor geopend.", string.Empty);
+                return new GitOperationResult(false, _localization.T("VS Code could not be started."), string.Empty);
+            return new GitOperationResult(true, _localization.T("VS Code merge editor opened."), string.Empty);
         }
         catch (Win32Exception)
         {
-            return new GitOperationResult(false, "VS Code CLI 'code' is niet beschikbaar in PATH.", string.Empty);
+            return new GitOperationResult(false, _localization.T("VS Code CLI 'code' is not available in PATH."), string.Empty);
         }
         catch (Exception exception) when (exception is IOException or ArgumentException or NotSupportedException)
         {
-            return new GitOperationResult(false, $"Vergelijking kon niet worden geopend: {exception.Message}", string.Empty);
+            return new GitOperationResult(false, _localization.T("VS Code could not be opened: {0}", exception.Message), string.Empty);
         }
     }
 
@@ -454,21 +458,22 @@ public sealed class GitBranchService
         var result = await RunGitAsync(path, "rev-parse", "--abbrev-ref", "HEAD");
         if (result.Success)
             return result.Output.Trim() == "HEAD"
-                ? new GitBranchInfo(null, "Detached HEAD")
+                ? new GitBranchInfo(null, _localization.T("Detached HEAD"))
                 : new GitBranchInfo(result.Output.Trim(), null);
 
         return new GitBranchInfo(null, result.Message.Contains("not a git repository", StringComparison.OrdinalIgnoreCase)
-            ? "Geen Git-repository"
-            : result.Message.Contains("Pad bestaat niet", StringComparison.OrdinalIgnoreCase) ? "Pad bestaat niet" : "Branch niet beschikbaar");
+            ? _localization.T("Not a Git repository")
+            : result.Message.Contains("Path does not exist", StringComparison.OrdinalIgnoreCase) || result.Message.Contains("Pad bestaat niet", StringComparison.OrdinalIgnoreCase)
+                ? _localization.T("Path does not exist") : _localization.T("Branch unavailable"));
     }
 
-    private static async Task<GitOperationResult> RunGitAsync(string path, params string[] arguments) =>
+    private async Task<GitOperationResult> RunGitAsync(string path, params string[] arguments) =>
         await RunGitCoreAsync(path, false, arguments);
 
-    private static async Task<GitOperationResult> RunGitAllowExitOneAsync(string path, params string[] arguments) =>
+    private async Task<GitOperationResult> RunGitAllowExitOneAsync(string path, params string[] arguments) =>
         await RunGitCoreAsync(path, true, arguments);
 
-    private static async Task<GitOperationResult> RunGitCoreAsync(string path, bool allowExitCodeOne, params string[] arguments)
+    private async Task<GitOperationResult> RunGitCoreAsync(string path, bool allowExitCodeOne, params string[] arguments)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -486,7 +491,7 @@ public sealed class GitBranchService
         {
             using var process = Process.Start(startInfo);
             if (process is null)
-                return new GitOperationResult(false, "Git kon niet worden gestart.", string.Empty);
+                return new GitOperationResult(false, _localization.T("Git could not be started."), string.Empty);
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
@@ -497,11 +502,11 @@ public sealed class GitBranchService
         }
         catch (Win32Exception)
         {
-            return new GitOperationResult(false, "Git is niet beschikbaar in PATH.", string.Empty);
+            return new GitOperationResult(false, _localization.T("Git is not available in PATH."), string.Empty);
         }
         catch (DirectoryNotFoundException)
         {
-            return new GitOperationResult(false, "Pad bestaat niet.", string.Empty);
+            return new GitOperationResult(false, _localization.T("Path does not exist"), string.Empty);
         }
         catch (InvalidOperationException exception)
         {

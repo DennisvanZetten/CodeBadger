@@ -1,9 +1,12 @@
 ﻿@inherits LayoutComponentBase
+@implements IDisposable
 @inject LauncherSettingsService SettingsService
+@inject LocalizationService L
+@inject IJSRuntime JS
 @inject IDialogService DialogService
 @using RepoLauncher.Components.Pages
 
-<MudThemeProvider IsDarkMode="true" />
+<MudThemeProvider Theme="@_theme.Theme" IsDarkMode="@_theme.IsDark" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
@@ -13,7 +16,7 @@
         <MudText Typo="Typo.h6">Repo Launcher</MudText>
         <MudSpacer />
         <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Default" Size="Size.Small"
-                       aria-label="Instellingen openen" OnClick="OpenSettingsAsync" />
+                        aria-label="@L.T("Open settings")" OnClick="OpenSettingsAsync" />
     </MudAppBar>
     <MudMainContent>
         @Body
@@ -21,6 +24,59 @@
 </MudLayout>
 
 @code {
+    private string? _appliedLanguage;
+    private string? _appliedTheme;
+    private LauncherTheme _theme = LauncherThemes.Get(null);
+
+    protected override async Task OnInitializedAsync()
+    {
+        L.LanguageChanged += HandleLanguageChanged;
+        SettingsService.SettingsSaved += HandleSettingsSaved;
+        _theme = LauncherThemes.Get((await SettingsService.LoadAsync()).Theme);
+    }
+
+    private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private void HandleSettingsSaved() => _ = InvokeAsync(async () =>
+    {
+        _theme = LauncherThemes.Get((await SettingsService.LoadAsync()).Theme);
+        StateHasChanged();
+    });
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_appliedLanguage != L.CurrentLanguage)
+        {
+            _appliedLanguage = L.CurrentLanguage;
+            await ApplyLanguageToDocumentAsync();
+        }
+        if (_appliedTheme != _theme.Id)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("repoLauncher.setTheme", _theme.Id, _theme.IsDark,
+                    _theme.TerminalBackground, _theme.TerminalForeground, _theme.TerminalCursor, _theme.TerminalSelection);
+                _appliedTheme = _theme.Id;
+            }
+            catch (JSException)
+            {
+                // Theme selection must never prevent the main page from rendering.
+            }
+        }
+    }
+
+    private async Task ApplyLanguageToDocumentAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("repoLauncher.setLanguage", L.CurrentLanguage, L.GetBootstrapTranslations());
+        }
+        catch (JSException)
+        {
+            // Language selection must never prevent the main page from rendering.
+        }
+    }
+
     private async Task OpenSettingsAsync()
     {
         var settings = await SettingsService.LoadAsync();
@@ -29,7 +85,19 @@
             { dialog => dialog.Settings, settings }
         };
         var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.ExtraExtraLarge, CloseButton = true };
-        var dialog = await DialogService.ShowAsync<SettingsDialog>("Instellingen", parameters, options);
-        await dialog.Result;
+        var dialog = await DialogService.ShowAsync<SettingsDialog>(L.T("Settings"), parameters, options);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: true })
+        {
+            _appliedLanguage = null;
+            await InvokeAsync(StateHasChanged);
+            await ApplyLanguageToDocumentAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        L.LanguageChanged -= HandleLanguageChanged;
+        SettingsService.SettingsSaved -= HandleSettingsSaved;
     }
 }

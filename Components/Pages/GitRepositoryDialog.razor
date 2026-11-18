@@ -1,4 +1,5 @@
 @using System.Globalization
+@inject LocalizationService L
 @inject GitBranchService GitBranchService
 @inject AiCommitMessageService AiCommitMessageService
 @inject ISnackbar Snackbar
@@ -14,8 +15,8 @@
             }
             else if (_snapshot is null || !_snapshot.IsValid)
             {
-                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@(_snapshot?.Error ?? "Git-status niet beschikbaar.")</MudAlert>
-                <MudIconButton Class="git-overview-close" Icon="@Icons.Material.Filled.Close" aria-label="Sluiten" OnClick="Close" />
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@(_snapshot?.Error ?? L.T("Git status unavailable."))</MudAlert>
+                <MudIconButton Class="git-overview-close" Icon="@Icons.Material.Filled.Close" aria-label="@L.T("Close")" OnClick="Close" />
             }
             else
             {
@@ -30,12 +31,12 @@
                     </MudStack>
                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Download"
-                                   Disabled="@_isOperating" OnClick="PullAsync">Pull (@_snapshot.Behind)</MudButton>
+                                   Disabled="@_isOperating" OnClick="PullAsync">@L.T("Pull ({0})", _snapshot.Behind)</MudButton>
                         <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Upload"
-                                   Disabled="@_isOperating" OnClick="PushAsync">Push (@_snapshot.Ahead)</MudButton>
-                        <MudIconButton Icon="@Icons.Material.Filled.Refresh" aria-label="Git-status vernieuwen"
+                                   Disabled="@_isOperating" OnClick="PushAsync">@L.T("Push ({0})", _snapshot.Ahead)</MudButton>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Refresh" aria-label="@L.T("Refresh Git status")"
                                        Disabled="@_isOperating" OnClick="@(() => RefreshAsync(fetch: true))" />
-                        <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="Sluiten" OnClick="Close" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="@L.T("Close")" OnClick="Close" />
                     </MudStack>
                 </MudStack>
                 @if (!string.IsNullOrWhiteSpace(_snapshot.Warning))
@@ -46,23 +47,23 @@
                 <MudButtonGroup Color="Color.Primary" Variant="Variant.Outlined" Class="git-view-switch">
                     <MudButton Class="@(_view == GitView.History ? "git-view-active" : "git-view-inactive")"
                                StartIcon="@Icons.Material.Filled.AccountTree" Color="@(_view == GitView.History ? Color.Primary : Color.Default)" Variant="@(_view == GitView.History ? Variant.Filled : Variant.Outlined)"
-                               OnClick="@(() => _view = GitView.History)">Branches &amp; commits</MudButton>
+                                OnClick="@(() => _view = GitView.History)">@L.T("Branches & commits")</MudButton>
                     <MudButton Class="@(_view == GitView.Commit ? "git-view-active" : "git-view-inactive")"
                                StartIcon="@Icons.Material.Filled.EditNote" Color="@(_view == GitView.Commit ? Color.Primary : Color.Default)" Variant="@(_view == GitView.Commit ? Variant.Filled : Variant.Outlined)"
-                               OnClick="@(() => SwitchToCommitViewAsync())">Commit maken</MudButton>
+                                OnClick="@(() => SwitchToCommitViewAsync())">@L.T("Create commit")</MudButton>
                 </MudButtonGroup>
 
                 @if (_snapshot.Conflicts.Count > 0)
                 {
                     <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Warning">
-                        <MudText Typo="Typo.subtitle2">Conflicten gevonden (@_snapshot.Conflicts.Count)</MudText>
+                        <MudText Typo="Typo.subtitle2">@L.T("Conflicts found ({0})", _snapshot.Conflicts.Count)</MudText>
                         <MudStack Spacing="1" Class="mt-2">
                             @foreach (var conflict in _snapshot.Conflicts)
                             {
                                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" @key="conflict">
                                     <MudText Typo="Typo.body2" Class="text-break">@conflict</MudText>
                                     <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.CompareArrows"
-                                               OnClick="@(() => OpenConflictAsync(conflict))">Vergelijk in VS Code</MudButton>
+                                                OnClick="@(() => OpenConflictAsync(conflict))">@L.T("Compare in VS Code")</MudButton>
                                 </MudStack>
                             }
                         </MudStack>
@@ -75,12 +76,12 @@
                         <MudItem xs="12" md="3" xl="2">
                             <MudPaper Class="pa-3 git-dialog-panel git-branch-panel" Outlined="true" Elevation="0">
                                 <div class="git-branch-header">
-                                    <MudText Typo="Typo.subtitle1">Branches</MudText>
-                                    <span class="git-branch-count">@_snapshot.Branches.Count</span>
+                                    <MudText Typo="Typo.subtitle1">@L.T("Branches")</MudText>
+                    <span class="git-branch-count">@_snapshot.Branches.Count</span>
                                 </div>
                                 <div class="git-branch-groups">
                                     <details class="git-branch-group" open>
-                                        <summary><span>Lokale branches</span><span class="git-branch-count">@LocalBranches.Count</span></summary>
+                                         <summary><span>@L.T("Local branches")</span><span class="git-branch-count">@LocalBranches.Count</span></summary>
                                         <div class="git-dialog-list git-branch-list">
                                             @foreach (var folder in LocalBranchFolders)
                                             {
@@ -88,12 +89,12 @@
                                             }
                                             @if (LocalBranches.Count == 0)
                                             {
-                                                <MudText Typo="Typo.caption" Color="Color.Secondary">Geen lokale branches.</MudText>
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No local branches.")</MudText>
                                             }
                                         </div>
                                     </details>
                                     <details class="git-branch-group" open>
-                                        <summary><span>Remote branches</span><span class="git-branch-count">@RemoteBranches.Count</span></summary>
+                                         <summary><span>@L.T("Remote branches")</span><span class="git-branch-count">@RemoteBranches.Count</span></summary>
                                         <div class="git-dialog-list git-branch-list">
                                             @foreach (var folder in RemoteBranchFolders)
                                             {
@@ -101,7 +102,7 @@
                                             }
                                             @if (RemoteBranches.Count == 0)
                                             {
-                                                <MudText Typo="Typo.caption" Color="Color.Secondary">Geen remote branches.</MudText>
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No remote branches.")</MudText>
                                             }
                                         </div>
                                     </details>
@@ -110,7 +111,7 @@
                         </MudItem>
                         <MudItem xs="12" md="9" xl="10">
                             <MudPaper Class="pa-3 git-dialog-panel" Outlined="true" Elevation="0">
-                                <MudText Typo="Typo.subtitle1" Class="mb-2">Recente commits</MudText>
+                                <MudText Typo="Typo.subtitle1" Class="mb-2">@L.T("Recent commits")</MudText>
                                  <MudStack Spacing="0" Class="git-dialog-list git-commit-list">
                                     @foreach (var commit in _snapshot.Commits)
                                     {
@@ -126,11 +127,11 @@
                                                           style="--branch-color: @GraphColor(pathLabel.Color)" title="@pathLabel.Name">
                                                         @if (pathLabel.IsLocal)
                                                         {
-                                                            <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" aria-label="Lokaal" Class="git-branch-label-icon" />
+                                                            <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" aria-label="@L.T("Local")" Class="git-branch-label-icon" />
                                                         }
                                                         @if (pathLabel.IsRemote)
                                                         {
-                                                            <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small" aria-label="Remote" Class="git-branch-label-icon" />
+                                                            <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small" aria-label="@L.T("Remote")" Class="git-branch-label-icon" />
                                                         }
                                                         <span class="git-commit-branch-name">@pathLabel.Name</span>
                                                     </span>
@@ -143,11 +144,11 @@
                                                               style="--branch-color: @GraphColor(label.Color)" title="@label.Name">
                                                             @if (label.IsLocal)
                                                             {
-                                                                <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" aria-label="Lokaal" Class="git-branch-label-icon" />
+                                                                <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" aria-label="@L.T("Local")" Class="git-branch-label-icon" />
                                                             }
                                                             @if (label.IsRemote)
                                                             {
-                                                                <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small" aria-label="Remote" Class="git-branch-label-icon" />
+                                                                <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small" aria-label="@L.T("Remote")" Class="git-branch-label-icon" />
                                                             }
                                                             <span class="git-commit-branch-name">@label.Name</span>
                                                         </span>
@@ -173,7 +174,7 @@
                                     }
                                     @if (_snapshot.Commits.Count == 0)
                                     {
-                                        <MudText Typo="Typo.body2" Color="Color.Secondary">Geen commits gevonden.</MudText>
+                                        <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("No commits found.")</MudText>
                                     }
                                 </MudStack>
                             </MudPaper>
@@ -185,10 +186,10 @@
                     <div class="git-commit-workspace">
                             <MudPaper Class="pa-3 git-dialog-panel git-diff-panel" Outlined="true" Elevation="0">
                                 <MudStack Spacing="2" Class="git-diff-section">
-                                    <MudText Typo="Typo.subtitle1">Verschil @(_selectedFile is null ? "" : $"— {_selectedFile.Path}")</MudText>
+                                    <MudText Typo="Typo.subtitle1">@L.T("Diff {0}", _selectedFile is null ? "" : $"— {_selectedFile.Path}")</MudText>
                                     @if (_selectedFile is null)
                                     {
-                                        <MudText Typo="Typo.body2" Color="Color.Secondary">Selecteer een bestand om de diff te bekijken.</MudText>
+                                        <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Select a file to view its diff.")</MudText>
                                     }
                                     else if (_isLoadingDiff)
                                     {
@@ -208,12 +209,12 @@
                                 <MudPaper Class="pa-3 git-dialog-panel git-file-panel" Outlined="true" Elevation="0">
                                     <MudStack Spacing="1" Class="git-file-list-section">
                                         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                            <MudText Typo="Typo.subtitle1">Niet staged (@UnstagedFiles.Count)</MudText>
-                                            <MudButton Size="Size.Small" Disabled="@(_isOperating || UnstagedFiles.Count == 0)" OnClick="StageAllAsync">Stage alles</MudButton>
+                                            <MudText Typo="Typo.subtitle1">@L.T("Unstaged ({0})", UnstagedFiles.Count)</MudText>
+                                            <MudButton Size="Size.Small" Disabled="@(_isOperating || UnstagedFiles.Count == 0)" OnClick="StageAllAsync">@L.T("Stage all")</MudButton>
                                         </MudStack>
                                         @if (UnstagedFiles.Count == 0)
                                         {
-                                            <MudText Typo="Typo.caption" Color="Color.Secondary">Geen niet-staged wijzigingen.</MudText>
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No unstaged changes.")</MudText>
                                         }
                                         <div class="git-file-list-scroll">
                                             @foreach (var file in UnstagedFiles)
@@ -225,10 +226,10 @@
                                 </MudPaper>
                                 <MudPaper Class="pa-3 git-dialog-panel git-file-panel" Outlined="true" Elevation="0">
                                     <MudStack Spacing="1" Class="git-file-list-section">
-                                        <MudText Typo="Typo.subtitle1">Staged (@StagedFiles.Count)</MudText>
+                                        <MudText Typo="Typo.subtitle1">@L.T("Staged ({0})", StagedFiles.Count)</MudText>
                                         @if (StagedFiles.Count == 0)
                                         {
-                                            <MudText Typo="Typo.caption" Color="Color.Secondary">Geen staged wijzigingen.</MudText>
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No staged changes.")</MudText>
                                         }
                                         <div class="git-file-list-scroll">
                                             @foreach (var file in StagedFiles)
@@ -241,19 +242,19 @@
                                 <MudPaper Class="pa-3 git-dialog-panel git-message-panel" Outlined="true" Elevation="0">
                                     <MudStack Spacing="2">
                                         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                            <MudText Typo="Typo.subtitle1">Commitbericht</MudText>
+                                            <MudText Typo="Typo.subtitle1">@L.T("Commit message")</MudText>
                                             <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AutoAwesome"
                                                        Disabled="@(_isGeneratingMessage || StagedFiles.Count == 0)" OnClick="GenerateCommitMessageAsync">
-                                                @(_isGeneratingMessage ? "Genereren..." : "Genereer met AI")
+                                                @(_isGeneratingMessage ? L.T("Generating...") : L.T("Generate with AI"))
                                             </MudButton>
                                         </MudStack>
-                                        <MudTextField @bind-Value="_commitTitle" Label="Titel (verplicht)" Margin="Margin.Dense" Variant="Variant.Outlined"
-                                                      Placeholder="Korte samenvatting van de wijziging" MaxLength="72" Counter="72" Required="true" />
-                                        <MudTextField @bind-Value="_commitDescription" Label="Beschrijving (optioneel)" Lines="2" Margin="Margin.Dense" Variant="Variant.Outlined"
-                                                      Placeholder="Meer context over de wijziging..." />
+                                        <MudTextField @bind-Value="_commitTitle" Label="@L.T("Title (required)")" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                                      Placeholder="@L.T("Short summary of the change")" MaxLength="72" Counter="72" Required="true" />
+                                        <MudTextField @bind-Value="_commitDescription" Label="@L.T("Description (optional)")" Lines="2" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                                      Placeholder="@L.T("More context about the change...")" />
                                         <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Check"
                                                    Disabled="@(_isOperating || StagedFiles.Count == 0 || string.IsNullOrWhiteSpace(_commitTitle))"
-                                                   OnClick="CommitChangesAsync">Commit (@StagedFiles.Count bestanden)</MudButton>
+                                                    OnClick="CommitChangesAsync">@L.T("Commit ({0} files)", StagedFiles.Count)</MudButton>
                                     </MudStack>
                                 </MudPaper>
                             </div>
@@ -261,7 +262,7 @@
                 }
 
                 <MudText Typo="Typo.caption" Color="Color.Secondary" Class="git-overview-status">
-                    @_snapshot.ChangedFiles gewijzigde bestanden · @_snapshot.StagedFiles staged · @_snapshot.UnstagedFiles niet-staged · @_snapshot.Ahead vooruit / @_snapshot.Behind achter
+                    @_snapshot.ChangedFiles @L.T("changed") · @_snapshot.StagedFiles @L.T("Staged changes") · @_snapshot.UnstagedFiles @L.T("Unstaged changes") · @_snapshot.Ahead @L.T("Ahead") / @_snapshot.Behind @L.T("Behind")
                 </MudText>
               </MudStack>
             }
@@ -381,7 +382,7 @@
                     failed++;
             }
             if (failed > 0)
-                Snackbar.Add($"Stagen mislukt voor {failed} bestand(en).", Severity.Error);
+                Snackbar.Add(L.T("Stage failed for {0} file(s).", failed), Severity.Error);
             await RefreshAsync();
         }
         finally
@@ -414,7 +415,7 @@
             var diff = await GitBranchService.GetStagedDiffAsync(RepositoryPath);
             if (!diff.Success)
             {
-                Snackbar.Add($"Staged diff ophalen mislukt: {diff.Message}", Severity.Error);
+                Snackbar.Add(L.T("Failed to load staged diff: {0}", diff.Message), Severity.Error);
                 return;
             }
 
@@ -442,7 +443,7 @@
                 ? _commitTitle.Trim()
                 : $"{_commitTitle.Trim()}\n\n{_commitDescription.Trim()}";
             var result = await GitBranchService.CommitAsync(RepositoryPath, commitMessage);
-            Snackbar.Add(result.Success ? "Commit gemaakt." : $"Commit mislukt: {result.Message}",
+            Snackbar.Add(result.Success ? L.T("Commit created.") : L.T("Commit failed: {0}", result.Message),
                 result.Success ? Severity.Success : Severity.Error, config => config.VisibleStateDuration = 8000);
             if (result.Success)
             {
@@ -469,7 +470,7 @@
         @if (!file.IsConflicted)
         {
             <MudIconButton Size="Size.Small" Icon="@(staged ? Icons.Material.Filled.Remove : Icons.Material.Filled.Add)"
-                           aria-label="@(staged ? "Unstage bestand" : "Stage bestand")"
+                            aria-label="@(staged ? L.T("Unstage file") : L.T("Stage file"))"
                            Disabled="@_isOperating" OnClick="@(staged ? (() => UnstageAsync(file)) : (() => StageAsync(file)))" />
         }
     </div>;
@@ -607,7 +608,7 @@
         try
         {
             var result = await operation();
-            Snackbar.Add(result.Success ? $"{name} voltooid." : $"{name} mislukt: {result.Message}",
+            Snackbar.Add(result.Success ? L.T($"{name} completed.") : L.T($"{name} failed: {{0}}", result.Message),
                 result.Success ? Severity.Success : Severity.Error, config => config.VisibleStateDuration = 8000);
             await RefreshAsync(fetch: true);
         }
@@ -623,7 +624,7 @@
         try
         {
             var result = await GitBranchService.CheckoutBranchAsync(RepositoryPath, branch);
-            Snackbar.Add(result.Success ? $"Branch '{branch}' uitgecheckt." : result.Message,
+            Snackbar.Add(result.Success ? L.T("Branch '{0}' checked out.", branch) : result.Message,
                 result.Success ? Severity.Success : Severity.Error);
             await RefreshAsync();
         }
@@ -645,7 +646,11 @@
     private int GraphX(int column) => 10 + column * 24;
 
     private static readonly int[] GraphPalette = [0xB38CFF, 0x55A6FF, 0xFFB454, 0x42D6B5, 0xFF6B81, 0xD6D95A, 0x53C7D9, 0xF080D0];
-    private static string GraphColor(int color) => $"#{GraphPalette[Math.Abs(color % GraphPalette.Length)]:X6}";
+    private static string GraphColor(int color)
+    {
+        var index = Math.Abs(color % GraphPalette.Length);
+        return $"var(--git-graph-{index}, #{GraphPalette[index]:X6})";
+    }
     private static string GraphStrokeStyle(int color) => $"stroke: {GraphColor(color)}";
     private string GraphPath(GitGraphEdge edge)
     {

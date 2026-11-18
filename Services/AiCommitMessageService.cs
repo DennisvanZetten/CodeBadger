@@ -7,15 +7,19 @@ namespace RepoLauncher.Services;
 
 public sealed class AiCommitMessageService
 {
+    private readonly LocalizationService _localization;
+
+    public AiCommitMessageService(LocalizationService localization) => _localization = localization;
+
     public async Task<AiCommitMessageResult> GenerateAsync(LauncherSettings settings, string diff)
     {
         if (string.IsNullOrWhiteSpace(diff))
-            return new AiCommitMessageResult(false, string.Empty, string.Empty, "Stage minstens één wijziging voordat je een commitbericht genereert.");
+            return new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("Please stage at least one change before generating a commit message."));
 
         var provider = settings.AiProvider;
         var endpoint = ResolveCompletionEndpoint(settings);
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
-            return new AiCommitMessageResult(false, string.Empty, string.Empty, "Vul een geldige provider-URL in.");
+            return new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("Enter a valid provider URL."));
 
         var boundedDiff = LimitInput(diff, settings.AiMaxInputTokens);
         try
@@ -25,24 +29,25 @@ public sealed class AiCommitMessageService
             using var response = await client.SendAsync(request);
             var responseBody = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
-                return new AiCommitMessageResult(false, string.Empty, string.Empty, $"Provider gaf {(int)response.StatusCode} voor {uri.AbsolutePath}: {ExtractError(responseBody)}");
+                return new AiCommitMessageResult(false, string.Empty, string.Empty,
+                    _localization.T("Provider returned status {0} for {1}: {2}", (int)response.StatusCode, uri.AbsolutePath, ExtractError(responseBody)));
 
             var (title, description) = ExtractMessage(provider, responseBody);
             return string.IsNullOrWhiteSpace(title)
-                ? new AiCommitMessageResult(false, string.Empty, string.Empty, "De provider gaf geen commit-titel terug.")
+                ? new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("The provider returned no commit title."))
                 : new AiCommitMessageResult(true, title.Trim().Trim('`'), description.Trim().Trim('`'), string.Empty);
         }
         catch (TaskCanceledException)
         {
-            return new AiCommitMessageResult(false, string.Empty, string.Empty, "Verbinding met de AI-provider duurde te lang.");
+            return new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("The AI provider connection timed out."));
         }
         catch (HttpRequestException exception)
         {
-            return new AiCommitMessageResult(false, string.Empty, string.Empty, $"Verbinding met de AI-provider mislukt: {exception.Message}");
+            return new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("Connection to the AI provider failed: {0}", exception.Message));
         }
         catch (JsonException exception)
         {
-            return new AiCommitMessageResult(false, string.Empty, string.Empty, $"Ongeldige response van AI-provider: {exception.Message}");
+            return new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("Invalid AI provider response: {0}", exception.Message));
         }
     }
 
@@ -50,7 +55,7 @@ public sealed class AiCommitMessageService
     {
         var result = await GetAvailableModelsAsync(settings);
         return result.Success
-            ? new AiCommitMessageResult(true, $"Verbinding werkt. {result.Models.Count} modellen gevonden.", string.Empty, string.Empty)
+            ? new AiCommitMessageResult(true, _localization.T("Connection successful. {0} models found.", result.Models.Count), string.Empty, string.Empty)
             : new AiCommitMessageResult(false, string.Empty, string.Empty, result.Error);
     }
 
@@ -121,7 +126,7 @@ public sealed class AiCommitMessageService
         var provider = settings.AiProvider;
         var endpoint = ResolveModelsEndpoint(settings);
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
-            return new AiModelListResult(false, [], "Vul een geldige provider-URL in.");
+            return new AiModelListResult(false, [], _localization.T("Enter a valid provider URL."));
 
         try
         {
@@ -131,24 +136,25 @@ public sealed class AiCommitMessageService
             using var response = await client.SendAsync(request);
             var responseBody = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
-                return new AiModelListResult(false, [], $"Provider gaf {(int)response.StatusCode}: {ExtractError(responseBody)}");
+                return new AiModelListResult(false, [],
+                    _localization.T("Provider returned status {0}: {1}", (int)response.StatusCode, ExtractError(responseBody)));
 
             var models = ParseModelList(provider, responseBody);
             return models.Count == 0
-                ? new AiModelListResult(false, [], "De verbinding is gelukt, maar de provider heeft geen modellen teruggegeven.")
+                ? new AiModelListResult(false, [], _localization.T("The connection succeeded, but the provider returned no models."))
                 : new AiModelListResult(true, models, string.Empty);
         }
         catch (TaskCanceledException)
         {
-            return new AiModelListResult(false, [], "Verbinding met de AI-provider duurde te lang.");
+            return new AiModelListResult(false, [], _localization.T("The AI provider connection timed out."));
         }
         catch (HttpRequestException exception)
         {
-            return new AiModelListResult(false, [], $"Verbinding met de AI-provider mislukt: {exception.Message}");
+            return new AiModelListResult(false, [], _localization.T("Connection to the AI provider failed: {0}", exception.Message));
         }
         catch (JsonException exception)
         {
-            return new AiModelListResult(false, [], $"Ongeldige modellen-response: {exception.Message}");
+            return new AiModelListResult(false, [], _localization.T("Invalid models response: {0}", exception.Message));
         }
     }
 
@@ -260,13 +266,13 @@ public sealed class AiCommitMessageService
 
     private static StringContent JsonContent(object value) => new(JsonSerializer.Serialize(value), Encoding.UTF8, "application/json");
 
-    private static string LimitInput(string diff, int maxInputTokens)
+    private string LimitInput(string diff, int maxInputTokens)
     {
         var tokenLimit = Math.Clamp(maxInputTokens, 256, 200000);
         var charLimit = tokenLimit * 4;
         if (diff.Length <= charLimit)
             return diff;
-        return diff[..charLimit] + "\n\n[Diff ingekort vanwege de ingestelde input-tokenlimiet.]";
+        return diff[..charLimit] + "\n\n[" + _localization.T("Diff shortened because of the configured input token limit.") + "]";
     }
 
     private static (string Title, string Description) ExtractMessage(string provider, string response)

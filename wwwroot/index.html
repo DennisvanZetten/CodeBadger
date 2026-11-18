@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
@@ -10,6 +10,24 @@
     <link rel="stylesheet" href="app.css" />
     <link rel="stylesheet" href="RepoLauncher.styles.css" />
     <link rel="icon" href="data:,">
+    <script>
+        window.repoLauncher = {
+            setTheme: function (id, isDark, background, foreground, cursor, selectionBackground) {
+                document.documentElement.dataset.theme = id;
+                document.documentElement.dataset.themeMode = isDark ? "dark" : "light";
+                document.documentElement.style.setProperty("--terminal-background", background);
+                window.repoLauncherTerminalTheme = { isDark, background, foreground, cursor, selectionBackground };
+                window.dispatchEvent(new CustomEvent("repo-launcher-theme-changed", { detail: window.repoLauncherTerminalTheme }));
+            },
+            setLanguage: function (language, translations) {
+                document.documentElement.lang = language;
+                document.querySelectorAll("[data-i18n]").forEach(function (element) {
+                    var key = element.dataset.i18n;
+                    element.textContent = translations[key] || key;
+                });
+            }
+        };
+    </script>
 </head>
 
 <body>
@@ -19,8 +37,8 @@
     <div id="app">Loading...</div>
 
     <div id="blazor-error-ui" data-nosnippet>
-        An unhandled error has occurred.
-        <a href="." class="reload">Reload</a>
+        <span data-i18n="An unhandled error has occurred.">An unhandled error has occurred.</span>
+        <a href="." class="reload" data-i18n="Reload">Reload</a>
         <span class="dismiss">🗙</span>
     </div>
 

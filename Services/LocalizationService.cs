@@ -1,0 +1,210 @@
+using System.Globalization;
+
+namespace RepoLauncher.Services;
+
+public sealed class LocalizationService
+{
+    private static readonly string[] Languages = ["en", "nl", "de", "fr"];
+    private string _language = "en";
+
+    private static readonly Dictionary<string, string[]> Texts = new(StringComparer.Ordinal)
+    {
+        ["Settings"] = ["Settings", "Instellingen", "Einstellungen", "Paramètres"],
+        ["Open settings"] = ["Open settings", "Instellingen openen", "Einstellungen öffnen", "Ouvrir les paramètres"],
+        ["Repositories"] = ["Repositories", "Repositories", "Repositories", "Dépôts"],
+        ["Manage repositories"] = ["Manage repositories", "Repositories beheren", "Repositories verwalten", "Gérer les dépôts"],
+        ["Active repositories get their own tab on the home screen."] = ["Active repositories get their own tab on the home screen.", "Actieve repositories krijgen een eigen starttab.", "Aktive Repositories erhalten einen eigenen Tab auf der Startseite.", "Les dépôts actifs ont leur propre onglet sur l’écran d’accueil."],
+        ["Add"] = ["Add", "Toevoegen", "Hinzufügen", "Ajouter"],
+        ["Add a repository folder to get started."] = ["Add a repository folder to get started.", "Voeg een repositorymap toe om te beginnen.", "Fügen Sie einen Repository-Ordner hinzu, um zu beginnen.", "Ajoutez un dossier de dépôt pour commencer."],
+        ["Name"] = ["Name", "Naam", "Name", "Nom"],
+        ["Path"] = ["Path", "Pad", "Pfad", "Chemin"],
+        ["Browse for repository folder"] = ["Browse for repository folder", "Repositorymap zoeken", "Repository-Ordner auswählen", "Parcourir les dossiers de dépôt"],
+        ["Remove repository"] = ["Remove repository", "Repository verwijderen", "Repository entfernen", "Supprimer le dépôt"],
+        ["Start"] = ["Start", "Starten", "Start", "Démarrage"],
+        ["Startup settings"] = ["Startup settings", "Startinstellingen", "Starteinstellungen", "Paramètres de démarrage"],
+        ["Application / command"] = ["Application / command", "Applicatie / opdracht", "Anwendung / Befehl", "Application / commande"],
+        ["Started directly in the repository folder, for example opencode or a full .exe path with arguments."] = ["Started directly in the repository folder, for example opencode or a full .exe path with arguments.", "Wordt rechtstreeks gestart in de repositorymap, bijvoorbeeld opencode of een volledig exe-pad met argumenten.", "Wird direkt im Repository-Ordner gestartet, z. B. opencode oder ein vollständiger .exe-Pfad mit Argumenten.", "Démarré directement dans le dossier du dépôt, par exemple opencode ou un chemin .exe complet avec arguments."],
+        ["AI provider"] = ["AI provider", "AI-provider", "KI-Anbieter", "Fournisseur d’IA"],
+        ["AI for commit messages"] = ["AI for commit messages", "AI voor commitberichten", "KI für Commit-Nachrichten", "IA pour les messages de commit"],
+        ["Provider"] = ["Provider", "Provider", "Anbieter", "Fournisseur"],
+        ["Provider URL"] = ["Provider URL", "Provider URL", "Anbieter-URL", "URL du fournisseur"],
+        ["OpenAI-compatible base URL (e.g. https://host/v1) or full /chat/completions endpoint; Azure: deployment URL including api-version."] = ["OpenAI-compatible base URL (e.g. https://host/v1) or full /chat/completions endpoint; Azure: deployment URL including api-version.", "OpenAI-compatible basis-URL (bijv. https://host/v1) of volledig /chat/completions-endpoint; Azure: deployment-URL inclusief api-version.", "OpenAI-kompatible Basis-URL (z. B. https://host/v1) oder vollständiger /chat/completions-Endpunkt; Azure: Deployment-URL einschließlich api-version.", "URL de base compatible OpenAI (p. ex. https://host/v1) ou point de terminaison /chat/completions complet ; Azure : URL de déploiement avec api-version."],
+        ["Model"] = ["Model", "Model", "Modell", "Modèle"],
+        ["Choose a model from the provider."] = ["Choose a model from the provider.", "Kies een model uit de provider.", "Wählen Sie ein Modell des Anbieters aus.", "Choisissez un modèle du fournisseur."],
+        ["Test the connection first to load models."] = ["Test the connection first to load models.", "Test eerst de verbinding om modellen op te halen.", "Testen Sie zuerst die Verbindung, um Modelle abzurufen.", "Testez d’abord la connexion pour charger les modèles."],
+        ["Max input tokens"] = ["Max input tokens", "Max. inputtokens", "Max. Eingabe-Tokens", "Jetons d’entrée max."],
+        ["Custom instructions for commit messages"] = ["Custom instructions for commit messages", "Eigen instructie voor commitberichten", "Eigene Anweisungen für Commit-Nachrichten", "Instructions personnalisées pour les messages de commit"],
+        ["For example: use Conventional Commits and write in English."] = ["For example: use Conventional Commits and write in English.", "Bijvoorbeeld: gebruik Conventional Commits en schrijf in het Nederlands.", "Zum Beispiel: Conventional Commits verwenden und auf Deutsch schreiben.", "Par exemple : utiliser Conventional Commits et rédiger en français."],
+        ["Provider API key"] = ["Provider API key", "Provider API key", "API-Schlüssel des Anbieters", "Clé API du fournisseur"],
+        ["Stored securely on this device."] = ["Stored securely on this device.", "Wordt veilig lokaal opgeslagen.", "Wird sicher auf diesem Gerät gespeichert.", "Stockée de manière sécurisée sur cet appareil."],
+        ["Loading connection and models..."] = ["Loading connection and models...", "Verbinding en modellen ophalen...", "Verbindung und Modelle werden geladen...", "Chargement de la connexion et des modèles..."],
+        ["Test connection & load models"] = ["Test connection & load models", "Verbinding testen & modellen ophalen", "Verbindung testen und Modelle laden", "Tester la connexion et charger les modèles"],
+        ["Other"] = ["Other", "Overig", "Sonstiges", "Autres"],
+        ["Other settings"] = ["Other settings", "Overige instellingen", "Weitere Einstellungen", "Autres paramètres"],
+        ["Settings are stored locally. API keys are stored securely."] = ["Settings are stored locally. API keys are stored securely.", "Instellingen worden lokaal opgeslagen. API-sleutels worden beveiligd opgeslagen.", "Einstellungen werden lokal gespeichert. API-Schlüssel werden sicher gespeichert.", "Les paramètres sont stockés localement. Les clés API sont stockées de manière sécurisée."],
+        ["Language"] = ["Language", "Taal", "Sprache", "Langue"],
+        ["Theme"] = ["Theme", "Thema", "Design", "Thème"],
+        ["Dark"] = ["Dark", "Donker", "Dunkel", "Sombre"],
+        ["Light"] = ["Light", "Licht", "Hell", "Clair"],
+        ["English"] = ["English", "Engels", "Englisch", "Anglais"],
+        ["Dutch"] = ["Dutch", "Nederlands", "Niederländisch", "Néerlandais"],
+        ["German"] = ["German", "Duits", "Deutsch", "Allemand"],
+        ["French"] = ["French", "Frans", "Französisch", "Français"],
+        ["Cancel"] = ["Cancel", "Annuleren", "Abbrechen", "Annuler"],
+        ["Save"] = ["Save", "Opslaan", "Speichern", "Enregistrer"],
+        ["New repository"] = ["New repository", "Nieuwe repository", "Neues Repository", "Nouveau dépôt"],
+        ["Connection successful. {0} models found."] = ["Connection successful. {0} models found.", "Verbinding werkt. {0} modellen gevonden.", "Verbindung erfolgreich. {0} Modelle gefunden.", "Connexion réussie. {0} modèles trouvés."],
+        ["Settings saved."] = ["Settings saved.", "Instellingen opgeslagen.", "Einstellungen gespeichert.", "Paramètres enregistrés."],
+        ["No active repositories yet"] = ["No active repositories yet", "Nog geen actieve repositories", "Noch keine aktiven Repositories", "Aucun dépôt actif pour le moment"],
+        ["Open Settings in the top-right corner to add or activate repositories."] = ["Open Settings in the top-right corner to add or activate repositories.", "Open Instellingen rechtsboven en voeg repositories toe of activeer ze.", "Öffnen Sie oben rechts die Einstellungen, um Repositories hinzuzufügen oder zu aktivieren.", "Ouvrez les paramètres en haut à droite pour ajouter ou activer des dépôts."],
+        ["Repository path does not exist: {0}. Update it in Settings."] = ["Repository path does not exist: {0}. Update it in Settings.", "Repositorypad bestaat niet: {0}. Pas het pad aan via Instellingen.", "Repository-Pfad nicht gefunden: {0}. Aktualisieren Sie ihn in den Einstellungen.", "Le chemin du dépôt n’existe pas : {0}. Modifiez-le dans les paramètres."],
+        ["Git"] = ["Git", "Git", "Git", "Git"],
+        ["Branches"] = ["Branches", "Branches", "Branches", "Branches"],
+        ["Pull ({0})"] = ["Pull ({0})", "Pull ({0})", "Pull ({0})", "Pull ({0})"],
+        ["Push ({0})"] = ["Push ({0})", "Push ({0})", "Push ({0})", "Push ({0})"],
+        ["Local"] = ["Local", "Lokaal", "Lokal", "Locale"],
+        ["Remote"] = ["Remote", "Remote", "Remote", "Distante"],
+        ["Staged changes"] = ["Staged changes", "Gestagede wijzigingen", "Vorgemerkte Änderungen", "Modifications indexées"],
+        ["Unstaged changes"] = ["Unstaged changes", "Niet-gestagede wijzigingen", "Nicht vorgemerkte Änderungen", "Modifications non indexées"],
+        ["Ahead"] = ["Ahead", "Vooruit", "Voraus", "En avance"],
+        ["Behind"] = ["Behind", "Achter", "Zurück", "En retard"],
+        ["VS Code merge editor opened."] = ["VS Code merge editor opened.", "VS Code merge-editor geopend.", "VS-Code-Merge-Editor geöffnet.", "Éditeur de fusion VS Code ouvert."],
+        ["Configure an application or command in Settings first."] = ["Configure an application or command in Settings first.", "Configureer eerst een applicatie of opdracht in Instellingen.", "Konfigurieren Sie zuerst eine Anwendung oder einen Befehl in den Einstellungen.", "Configurez d’abord une application ou une commande dans les paramètres."],
+        ["The configured application command has an unclosed quotation mark."] = ["The configured application command has an unclosed quotation mark.", "De applicatieopdracht bevat een niet-afgesloten aanhalingsteken.", "Der Anwendungspfad enthält ein nicht geschlossenes Anführungszeichen.", "La commande de l’application contient un guillemet non fermé."],
+        ["The PowerShell wrapper for the configured command was found, but PowerShell could not be found in PATH."] = ["The PowerShell wrapper for the configured command was found, but PowerShell could not be found in PATH.", "De PowerShell-wrapper van de geconfigureerde opdracht is gevonden, maar PowerShell zelf kon niet via PATH worden gevonden.", "Der PowerShell-Wrapper für den konfigurierten Befehl wurde gefunden, PowerShell selbst jedoch nicht im PATH.", "L’enveloppe PowerShell de la commande configurée a été trouvée, mais PowerShell est introuvable dans PATH."],
+        ["Repository folder does not exist: {0}"] = ["Repository folder does not exist: {0}", "Repositorymap bestaat niet: {0}", "Repository-Ordner nicht gefunden: {0}", "Le dossier du dépôt n’existe pas : {0}"],
+        ["The configured command '{0}' could not be started (Windows error {1}: {2}). Found executable: {3}. Check that the application is available to Repo Launcher."] = ["The configured command '{0}' could not be started (Windows error {1}: {2}). Found executable: {3}. Check that the application is available to Repo Launcher.", "De geconfigureerde opdracht '{0}' kon niet worden gestart (Windows-fout {1}: {2}). Gevonden executable: {3}. Controleer of de applicatie vanuit Repo Launcher bereikbaar is.", "Der konfigurierte Befehl '{0}' konnte nicht gestartet werden (Windows-Fehler {1}: {2}). Gefundene ausführbare Datei: {3}. Prüfen Sie, ob Repo Launcher auf die Anwendung zugreifen kann.", "Impossible de démarrer la commande '{0}' (erreur Windows {1} : {2}). Exécutable trouvé : {3}. Vérifiez que Repo Launcher peut accéder à l’application."],
+        ["CreatePseudoConsole failed (HRESULT 0x{0}): {1}"] = ["CreatePseudoConsole failed (HRESULT 0x{0}): {1}", "CreatePseudoConsole mislukt (HRESULT 0x{0}): {1}", "CreatePseudoConsole fehlgeschlagen (HRESULT 0x{0}): {1}", "Échec de CreatePseudoConsole (HRESULT 0x{0}) : {1}"],
+        ["Unable to determine the ConPTY process attribute size."] = ["Unable to determine the ConPTY process attribute size.", "Grootte van de ConPTY-procesattributen kon niet worden bepaald.", "Die Größe der ConPTY-Prozessattribute konnte nicht ermittelt werden.", "Impossible de déterminer la taille des attributs de processus ConPTY."],
+        ["Failed to initialize ConPTY process attributes."] = ["Failed to initialize ConPTY process attributes.", "Initialiseren van de ConPTY-procesattributen is mislukt.", "ConPTY-Prozessattribute konnten nicht initialisiert werden.", "Échec de l’initialisation des attributs de processus ConPTY."],
+        ["Failed to attach the pseudo console to the terminal process."] = ["Failed to attach the pseudo console to the terminal process.", "Koppelen van de pseudo-console aan het terminalproces is mislukt.", "Die Pseudokonsole konnte nicht an den Terminalprozess angefügt werden.", "Échec de l’association de la pseudo-console au processus du terminal."],
+        ["The configured application is empty."] = ["The configured application is empty.", "De geconfigureerde applicatie is leeg.", "Die konfigurierte Anwendung ist leer.", "L’application configurée est vide."],
+        ["Could not find '{0}' in Repo Launcher’s PATH. You can enter the full application path in Settings."] = ["Could not find '{0}' in Repo Launcher’s PATH. You can enter the full application path in Settings.", "Kan '{0}' niet vinden in de PATH-omgevingsvariabele van Repo Launcher. Vul in Instellingen eventueel het volledige pad naar de applicatie in.", "'{0}' wurde im PATH von Repo Launcher nicht gefunden. Sie können in den Einstellungen den vollständigen Anwendungspfad eingeben.", "'{0}' est introuvable dans le PATH de Repo Launcher. Vous pouvez saisir le chemin complet de l’application dans les paramètres."],
+        ["Provider returned status {0} for {1}: {2}"] = ["Provider returned status {0} for {1}: {2}", "Provider gaf status {0} voor {1}: {2}", "Der Anbieter meldete Status {0} für {1}: {2}", "Le fournisseur a renvoyé le statut {0} pour {1} : {2}"],
+        ["Provider returned status {0}: {1}"] = ["Provider returned status {0}: {1}", "Provider gaf status {0}: {1}", "Der Anbieter meldete Status {0}: {1}", "Le fournisseur a renvoyé le statut {0} : {1}"],
+        ["Diff shortened because of the configured input token limit."] = ["Diff shortened because of the configured input token limit.", "Diff ingekort vanwege de ingestelde input-tokenlimiet.", "Diff aufgrund des eingestellten Eingabe-Tokenlimits gekürzt.", "Diff raccourci en raison de la limite de jetons d’entrée configurée."],
+        ["changed"] = ["changed", "gewijzigd", "geändert", "modifiés"],
+        ["Refresh Git status"] = ["Refresh Git status", "Git-status vernieuwen", "Git-Status aktualisieren", "Actualiser l’état Git"],
+        ["Git overview"] = ["Git overview", "Git-overzicht", "Git-Übersicht", "Aperçu Git"],
+        ["Fetch failed for {0} repositories."] = ["Fetch failed for {0} repositories.", "Fetch mislukt voor {0} repository(s).", "Fetch für {0} Repositories fehlgeschlagen.", "Échec du fetch pour {0} dépôt(s)."],
+        ["Git fetch failed: {0}"] = ["Git fetch failed: {0}", "Git fetch mislukt: {0}", "Git-Fetch fehlgeschlagen: {0}", "Échec du fetch Git : {0}"],
+        ["Branch: loading..."] = ["Branch: loading...", "Branch: ophalen...", "Branch: wird geladen...", "Branche : chargement..."],
+        ["Branch: not loaded yet"] = ["Branch: not loaded yet", "Branch: nog niet opgehaald", "Branch: noch nicht geladen", "Branche : pas encore chargée"],
+        ["Branch: {0}"] = ["Branch: {0}", "Branch: {0}", "Branch: {0}", "Branche : {0}"],
+        ["Git status unavailable."] = ["Git status unavailable.", "Git-status niet beschikbaar.", "Git-Status nicht verfügbar.", "État Git indisponible."],
+        ["Path does not exist"] = ["Path does not exist", "Pad bestaat niet", "Pfad nicht gefunden", "Chemin introuvable"],
+        ["Not a Git repository"] = ["Not a Git repository", "Geen Git-repository", "Kein Git-Repository", "Ce dossier n’est pas un dépôt Git"],
+        ["Unable to fetch remotes: {0}"] = ["Unable to fetch remotes: {0}", "Ophalen van remotes mislukt: {0}", "Remotes konnten nicht abgerufen werden: {0}", "Échec de récupération des dépôts distants : {0}"],
+        ["Invalid conflict file."] = ["Invalid conflict file.", "Ongeldig conflictenbestand.", "Ungültige Konfliktdatei.", "Fichier en conflit non valide."],
+        ["Conflict versions could not be read from Git (possibly a new file)."] = ["Conflict versions could not be read from Git (possibly a new file).", "De conflictversies konden niet uit Git worden gelezen (mogelijk een nieuw bestand).", "Die Konfliktversionen konnten nicht aus Git gelesen werden (möglicherweise eine neue Datei).", "Impossible de lire les versions en conflit depuis Git (il s’agit peut-être d’un nouveau fichier)."],
+        ["Unable to determine the Git directory."] = ["Unable to determine the Git directory.", "De Git-map kon niet worden bepaald.", "Das Git-Verzeichnis konnte nicht ermittelt werden.", "Impossible de déterminer le dossier Git."],
+        ["VS Code could not be started."] = ["VS Code could not be started.", "VS Code kon niet worden gestart.", "VS Code konnte nicht gestartet werden.", "Impossible de démarrer VS Code."],
+        ["VS Code CLI 'code' is not available in PATH."] = ["VS Code CLI 'code' is not available in PATH.", "VS Code CLI 'code' is niet beschikbaar in PATH.", "Die VS-Code-CLI 'code' ist nicht im PATH verfügbar.", "La commande VS Code 'code' n’est pas disponible dans PATH."],
+        ["Git could not be started."] = ["Git could not be started.", "Git kon niet worden gestart.", "Git konnte nicht gestartet werden.", "Impossible de démarrer Git."],
+        ["Git is not available in PATH."] = ["Git is not available in PATH.", "Git is niet beschikbaar in PATH.", "Git ist nicht im PATH verfügbar.", "Git n’est pas disponible dans PATH."],
+        ["Branch unavailable"] = ["Branch unavailable", "Branch niet beschikbaar", "Branch nicht verfügbar", "Branche indisponible"],
+        ["Detached HEAD"] = ["Detached HEAD", "Detached HEAD", "Detached HEAD", "HEAD détachée"],
+        ["Push aborted: failed to fetch remote status. {0}"] = ["Push aborted: failed to fetch remote status. {0}", "Push afgebroken: remote-status ophalen is mislukt. {0}", "Push abgebrochen: Remote-Status konnte nicht abgerufen werden. {0}", "Push annulé : échec de récupération de l’état distant. {0}"],
+        ["Push aborted: failed to check remote status. {0}"] = ["Push aborted: failed to check remote status. {0}", "Push afgebroken: remote-status controleren is mislukt. {0}", "Push abgebrochen: Remote-Status konnte nicht geprüft werden. {0}", "Push annulé : échec de vérification de l’état distant. {0}"],
+        ["Push blocked: this branch is {0} commit(s) behind. Pull the remote changes first and try again."] = ["Push blocked: this branch is {0} commit(s) behind. Pull the remote changes first and try again.", "Push geblokkeerd: deze branch loopt {0} commit(s) achter. Pull eerst de remote wijzigingen en probeer daarna opnieuw.", "Push blockiert: Dieser Branch liegt {0} Commit(s) zurück. Führen Sie zuerst einen Pull aus und versuchen Sie es erneut.", "Push bloqué : cette branche a {0} commit(s) de retard. Faites d’abord un pull des modifications distantes, puis réessayez."],
+        ["Please stage at least one change before generating a commit message."] = ["Please stage at least one change before generating a commit message.", "Stage minstens één wijziging voordat je een commitbericht genereert.", "Stellen Sie mindestens eine Änderung bereit, bevor Sie eine Commit-Nachricht erstellen.", "Indexez au moins une modification avant de générer un message de commit."],
+        ["Enter a valid provider URL."] = ["Enter a valid provider URL.", "Vul een geldige provider-URL in.", "Geben Sie eine gültige Anbieter-URL ein.", "Saisissez une URL de fournisseur valide."],
+        ["The provider returned no commit title."] = ["The provider returned no commit title.", "De provider gaf geen commit-titel terug.", "Der Anbieter hat keinen Commit-Titel zurückgegeben.", "Le fournisseur n’a renvoyé aucun titre de commit."],
+        ["The AI provider connection timed out."] = ["The AI provider connection timed out.", "Verbinding met de AI-provider duurde te lang.", "Zeitüberschreitung bei der Verbindung zum KI-Anbieter.", "La connexion au fournisseur d’IA a expiré."],
+        ["Connection to the AI provider failed: {0}"] = ["Connection to the AI provider failed: {0}", "Verbinding met de AI-provider mislukt: {0}", "Verbindung zum KI-Anbieter fehlgeschlagen: {0}", "Échec de la connexion au fournisseur d’IA : {0}"],
+        ["Invalid AI provider response: {0}"] = ["Invalid AI provider response: {0}", "Ongeldige response van AI-provider: {0}", "Ungültige Antwort des KI-Anbieters: {0}", "Réponse invalide du fournisseur d’IA : {0}"],
+        ["The connection succeeded, but the provider returned no models."] = ["The connection succeeded, but the provider returned no models.", "De verbinding is gelukt, maar de provider heeft geen modellen teruggegeven.", "Die Verbindung war erfolgreich, aber der Anbieter hat keine Modelle zurückgegeben.", "La connexion a réussi, mais le fournisseur n’a renvoyé aucun modèle."],
+        ["Invalid models response: {0}"] = ["Invalid models response: {0}", "Ongeldige modellen-response: {0}", "Ungültige Modellantwort: {0}", "Réponse de modèles invalide : {0}"],
+        ["Close"] = ["Close", "Sluiten", "Schließen", "Fermer"],
+        ["Branches & commits"] = ["Branches & commits", "Branches & commits", "Branches & Commits", "Branches et commits"],
+        ["Create commit"] = ["Create commit", "Commit maken", "Commit erstellen", "Créer un commit"],
+        ["Conflicts found ({0})"] = ["Conflicts found ({0})", "Conflicten gevonden ({0})", "Konflikte gefunden ({0})", "Conflits détectés ({0})"],
+        ["Compare in VS Code"] = ["Compare in VS Code", "Vergelijk in VS Code", "In VS Code vergleichen", "Comparer dans VS Code"],
+        ["Local branches"] = ["Local branches", "Lokale branches", "Lokale Branches", "Branches locales"],
+        ["No local branches."] = ["No local branches.", "Geen lokale branches.", "Keine lokalen Branches.", "Aucune branche locale."],
+        ["Remote branches"] = ["Remote branches", "Remote branches", "Remote-Branches", "Branches distantes"],
+        ["No remote branches."] = ["No remote branches.", "Geen remote branches.", "Keine Remote-Branches.", "Aucune branche distante."],
+        ["Recent commits"] = ["Recent commits", "Recente commits", "Letzte Commits", "Commits récents"],
+        ["No commits found."] = ["No commits found.", "Geen commits gevonden.", "Keine Commits gefunden.", "Aucun commit trouvé."],
+        ["Diff {0}"] = ["Diff {0}", "Verschil {0}", "Diff {0}", "Diff {0}"],
+        ["Select a file to view its diff."] = ["Select a file to view its diff.", "Selecteer een bestand om de diff te bekijken.", "Wählen Sie eine Datei aus, um den Diff anzuzeigen.", "Sélectionnez un fichier pour afficher son diff."],
+        ["Unstaged ({0})"] = ["Unstaged ({0})", "Niet staged ({0})", "Nicht vorgemerkt ({0})", "Non indexés ({0})"],
+        ["Stage all"] = ["Stage all", "Stage alles", "Alle vormerken", "Tout indexer"],
+        ["No unstaged changes."] = ["No unstaged changes.", "Geen niet-staged wijzigingen.", "Keine nicht vorgemerkten Änderungen.", "Aucune modification non indexée."],
+        ["Staged ({0})"] = ["Staged ({0})", "Staged ({0})", "Vorgemerkt ({0})", "Indexés ({0})"],
+        ["No staged changes."] = ["No staged changes.", "Geen staged wijzigingen.", "Keine vorgemerkten Änderungen.", "Aucune modification indexée."],
+        ["Commit message"] = ["Commit message", "Commitbericht", "Commit-Nachricht", "Message de commit"],
+        ["Generating..."] = ["Generating...", "Genereren...", "Wird erstellt...", "Génération..."],
+        ["Generate with AI"] = ["Generate with AI", "Genereer met AI", "Mit KI erstellen", "Générer avec l’IA"],
+        ["Title (required)"] = ["Title (required)", "Titel (verplicht)", "Titel (erforderlich)", "Titre (obligatoire)"],
+        ["Short summary of the change"] = ["Short summary of the change", "Korte samenvatting van de wijziging", "Kurze Zusammenfassung der Änderung", "Résumé succinct de la modification"],
+        ["Description (optional)"] = ["Description (optional)", "Beschrijving (optioneel)", "Beschreibung (optional)", "Description (facultative)"],
+        ["More context about the change..."] = ["More context about the change...", "Meer context over de wijziging...", "Weitere Informationen zur Änderung...", "Plus de contexte sur la modification..."],
+        ["Commit ({0} files)"] = ["Commit ({0} files)", "Commit ({0} bestanden)", "Commit ({0} Dateien)", "Commit ({0} fichiers)"],
+        ["Stage failed for {0} file(s)."] = ["Stage failed for {0} file(s).", "Stagen mislukt voor {0} bestand(en).", "Vormerken für {0} Datei(en) fehlgeschlagen.", "Échec de l’indexation de {0} fichier(s)."],
+        ["Failed to load staged diff: {0}"] = ["Failed to load staged diff: {0}", "Staged diff ophalen mislukt: {0}", "Vormerkungs-Diff konnte nicht geladen werden: {0}", "Échec du chargement du diff indexé : {0}"],
+        ["Commit created."] = ["Commit created.", "Commit gemaakt.", "Commit erstellt.", "Commit créé."],
+        ["Commit failed: {0}"] = ["Commit failed: {0}", "Commit mislukt: {0}", "Commit fehlgeschlagen: {0}", "Échec du commit : {0}"],
+        ["Unstage file"] = ["Unstage file", "Unstage bestand", "Datei aus Vormerkung entfernen", "Désindexer le fichier"],
+        ["Stage file"] = ["Stage file", "Stage bestand", "Datei vormerken", "Indexer le fichier"],
+        ["Pull completed."] = ["Pull completed.", "Pull voltooid.", "Pull abgeschlossen.", "Pull terminé."],
+        ["Pull failed: {0}"] = ["Pull failed: {0}", "Pull mislukt: {0}", "Pull fehlgeschlagen: {0}", "Échec du pull : {0}"],
+        ["Push completed."] = ["Push completed.", "Push voltooid.", "Push abgeschlossen.", "Push terminé."],
+        ["Push failed: {0}"] = ["Push failed: {0}", "Push mislukt: {0}", "Push fehlgeschlagen: {0}", "Échec du push : {0}"],
+        ["Branch '{0}' checked out."] = ["Branch '{0}' checked out.", "Branch '{0}' uitgecheckt.", "Branch '{0}' ausgecheckt.", "Branche '{0}' extraite."],
+        ["VS Code could not be opened: {0}"] = ["VS Code could not be opened: {0}", "Vergelijking kon niet worden geopend: {0}", "VS Code konnte nicht geöffnet werden: {0}", "Impossible d’ouvrir VS Code : {0}"],
+        ["The built-in terminal is only available on Windows."] = ["The built-in terminal is only available on Windows.", "De ingebouwde terminal is alleen beschikbaar op Windows.", "Das integrierte Terminal ist nur unter Windows verfügbar.", "Le terminal intégré est uniquement disponible sous Windows."],
+        ["Terminal failed to start: {0}"] = ["Terminal failed to start: {0}", "Terminal starten mislukt: {0}", "Terminal konnte nicht gestartet werden: {0}", "Échec du démarrage du terminal : {0}"],
+        ["Process ended with exit code {0}"] = ["Process ended with exit code {0}", "Proces beëindigd met exitcode {0}", "Prozess mit Exitcode {0} beendet", "Processus terminé avec le code de sortie {0}"],
+        ["Counter"] = ["Counter", "Teller", "Zähler", "Compteur"],
+        ["Current count: {0}"] = ["Current count: {0}", "Huidige aantal: {0}", "Aktueller Zählerstand: {0}", "Nombre actuel : {0}"],
+        ["Click me"] = ["Click me", "Klik hier", "Hier klicken", "Cliquez ici"],
+        ["Weather"] = ["Weather", "Weer", "Wetter", "Météo"],
+        ["This component demonstrates showing data."] = ["This component demonstrates showing data.", "Dit onderdeel laat zien hoe gegevens worden weergegeven.", "Diese Komponente zeigt die Darstellung von Daten.", "Ce composant montre comment afficher des données."],
+        ["Loading..."] = ["Loading...", "Laden...", "Wird geladen...", "Chargement..."],
+        ["Date"] = ["Date", "Datum", "Datum", "Date"],
+        ["Temperature in Celsius"] = ["Temperature in Celsius", "Temperatuur in Celsius", "Temperatur in Celsius", "Température en Celsius"],
+        ["Temperature in Fahrenheit"] = ["Temperature in Fahrenheit", "Temperatuur in Fahrenheit", "Temperatur in Fahrenheit", "Température en Fahrenheit"],
+        ["Summary"] = ["Summary", "Samenvatting", "Zusammenfassung", "Résumé"],
+        ["Not found"] = ["Not found", "Niet gevonden", "Nicht gefunden", "Introuvable"],
+        ["Sorry, the content you are looking for does not exist."] = ["Sorry, the content you are looking for does not exist.", "De pagina die je zoekt bestaat niet.", "Der gesuchte Inhalt ist leider nicht vorhanden.", "Désolé, le contenu recherché n’existe pas."],
+        ["An unhandled error has occurred."] = ["An unhandled error has occurred.", "Er is een onverwachte fout opgetreden.", "Ein unbehandelter Fehler ist aufgetreten.", "Une erreur non gérée s’est produite."],
+        ["Reload"] = ["Reload", "Opnieuw laden", "Neu laden", "Recharger"],
+    };
+
+    public event Action? LanguageChanged;
+
+    public string CurrentLanguage => _language;
+
+    public static string NormalizeLanguage(string? language) =>
+        Languages.Contains(language, StringComparer.OrdinalIgnoreCase) ? language!.ToLowerInvariant() : "en";
+
+    public void SetLanguage(string? language)
+    {
+        var normalized = NormalizeLanguage(language);
+        var changed = _language != normalized;
+        _language = normalized;
+        var culture = CultureInfo.GetCultureInfo(normalized);
+        CultureInfo.DefaultThreadCurrentCulture = culture;
+        CultureInfo.DefaultThreadCurrentUICulture = culture;
+        CultureInfo.CurrentCulture = culture;
+        CultureInfo.CurrentUICulture = culture;
+        if (changed)
+            LanguageChanged?.Invoke();
+    }
+
+    public string T(string key, params object[] arguments)
+    {
+        var languageIndex = Array.IndexOf(Languages, _language);
+        var text = Texts.TryGetValue(key, out var translations) ? translations[languageIndex] : key;
+        return arguments.Length == 0 ? text : string.Format(CultureInfo.GetCultureInfo(_language), text, arguments);
+    }
+
+    public IReadOnlyDictionary<string, string> GetBootstrapTranslations() =>
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["Loading..."] = T("Loading..."),
+            ["An unhandled error has occurred."] = T("An unhandled error has occurred."),
+            ["Reload"] = T("Reload")
+        };
+}

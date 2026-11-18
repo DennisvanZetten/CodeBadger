@@ -1,30 +1,32 @@
 @inject LauncherSettingsService SettingsService
+@inject LocalizationService L
 @inject AiCommitMessageService AiCommitMessageService
 @inject RepositoryFolderPicker FolderPicker
 @inject ISnackbar Snackbar
+@implements IDisposable
 
 <MudDialog Class="settings-dialog">
     <TitleContent>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
             <MudIcon Icon="@Icons.Material.Filled.Settings" Color="Color.Primary" />
-            <MudText Typo="Typo.h6">Instellingen</MudText>
+            <MudText Typo="Typo.h6">@L.T("Settings")</MudText>
         </MudStack>
     </TitleContent>
     <DialogContent>
         <MudTabs Position="Position.Left" Rounded="true" Border="true" ApplyEffectsToContainer="true"
                  TabPanelsClass="settings-tab-panel" Class="settings-tabs">
-            <MudTabPanel Text="Repositories" Icon="@Icons.Material.Filled.Folder">
+            <MudTabPanel Text="@L.T("Repositories")" Icon="@Icons.Material.Filled.Folder">
                 <MudStack Spacing="3">
                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                         <div>
-                            <MudText Typo="Typo.h6">Repositories beheren</MudText>
-                            <MudText Typo="Typo.body2" Color="Color.Secondary">Actieve repositories krijgen een eigen starttab.</MudText>
+                            <MudText Typo="Typo.h6">@L.T("Manage repositories")</MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Active repositories get their own tab on the home screen.")</MudText>
                         </div>
-                        <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddRepository">Toevoegen</MudButton>
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddRepository">@L.T("Add")</MudButton>
                     </MudStack>
                     @if (Settings.Repositories.Count == 0)
                     {
-                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">Voeg een repositorymap toe om te beginnen.</MudAlert>
+                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@L.T("Add a repository folder to get started.")</MudAlert>
                     }
                     @foreach (var repository in Settings.Repositories)
                     {
@@ -32,28 +34,28 @@
                             <div class="repository-active-toggle">
                                 <MudSwitch @bind-Value="repository.IsActive" Color="Color.Primary" />
                             </div>
-                            <MudTextField @bind-Value="repository.Name" Label="Naam" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                            <MudTextField @bind-Value="repository.Path" Label="Pad" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.FolderOpen" Color="Color.Primary" aria-label="Repositorymap zoeken"
+                            <MudTextField @bind-Value="repository.Name" Label="@L.T("Name")" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                            <MudTextField @bind-Value="repository.Path" Label="@L.T("Path")" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.FolderOpen" Color="Color.Primary" aria-label="@L.T("Browse for repository folder")"
                                            Disabled="@(!FolderPicker.IsSupported)" OnClick="@(() => BrowseRepositoryAsync(repository))" />
-                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" aria-label="Repository verwijderen"
+                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" aria-label="@L.T("Remove repository")"
                                            OnClick="@(() => Settings.Repositories.Remove(repository))" />
                         </MudPaper>
                     }
                 </MudStack>
             </MudTabPanel>
-            <MudTabPanel Text="Starten" Icon="@Icons.Material.Filled.Terminal">
+            <MudTabPanel Text="@L.T("Start")" Icon="@Icons.Material.Filled.Terminal">
                 <MudStack Spacing="3">
-                    <MudText Typo="Typo.h6">Startinstellingen</MudText>
-                    <MudTextField @bind-Value="Settings.ToolCommand" Label="Applicatie / opdracht"
-                                  HelperText="Wordt rechtstreeks gestart in de repositorymap, bijvoorbeeld opencode of een volledig exe-pad met argumenten."
+                    <MudText Typo="Typo.h6">@L.T("Startup settings")</MudText>
+                    <MudTextField @bind-Value="Settings.ToolCommand" Label="@L.T("Application / command")"
+                                  HelperText="@L.T("Started directly in the repository folder, for example opencode or a full .exe path with arguments.")"
                                   Margin="Margin.Dense" Variant="Variant.Outlined" />
                 </MudStack>
             </MudTabPanel>
-            <MudTabPanel Text="AI-provider" Icon="@Icons.Material.Filled.AutoAwesome">
+            <MudTabPanel Text="@L.T("AI provider")" Icon="@Icons.Material.Filled.AutoAwesome">
                 <MudStack Spacing="3">
-                    <MudText Typo="Typo.h6">AI voor commitberichten</MudText>
-                    <MudSelect T="string" Label="Provider" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.AiProvider" @bind-Value:after="ResetModelList">
+                    <MudText Typo="Typo.h6">@L.T("AI for commit messages")</MudText>
+                    <MudSelect T="string" Label="@L.T("Provider")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.AiProvider" @bind-Value:after="ResetModelList">
                         @foreach (var provider in AiProviders)
                         {
                             <MudSelectItem T="string" Value="@provider">@provider</MudSelectItem>
@@ -61,49 +63,65 @@
                     </MudSelect>
                     @if (Settings.AiProvider is "Custom URL" or "Azure OpenAI")
                     {
-                        <MudTextField @bind-Value="Settings.AiCustomUrl" @bind-Value:after="ResetModelList" Label="Provider URL" Margin="Margin.Dense" Variant="Variant.Outlined"
-                                      HelperText="OpenAI-compatible basis-URL (bijv. https://host/v1) of volledig /chat/completions-endpoint; Azure: deployment-URL inclusief api-version." />
+                        <MudTextField @bind-Value="Settings.AiCustomUrl" @bind-Value:after="ResetModelList" Label="@L.T("Provider URL")" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                      HelperText="@L.T("OpenAI-compatible base URL (e.g. https://host/v1) or full /chat/completions endpoint; Azure: deployment URL including api-version.")" />
                     }
-                    <MudSelect T="string" Label="Model" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.AiModel"
+                    <MudSelect T="string" Label="@L.T("Model")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.AiModel"
                                Disabled="@(!_hasTestedConnection || _availableModels.Count == 0)"
-                               HelperText="@(_hasTestedConnection ? "Kies een model uit de provider." : "Test eerst de verbinding om modellen op te halen.")">
+                                HelperText="@(_hasTestedConnection ? L.T("Choose a model from the provider.") : L.T("Test the connection first to load models."))">
                         @foreach (var model in _availableModels)
                         {
                             <MudSelectItem T="string" Value="@model">@model</MudSelectItem>
                         }
                     </MudSelect>
-                    <MudNumericField T="int" @bind-Value="Settings.AiMaxInputTokens" Label="Max. inputtokens"
+                    <MudNumericField T="int" @bind-Value="Settings.AiMaxInputTokens" Label="@L.T("Max input tokens")"
                                       Min="256" Max="200000" Margin="Margin.Dense" Variant="Variant.Outlined" />
-                    <MudTextField @bind-Value="Settings.AiCustomInstruction" Label="Eigen instructie voor commitberichten"
-                                  HelperText="Bijvoorbeeld: gebruik Conventional Commits en schrijf in het Nederlands."
+                    <MudTextField @bind-Value="Settings.AiCustomInstruction" Label="@L.T("Custom instructions for commit messages")"
+                                  HelperText="@L.T("For example: use Conventional Commits and write in English.")"
                                   Lines="3" Margin="Margin.Dense" Variant="Variant.Outlined" />
                     @if (Settings.AiProvider != "Ollama")
                     {
-                        <MudTextField @bind-Value="Settings.AiApiKey" @bind-Value:after="ResetModelList" Label="Provider API key" Margin="Margin.Dense" Variant="Variant.Outlined"
-                                      InputType="InputType.Password" HelperText="Wordt veilig lokaal opgeslagen." />
+                        <MudTextField @bind-Value="Settings.AiApiKey" @bind-Value:after="ResetModelList" Label="@L.T("Provider API key")" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                      InputType="InputType.Password" HelperText="@L.T("Stored securely on this device.")" />
                     }
                     <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.WifiTethering"
                                OnClick="TestAiConnectionAsync" Disabled="@_isTestingAi" Class="align-self-start">
-                        @(_isTestingAi ? "Verbinding en modellen ophalen..." : "Verbinding testen & modellen ophalen")
+                         @(_isTestingAi ? L.T("Loading connection and models...") : L.T("Test connection & load models"))
                     </MudButton>
                 </MudStack>
             </MudTabPanel>
-            <MudTabPanel Text="Overig" Icon="@Icons.Material.Filled.Tune">
+            <MudTabPanel Text="@L.T("Other")" Icon="@Icons.Material.Filled.Tune">
                 <MudStack Spacing="3">
-                    <MudText Typo="Typo.h6">Overige instellingen</MudText>
-                    <MudText Typo="Typo.body2" Color="Color.Secondary">Instellingen worden lokaal opgeslagen. API-sleutels worden beveiligd opgeslagen.</MudText>
+                    <MudText Typo="Typo.h6">@L.T("Other settings")</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Settings are stored locally. API keys are stored securely.")</MudText>
+                    <MudSelect T="string" Label="@L.T("Language")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.Language">
+                        <MudSelectItem T="string" Value="@("en")">@L.T("English")</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("nl")">@L.T("Dutch")</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("de")">@L.T("German")</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("fr")">@L.T("French")</MudSelectItem>
+                    </MudSelect>
+                    <MudSelect T="string" Label="@L.T("Theme")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.Theme">
+                        @foreach (var theme in LauncherThemes.All)
+                        {
+                            <MudSelectItem T="string" Value="@theme.Id">@theme.Name (@L.T(theme.IsDark ? "Dark" : "Light"))</MudSelectItem>
+                        }
+                    </MudSelect>
                 </MudStack>
             </MudTabPanel>
         </MudTabs>
     </DialogContent>
     <DialogActions>
-        <MudButton Size="Size.Small" OnClick="Cancel">Annuleren</MudButton>
+        <MudButton Size="Size.Small" OnClick="Cancel">@L.T("Cancel")</MudButton>
         <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save"
-                   Disabled="@_isSaving" OnClick="SaveAsync">Opslaan</MudButton>
+                   Disabled="@_isSaving" OnClick="SaveAsync">@L.T("Save")</MudButton>
     </DialogActions>
 </MudDialog>
 
 @code {
+    protected override void OnInitialized() => L.LanguageChanged += HandleLanguageChanged;
+
+    private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
     [Parameter, EditorRequired] public LauncherSettings Settings { get; set; } = new();
 
@@ -113,7 +131,7 @@
     private IReadOnlyList<string> _availableModels = [];
     private static readonly string[] AiProviders = ["OpenAI", "Azure OpenAI", "Anthropic", "Google Gemini", "Ollama", "Custom URL"];
 
-    private void AddRepository() => Settings.Repositories.Add(new RepositoryEntry { Name = "Nieuwe repository" });
+    private void AddRepository() => Settings.Repositories.Add(new RepositoryEntry { Name = L.T("New repository") });
 
     private async Task BrowseRepositoryAsync(RepositoryEntry repository)
     {
@@ -121,9 +139,12 @@
         if (string.IsNullOrWhiteSpace(path))
             return;
         repository.Path = path;
-        if (string.IsNullOrWhiteSpace(repository.Name) || repository.Name == "Nieuwe repository")
+        if (string.IsNullOrWhiteSpace(repository.Name) || IsDefaultRepositoryName(repository.Name))
             repository.Name = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
     }
+
+    private static bool IsDefaultRepositoryName(string name) =>
+        name is "New repository" or "Nieuwe repository" or "Neues Repository" or "Nouveau dépôt";
 
     private async Task TestAiConnectionAsync()
     {
@@ -140,7 +161,7 @@
                 if (!_availableModels.Contains(Settings.AiModel, StringComparer.OrdinalIgnoreCase))
                     Settings.AiModel = _availableModels[0];
             }
-            Snackbar.Add(result.Success ? $"Verbinding werkt. {_availableModels.Count} modellen gevonden." : result.Error,
+            Snackbar.Add(result.Success ? L.T("Connection successful. {0} models found.", _availableModels.Count) : result.Error,
                 result.Success ? Severity.Success : Severity.Error,
                 config => config.VisibleStateDuration = 10000);
         }
@@ -162,7 +183,7 @@
         try
         {
             await SettingsService.SaveAsync(Settings);
-            Snackbar.Add("Instellingen opgeslagen.", Severity.Success);
+            Snackbar.Add(L.T("Settings saved."), Severity.Success);
             MudDialog.Close(DialogResult.Ok(true));
         }
         finally
@@ -172,4 +193,6 @@
     }
 
     private void Cancel() => MudDialog.Cancel();
+
+    public void Dispose() => L.LanguageChanged -= HandleLanguageChanged;
 }

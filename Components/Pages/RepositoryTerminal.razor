@@ -1,4 +1,5 @@
 @implements IAsyncDisposable
+@inject LocalizationService L
 @inject WindowsTerminalSessionService TerminalService
 @inject IJSRuntime JS
 
@@ -37,7 +38,7 @@
             catch (Exception exception)
             {
                 if (_module is not null)
-                    await _module.InvokeVoidAsync("write", SessionId.ToString(), $"\r\n\x1b[31mTerminal starten mislukt: {exception.Message}\x1b[0m\r\n");
+                    await _module.InvokeVoidAsync("write", SessionId.ToString(), $"\r\n\x1b[31m{L.T("Terminal failed to start: {0}", exception.Message)}\x1b[0m\r\n");
             }
         }
         else if (_module is not null)
@@ -61,7 +62,7 @@
     private void HandleExit(Guid id, int exitCode)
     {
         if (id == SessionId && _module is not null)
-            _ = _module.InvokeVoidAsync("write", SessionId.ToString(), $"\r\n\x1b[90m[proces beëindigd met exitcode {exitCode}]\x1b[0m\r\n");
+            _ = _module.InvokeVoidAsync("write", SessionId.ToString(), $"\r\n\x1b[90m[{L.T("Process ended with exit code {0}", exitCode)}]\x1b[0m\r\n");
     }
 
     public async ValueTask DisposeAsync()

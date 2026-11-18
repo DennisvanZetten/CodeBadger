@@ -547,7 +547,7 @@ h1:focus {
 }
 
 .git-branch-folder > summary .mud-icon-root {
-    color: #B38CFF;
+    color: var(--git-accent, #B38CFF);
     grid-column: 2;
 }
 
@@ -832,7 +832,7 @@ h1:focus {
 }
 
 .git-file-row.selected {
-    background: color-mix(in srgb, #B38CFF 15%, transparent);
+    background: color-mix(in srgb, var(--git-accent, #B38CFF) 15%, transparent);
 }
 
 .git-file-select {
@@ -907,8 +907,28 @@ h1:focus {
 .repository-terminal-panel {
     min-height: 280px;
     overflow: hidden;
-    background: #0b1220;
+    background: var(--terminal-background, #0b1220);
 }
+
+:root[data-theme]:not([data-theme="midnight"]) {
+    --git-accent: var(--mud-palette-primary);
+}
+
+:root[data-theme-mode="light"] {
+    --git-graph-0: #6941a9;
+    --git-graph-1: #1859a6;
+    --git-graph-2: #985000;
+    --git-graph-3: #08705e;
+    --git-graph-4: #ae2740;
+    --git-graph-5: #666800;
+    --git-graph-6: #006b79;
+    --git-graph-7: #9b3181;
+}
+
+:root[data-theme-mode="light"] .git-diff-added { color: #176b35; }
+:root[data-theme-mode="light"] .git-diff-removed { color: #b42318; }
+:root[data-theme-mode="light"] .git-diff-changed { color: #805600; }
+:root[data-theme-mode="light"] .git-diff-hunk { color: #6941a9; }
 
 .repository-terminal {
     width: 100%;

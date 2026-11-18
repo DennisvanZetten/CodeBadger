@@ -9,6 +9,9 @@ namespace RepoLauncher.Services;
 public sealed class WindowsTerminalSessionService : IAsyncDisposable
 {
     private readonly Dictionary<Guid, TerminalSession> _sessions = [];
+    private readonly LocalizationService _localization;
+
+    public WindowsTerminalSessionService(LocalizationService localization) => _localization = localization;
 
     public event Action<Guid, string>? OutputReceived;
     public event Action<Guid, int>? SessionExited;
@@ -16,14 +19,14 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
     public async Task StartAsync(Guid id, string workingDirectory, string commandLine, int columns = 120, int rows = 30)
     {
         if (!OperatingSystem.IsWindows())
-            throw new PlatformNotSupportedException("De ingebouwde terminal is alleen beschikbaar op Windows.");
+            throw new PlatformNotSupportedException(_localization.T("The built-in terminal is only available on Windows."));
         if (!Directory.Exists(workingDirectory))
-            throw new DirectoryNotFoundException($"Repositorymap bestaat niet: {workingDirectory}");
+            throw new DirectoryNotFoundException(_localization.T("Repository folder does not exist: {0}", workingDirectory));
         if (_sessions.ContainsKey(id))
             await StopAsync(id);
 
         if (string.IsNullOrWhiteSpace(commandLine))
-            throw new InvalidOperationException("Configureer eerst een applicatie of opdracht in Instellingen.");
+            throw new InvalidOperationException(_localization.T("Configure an application or command in Settings first."));
 
         var session = CreateSession(workingDirectory, commandLine, Math.Max(columns, 1), Math.Max(rows, 1));
         _sessions[id] = session;
@@ -77,6 +80,8 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
     private async Task ReadOutputAsync(Guid id, TerminalSession session)
     {
         var buffer = new byte[8192];
+        var characterBuffer = new char[Encoding.UTF8.GetMaxCharCount(buffer.Length)];
+        var decoder = Encoding.UTF8.GetDecoder();
         try
         {
             while (true)
@@ -84,8 +89,18 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
                 var count = await session.Output.ReadAsync(buffer);
                 if (count == 0)
                     break;
-                OutputReceived?.Invoke(id, Encoding.UTF8.GetString(buffer, 0, count));
+
+                // A ConPTY read can end halfway through a multi-byte UTF-8 character
+                // (common with box-drawing and other Unicode UI glyphs). Keep decoder
+                // state between reads instead of replacing those partial bytes.
+                var characterCount = decoder.GetChars(buffer, 0, count, characterBuffer, 0, flush: false);
+                if (characterCount > 0)
+                    OutputReceived?.Invoke(id, new string(characterBuffer, 0, characterCount));
             }
+
+            var remainingCharacters = decoder.GetChars([], 0, 0, characterBuffer, 0, flush: true);
+            if (remainingCharacters > 0)
+                OutputReceived?.Invoke(id, new string(characterBuffer, 0, remainingCharacters));
         }
         catch (ObjectDisposedException) { }
         catch (IOException) { }
@@ -102,7 +117,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         catch (InvalidOperationException) { }
     }
 
-    private static TerminalSession CreateSession(string workingDirectory, string commandLine, int columns, int rows)
+    private TerminalSession CreateSession(string workingDirectory, string commandLine, int columns, int rows)
     {
         SafeFileHandle? inputRead = null;
         SafeFileHandle? outputWrite = null;
@@ -121,7 +136,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
 
             var result = CreatePseudoConsole(new Coord((short)columns, (short)rows), inputRead, outputWrite, 0, out pseudoConsole);
             if (result != 0)
-                throw new InvalidOperationException($"CreatePseudoConsole mislukt (HRESULT 0x{result:X8}): {Marshal.GetExceptionForHR(result)?.Message}");
+                throw new InvalidOperationException(_localization.T("CreatePseudoConsole failed (HRESULT 0x{0}): {1}", result.ToString("X8"), Marshal.GetExceptionForHR(result)?.Message ?? string.Empty));
             inputRead.Dispose();
             inputRead = null;
             outputWrite.Dispose();
@@ -129,14 +144,14 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
 
             InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, out var attributeSize);
             if (attributeSize == 0)
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "Grootte van de ConPTY-procesattributen kon niet worden bepaald.");
+                throw new Win32Exception(Marshal.GetLastWin32Error(), _localization.T("Unable to determine the ConPTY process attribute size."));
             attributeList = Marshal.AllocHGlobal((IntPtr)attributeSize);
             if (!InitializeProcThreadAttributeListInPlace(attributeList, 1, 0, ref attributeSize))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "Initialiseren van de ConPTY-procesattributen is mislukt.");
+                throw new Win32Exception(Marshal.GetLastWin32Error(), _localization.T("Failed to initialize ConPTY process attributes."));
             attributeListInitialized = true;
             // PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE takes the HPCON value itself, as in Microsoft's ConPTY sample.
             if (!UpdateProcThreadAttribute(attributeList, 0, ProcThreadAttributePseudoConsole, pseudoConsole, (nuint)IntPtr.Size, IntPtr.Zero, IntPtr.Zero))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "Koppelen van de pseudo-console aan het terminalproces is mislukt.");
+                throw new Win32Exception(Marshal.GetLastWin32Error(), _localization.T("Failed to attach the pseudo console to the terminal process."));
 
             var startupInfo = new StartupInfoEx
             {
@@ -156,8 +171,8 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
                 {
                     var errorCode = Marshal.GetLastWin32Error();
                     throw new InvalidOperationException(
-                        $"De geconfigureerde opdracht '{commandLine}' kon niet worden gestart (Windows-fout {errorCode}: {new Win32Exception(errorCode).Message}). " +
-                        $"Gevonden executable: {launch.Executable}. Controleer of de applicatie vanuit Repo Launcher bereikbaar is.");
+                        _localization.T("The configured command '{0}' could not be started (Windows error {1}: {2}). Found executable: {3}. Check that the application is available to Repo Launcher.",
+                            commandLine, errorCode, new Win32Exception(errorCode).Message, launch.Executable));
                 }
 
                 CloseHandle(processInfo.Thread);
@@ -201,19 +216,19 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         }
     }
 
-    private static (string Executable, string CommandLine) ResolveCommand(string configuredCommand)
+    private (string Executable, string CommandLine) ResolveCommand(string configuredCommand)
     {
         var command = configuredCommand.Trim();
         var executable = ReadExecutableToken(command, out var argumentText);
         if (string.IsNullOrWhiteSpace(executable))
-            throw new InvalidOperationException("De geconfigureerde applicatie is leeg.");
+            throw new InvalidOperationException(_localization.T("The configured application is empty."));
 
         var resolvedExecutable = FindExecutable(executable);
         var extension = Path.GetExtension(resolvedExecutable);
         if (extension.Equals(".ps1", StringComparison.OrdinalIgnoreCase))
         {
             var powershell = TryFindExecutable("pwsh.exe") ?? TryFindExecutable("powershell.exe")
-                ?? throw new FileNotFoundException("De PowerShell-wrapper van de geconfigureerde opdracht is gevonden, maar PowerShell zelf kon niet via PATH worden gevonden.");
+                ?? throw new FileNotFoundException(_localization.T("The PowerShell wrapper for the configured command was found, but PowerShell could not be found in PATH."));
             var scriptCommand = $"\"{powershell}\" -NoLogo -NoProfile -File \"{resolvedExecutable}\"" +
                                 (string.IsNullOrWhiteSpace(argumentText) ? string.Empty : " " + argumentText);
             return (powershell, scriptCommand);
@@ -229,13 +244,13 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         return (resolvedExecutable, $"\"{resolvedExecutable}\"{(string.IsNullOrWhiteSpace(argumentText) ? string.Empty : " " + argumentText)}");
     }
 
-    private static string ReadExecutableToken(string command, out string arguments)
+    private string ReadExecutableToken(string command, out string arguments)
     {
         if (command.StartsWith('"'))
         {
             var closingQuote = command.IndexOf('"', 1);
             if (closingQuote < 0)
-                throw new InvalidOperationException("De applicatieopdracht bevat een niet-afgesloten aanhalingsteken.");
+                throw new InvalidOperationException(_localization.T("The configured application command has an unclosed quotation mark."));
             arguments = command[(closingQuote + 1)..].TrimStart();
             return command[1..closingQuote];
         }
@@ -251,7 +266,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         return command[..firstSpace];
     }
 
-    private static string FindExecutable(string executable)
+    private string FindExecutable(string executable)
     {
         var extensions = Path.HasExtension(executable)
             ? [string.Empty]
@@ -273,10 +288,10 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         }
 
         return candidates.FirstOrDefault(File.Exists) ?? throw new FileNotFoundException(
-            $"Kan '{executable}' niet vinden in de PATH-omgevingsvariabele van Repo Launcher. Vul in Instellingen eventueel het volledige pad naar de applicatie in.", executable);
+            _localization.T("Could not find '{0}' in Repo Launcher’s PATH. You can enter the full application path in Settings.", executable), executable);
     }
 
-    private static string? TryFindExecutable(string executable)
+    private string? TryFindExecutable(string executable)
     {
         try { return FindExecutable(executable); }
         catch (FileNotFoundException) { return null; }

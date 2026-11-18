@@ -622,15 +622,9 @@ h1:focus {
     height: 100%;
 }
 
-.git-overview-loading {
-    display: grid;
+.git-overview-loading-space {
     flex: 1 1 auto;
     min-height: 0;
-    place-items: center;
-}
-
-.git-overview-loading-content {
-    width: min(100%, 28rem);
 }
 
 .git-overview-progress {

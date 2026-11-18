@@ -1,0 +1,124 @@
+@inject ClaudeRepositoryConfigService ConfigService
+@inject LocalizationService L
+@inject ISnackbar Snackbar
+
+<MudDialog Class="settings-dialog">
+    <TitleContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <img class="repository-agent-logo" src="claude-code.svg" alt="Claude Code" />
+            <MudText Typo="Typo.h6">@L.T("Claude Code project config") — @RepositoryName</MudText>
+        </MudStack>
+    </TitleContent>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.caption" Color="Color.Secondary">@ConfigService.GetMcpConfigPath(RepositoryPath)</MudText>
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                @L.T("MCP definitions are stored in .mcp.json. Enable switches are stored in .claude/settings.local.json for this repository only. Existing files are backed up before changes.")
+            </MudAlert>
+            @if (_servers.Count > 0)
+            {
+                <MudText Typo="Typo.subtitle1">@L.T("MCP servers")</MudText>
+                @foreach (var server in _servers)
+                {
+                    <MudPaper @key="server.Name" Outlined="true" Elevation="0" Class="pa-2">
+                        <MudSwitch T="bool" Value="server.Enabled" ValueChanged="@(enabled => ToggleServerAsync(server.Name, enabled))"
+                                   Color="Color.Primary" Label="@server.Name" Disabled="@_isSaving" />
+                    </MudPaper>
+                }
+            }
+            else if (!_isLoading)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@L.T("No MCP servers found in this repository config.")</MudAlert>
+            }
+            <MudExpansionPanels Elevation="0" Outlined="true">
+                <MudExpansionPanel Text="@L.T("Project MCP configuration (JSON)")">
+                    <MudStack Spacing="2">
+                        <MudTextField @bind-Value="_json" Label="@L.T("Project MCP configuration (JSON)")"
+                                      Lines="16" Sizing="InputSizing.Fixed" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                      Disabled="@_isLoading" />
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Save"
+                                   OnClick="SaveAsync" Disabled="@(_isLoading || _isSaving)" Class="align-self-start">
+                            @L.T("Save project config")
+                        </MudButton>
+                    </MudStack>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Size="Size.Small" OnClick="Close">@L.T("Close")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter, EditorRequired] public string RepositoryPath { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string RepositoryName { get; set; } = string.Empty;
+
+    private string _json = "{}";
+    private IReadOnlyList<ClaudeProjectMcpServer> _servers = [];
+    private bool _isLoading = true;
+    private bool _isSaving;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _isLoading = true;
+        try
+        {
+            _json = await ConfigService.LoadMcpConfigAsync(RepositoryPath);
+            _servers = await ConfigService.GetMcpServersAsync(RepositoryPath, _json);
+        }
+        catch (Exception exception)
+        {
+            _servers = [];
+            Snackbar.Add(L.T("Could not load project config: {0}", exception.Message), Severity.Error);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task ToggleServerAsync(string name, bool enabled)
+    {
+        _isSaving = true;
+        try
+        {
+            _json = await ConfigService.SetMcpServerEnabledAsync(RepositoryPath, name, enabled);
+            _servers = await ConfigService.GetMcpServersAsync(RepositoryPath, _json);
+            Snackbar.Add(L.T("Repository MCP setting saved."), Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not update project MCP server: {0}", exception.Message), Severity.Error);
+            await LoadAsync();
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _isSaving = true;
+        try
+        {
+            await ConfigService.SaveMcpConfigAsync(RepositoryPath, _json);
+            _servers = await ConfigService.GetMcpServersAsync(RepositoryPath, _json);
+            Snackbar.Add(L.T("Repository MCP config saved."), Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not save project config: {0}", exception.Message), Severity.Error);
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private void Close() => MudDialog.Close();
+}

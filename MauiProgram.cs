@@ -31,6 +31,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<RepositoryFolderPicker>();
 		builder.Services.AddSingleton<AiCommitMessageService>();
 		builder.Services.AddSingleton<AgentConfigService>();
+		builder.Services.AddSingleton<ClaudeRepositoryConfigService>();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();

@@ -5,6 +5,7 @@
 @inject AgentConfigService AgentConfigService
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
+@inject IDialogService DialogService
 @implements IDisposable
 
 <MudDialog Class="settings-dialog">
@@ -38,10 +39,19 @@
                             </div>
                             <MudTextField @bind-Value="repository.Name" Label="@L.T("Name")" Variant="Variant.Outlined" Margin="Margin.Dense" />
                             <MudTextField @bind-Value="repository.Path" Label="@L.T("Path")" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                            <MudSelect T="string" @bind-Value="repository.AgentTool" Label="@L.T("Agent tool")" Variant="Variant.Outlined" Margin="Margin.Dense">
-                                <MudSelectItem T="string" Value="@AgentTools.OpenCode">OpenCode</MudSelectItem>
-                                <MudSelectItem T="string" Value="@AgentTools.ClaudeCode">Claude Code</MudSelectItem>
-                            </MudSelect>
+                            <MudStack Spacing="1">
+                                <MudSelect T="string" @bind-Value="repository.AgentTool" Label="@L.T("Agent tool")" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                    <MudSelectItem T="string" Value="@AgentTools.OpenCode">OpenCode</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@AgentTools.ClaudeCode">Claude Code</MudSelectItem>
+                                </MudSelect>
+                                @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.ClaudeCode && !string.IsNullOrWhiteSpace(repository.Path))
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.SettingsSuggest"
+                                               OnClick="@(() => OpenClaudeRepositoryConfigAsync(repository))">
+                                        @L.T("Claude Code config")
+                                    </MudButton>
+                                }
+                            </MudStack>
                             <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.FolderOpen" Color="Color.Primary" aria-label="@L.T("Browse for repository folder")"
                                            Disabled="@(!FolderPicker.IsSupported)" OnClick="@(() => BrowseRepositoryAsync(repository))" />
                             <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" aria-label="@L.T("Remove repository")"
@@ -53,20 +63,10 @@
             <MudTabPanel Text="@L.T("Agent management")" Icon="@Icons.Material.Filled.Terminal">
                 <MudStack Spacing="3">
                     <MudText Typo="Typo.h6">@L.T("Agent management")</MudText>
-                    <MudSelect T="string" Value="_selectedAgent" ValueChanged="LoadAgentConfigAsync" Label="@L.T("Agent tool")" Margin="Margin.Dense" Variant="Variant.Outlined">
-                        <MudSelectItem T="string" Value="@AgentTools.OpenCode">OpenCode</MudSelectItem>
-                        <MudSelectItem T="string" Value="@AgentTools.ClaudeCode">Claude Code</MudSelectItem>
-                    </MudSelect>
+                    <MudText Typo="Typo.subtitle1">OpenCode</MudText>
                     <MudText Typo="Typo.caption" Color="Color.Secondary">@_agentConfigPath</MudText>
                     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                        @if (_selectedAgent == AgentTools.ClaudeCode)
-                        {
-                            @L.T("Claude Code MCP switches apply to all repositories configured in Repo Launcher. Other Claude projects are not changed.")
-                        }
-                        else
-                        {
-                            @L.T("OpenCode MCP switches update the enabled value in this config file.")
-                        }
+                        @L.T("OpenCode MCP switches update the disabled value in this config file. Claude Code project config is managed from each repository.")
                         @L.T("A timestamped backup is created before each change to an existing config file.")
                     </MudAlert>
                     @if (_agentMcpServers.Count > 0)
@@ -269,6 +269,17 @@
     }
 
     private void AddRepository() => Settings.Repositories.Add(new RepositoryEntry { Name = L.T("New repository") });
+
+    private async Task OpenClaudeRepositoryConfigAsync(RepositoryEntry repository)
+    {
+        var parameters = new DialogParameters<ClaudeRepositoryConfigDialog>
+        {
+            { dialog => dialog.RepositoryPath, repository.Path },
+            { dialog => dialog.RepositoryName, repository.Name }
+        };
+        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Large, CloseButton = true, CloseOnEscapeKey = true };
+        await DialogService.ShowAsync<ClaudeRepositoryConfigDialog>(L.T("Claude Code project config"), parameters, options);
+    }
 
     private async Task BrowseRepositoryAsync(RepositoryEntry repository)
     {

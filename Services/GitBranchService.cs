@@ -195,6 +195,12 @@ public sealed class GitBranchService
     public async Task<GitOperationResult> GetStagedDiffAsync(string path) =>
         await RunGitAsync(path, "diff", "--cached", "--no-ext-diff", "--", ".");
 
+    public async Task<GitOperationResult> GetCommitFilesAsync(string path, string commitHash) =>
+        await RunGitAsync(path, "diff-tree", "--root", "--no-commit-id", "--name-status", "-r", "-M", commitHash);
+
+    public async Task<GitOperationResult> GetCommitFileDiffAsync(string path, string commitHash, string filePath) =>
+        await RunGitAsync(path, "show", "--format=", "--no-ext-diff", "--find-renames", $"{commitHash}", "--", filePath);
+
     public async Task<GitOperationResult> StageFileAsync(string path, string filePath) =>
         await RunGitAsync(path, "add", "--", filePath);
 

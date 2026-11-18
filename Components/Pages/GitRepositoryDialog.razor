@@ -90,7 +90,7 @@
 
                 @if (_view == GitView.History)
                 {
-                    <div class="git-history-workspace @(_isBranchPanelCollapsed ? "git-history-workspace-collapsed" : "")">
+                    <div class="git-history-workspace @(_isBranchPanelCollapsed ? "git-history-workspace-collapsed" : "") @(_isCommitFilesPanelCollapsed ? "git-history-commit-files-collapsed" : "")">
                         <MudPaper Class="pa-3 git-dialog-panel git-branch-panel" Outlined="true" Elevation="0">
                             <div class="git-branch-header">
                                 <MudIconButton Class="git-branch-collapse-button" Icon="@Icons.Material.Filled.ChevronLeft"
@@ -136,7 +136,7 @@
                                 </button>
                             </div>
                         </MudPaper>
-                        <div class="git-history-splitter" role="separator" aria-orientation="vertical" aria-label="Resize branch panel" tabindex="0"></div>
+                        <div class="git-history-splitter git-history-branch-splitter" role="separator" aria-orientation="vertical" aria-label="Resize branch panel" tabindex="0"></div>
                         <MudPaper Class="pa-3 git-dialog-panel git-commit-history-panel" Outlined="true" Elevation="0">
                                 <MudText Typo="Typo.subtitle1" Class="mb-2">@L.T("Recent commits")</MudText>
                                  <MudStack Spacing="0" Class="git-dialog-list git-commit-list">
@@ -204,6 +204,68 @@
                                         <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("No commits found.")</MudText>
                                     }
                                 </MudStack>
+                        </MudPaper>
+                        <div class="git-history-splitter git-history-commit-files-splitter" role="separator" aria-orientation="vertical" aria-label="@L.T("Resize commit files panel")" tabindex="0"></div>
+                        <MudPaper Class="pa-3 git-dialog-panel git-commit-files-panel" Outlined="true" Elevation="0">
+                            @if (!_isCommitFilesPanelCollapsed)
+                            {
+                                <div class="git-commit-files-header">
+                                    <MudText Typo="Typo.subtitle1">@L.T("Commit files")</MudText>
+                                    <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" aria-label="@L.T("Collapse commit files panel")" OnClick="ToggleCommitFilesPanel" />
+                                </div>
+                                @if (_selectedCommit is null)
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Select a commit to view its files.")</MudText>
+                                }
+                                else if (_isLoadingCommitFiles)
+                                {
+                                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                                }
+                                else
+                                {
+                                    <div class="git-commit-files-list">
+                                        @if (_commitFiles.Count == 0)
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No files changed in this commit.")</MudText>
+                                        }
+                                        @foreach (var file in _commitFiles)
+                                        {
+                                            <button @key="file.Path" class="git-commit-file-button @( _selectedCommitFile?.Path == file.Path ? "selected" : "")"
+                                                    title="@file.Path" @onclick="@(() => SelectCommitFileAsync(file))">
+                                                <span class="git-commit-file-status">@file.Status</span>
+                                                <span class="git-commit-file-path">@file.Path</span>
+                                            </button>
+                                        }
+                                    </div>
+                                    @if (_selectedCommitFile is not null)
+                                    {
+                                        <MudText Typo="Typo.caption" Class="git-commit-file-diff-title" title="@_selectedCommitFile.Path">@_selectedCommitFile.Path</MudText>
+                                        @if (_isLoadingCommitFileDiff)
+                                        {
+                                            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                                        }
+                                        else
+                                        {
+                                            <pre class="git-diff-view git-commit-file-diff">@foreach (var line in GetDiffLines(_selectedCommitFileDiff))
+                                            {
+                                                <span class="git-diff-line git-diff-@line.Kind">@line.Text
+</span>
+                                            }</pre>
+                                        }
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                <div class="git-commit-files-collapsed-rail">
+                                    <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" aria-label="@L.T("Expand commit files panel")" OnClick="ToggleCommitFilesPanel" />
+                                    @if (_selectedCommit is not null)
+                                    {
+                                        <MudIcon Icon="@Icons.Material.Filled.Description" Size="Size.Small" title="@L.T("Commit files")" />
+                                        <span class="git-commit-files-count">@_commitFiles.Count</span>
+                                    }
+                                </div>
+                            }
                         </MudPaper>
                     </div>
                 }
@@ -317,6 +379,13 @@
     private bool _isGeneratingMessage;
     private GitView _view = GitView.History;
     private bool _isBranchPanelCollapsed;
+    private bool _isCommitFilesPanelCollapsed;
+    private bool _isLoadingCommitFiles;
+    private bool _isLoadingCommitFileDiff;
+    private GitCommitEntry? _selectedCommit;
+    private IReadOnlyList<GitCommitFile> _commitFiles = [];
+    private GitCommitFile? _selectedCommitFile;
+    private string _selectedCommitFileDiff = string.Empty;
     private IJSObjectReference? _gitHistoryModule;
     private string? _selectedCommitHash;
     private IReadOnlyList<GitBranchEntry> LocalBranches => _snapshot?.Branches.Where(branch => !branch.IsRemote).ToList() ?? [];
@@ -577,15 +646,70 @@
 
     private void ExpandBranchPanel() => _isBranchPanelCollapsed = false;
 
+    private void ToggleCommitFilesPanel() => _isCommitFilesPanelCollapsed = !_isCommitFilesPanelCollapsed;
+
     private bool IsSelectedCommit(GitCommitEntry commit) => _selectedCommitHash == commit.Hash;
 
-    private void SelectCommit(GitCommitEntry commit) =>
-        _selectedCommitHash = IsSelectedCommit(commit) ? null : commit.Hash;
+    private async Task SelectCommit(GitCommitEntry commit)
+    {
+        if (IsSelectedCommit(commit))
+        {
+            _selectedCommitHash = null;
+            _selectedCommit = null;
+            _commitFiles = [];
+            _selectedCommitFile = null;
+            _selectedCommitFileDiff = string.Empty;
+            return;
+        }
+
+        _selectedCommitHash = commit.Hash;
+        _selectedCommit = commit;
+        _selectedCommitFile = null;
+        _selectedCommitFileDiff = string.Empty;
+        _isCommitFilesPanelCollapsed = false;
+        _isLoadingCommitFiles = true;
+        try
+        {
+            var result = await GitBranchService.GetCommitFilesAsync(RepositoryPath, commit.Hash);
+            _commitFiles = result.Success ? ParseCommitFiles(result.Output) : [];
+            if (!result.Success)
+                _selectedCommitFileDiff = result.Message;
+        }
+        finally
+        {
+            _isLoadingCommitFiles = false;
+        }
+    }
+
+    private async Task SelectCommitFileAsync(GitCommitFile file)
+    {
+        if (_selectedCommit is null)
+            return;
+
+        _selectedCommitFile = file;
+        _isLoadingCommitFileDiff = true;
+        try
+        {
+            var result = await GitBranchService.GetCommitFileDiffAsync(RepositoryPath, _selectedCommit.Hash, file.Path);
+            _selectedCommitFileDiff = result.Success ? result.Output : result.Message;
+        }
+        finally
+        {
+            _isLoadingCommitFileDiff = false;
+        }
+    }
+
+    private static IReadOnlyList<GitCommitFile> ParseCommitFiles(string output) => output
+        .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+        .Select(line => line.TrimEnd('\r').Split('\t'))
+        .Where(parts => parts.Length >= 2)
+        .Select(parts => new GitCommitFile(parts[^1], parts[0]))
+        .ToList();
 
     private void HandleCommitRowKeyDown(KeyboardEventArgs args, GitCommitEntry commit)
     {
         if (args.Key is "Enter" or " ")
-            SelectCommit(commit);
+            _ = SelectCommit(commit);
     }
 
     private GitCommitBranchLabel? GetPathBranchLabel(GitCommitEntry commit)
@@ -647,6 +771,7 @@
     }
 
     private sealed record BranchFolder(string? Name, IReadOnlyList<GitBranchEntry> Branches);
+    private sealed record GitCommitFile(string Path, string Status);
     private sealed record DiffDisplayLine(string Text, string Kind);
     private enum GitView { History, Commit }
 

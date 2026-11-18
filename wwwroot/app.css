@@ -296,7 +296,11 @@ h1:focus {
     box-sizing: border-box;
 }
 
-/* Settings fields should keep their natural height instead of sharing the available space. */
+/* Keep both the select wrapper and input controls from filling the available height. */
+.settings-tabs .mud-select {
+    flex-grow: 0;
+}
+
 .settings-tabs .mud-input-control {
     flex: 0 0 auto;
 }
@@ -1160,7 +1164,22 @@ h1:focus {
 }
 
 .git-history-commit-files-collapsed {
-    grid-template-columns: minmax(150px, var(--branch-panel-width)) 6px minmax(0, 1fr) 0 3.5rem;
+    grid-template-columns: minmax(150px, var(--branch-panel-width)) 6px minmax(0, 1fr) 0 3.5rem !important;
+}
+
+.git-history-workspace-collapsed.git-history-commit-files-collapsed {
+    grid-template-columns: 3.5rem 0 minmax(0, 1fr) 0 3.5rem !important;
+}
+
+.git-history-commit-files-collapsed > .git-commit-files-splitter {
+    grid-column: 4;
+}
+
+.git-history-commit-files-collapsed > .git-commit-files-panel {
+    grid-column: 5;
+    width: 3.5rem;
+    min-width: 0;
+    align-items: center;
 }
 
 .git-history-workspace > .git-branch-panel,
@@ -1181,6 +1200,12 @@ h1:focus {
     overflow: visible;
 }
 
+.git-history-workspace .git-branch-group {
+    flex: 0 0 auto;
+    min-height: auto;
+    overflow: visible;
+}
+
 .git-history-workspace > .git-branch-panel,
 .git-history-workspace > .git-commit-history-panel,
 .git-history-workspace > .git-branch-panel {
@@ -1188,9 +1213,10 @@ h1:focus {
 }
 
 .git-history-workspace:not(.git-history-commit-files-collapsed) > .git-branch-panel > .git-branch-groups {
-    flex: 0 0 230px;
+    flex: 1 1 auto;
     width: 230px;
     min-width: 230px;
+    height: auto;
     align-self: flex-start;
 }
 
@@ -1462,7 +1488,7 @@ body.git-history-resizing * {
     }
 
     .git-history-commit-files-collapsed {
-        grid-template-columns: minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr) !important;
         grid-template-rows: minmax(120px, var(--branch-panel-height)) 6px minmax(160px, 1fr) 0 3.5rem;
     }
 
@@ -1484,6 +1510,8 @@ body.git-history-resizing * {
 
     .git-history-commit-files-collapsed > .git-commit-files-panel {
         grid-row: 5;
+        grid-column: 1;
+        width: auto;
         padding: 0.25rem !important;
     }
 

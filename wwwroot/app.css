@@ -1190,34 +1190,46 @@ h1:focus {
 }
 
 .git-history-workspace .git-branch-groups {
-    min-height: 0;
-}
-
-.git-history-workspace .git-branch-list {
-    flex: 0 0 auto;
+    display: grid;
+    flex: 1 1 0;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
     height: auto;
-    max-height: none;
-    overflow: visible;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .git-history-workspace .git-branch-group {
-    flex: 0 0 auto;
-    min-height: auto;
-    overflow: visible;
+    --branch-group-header-height: 2.5rem;
+    display: block;
+    position: relative;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.git-history-workspace .git-branch-group > summary {
+    height: var(--branch-group-header-height);
+}
+
+.git-history-workspace .git-branch-list {
+    /* Native details content does not participate in the outer flex layout. */
+    position: absolute;
+    inset: var(--branch-group-header-height) 0 0;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    box-sizing: border-box;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.git-history-workspace .git-branch-group:not([open]) > .git-branch-list {
+    display: none;
 }
 
 .git-history-workspace > .git-branch-panel,
 .git-history-workspace > .git-commit-history-panel,
 .git-history-workspace > .git-branch-panel {
     position: relative;
-}
-
-.git-history-workspace:not(.git-history-commit-files-collapsed) > .git-branch-panel > .git-branch-groups {
-    flex: 1 1 auto;
-    width: 230px;
-    min-width: 230px;
-    height: auto;
-    align-self: flex-start;
 }
 
 .git-history-splitter {
@@ -1414,12 +1426,14 @@ body.git-history-resizing * {
         flex: 1 1 auto;
         width: auto;
         min-width: 0;
+        height: auto;
     }
 
     .git-history-workspace > .git-branch-panel > .git-branch-groups {
         flex: 1 1 auto;
         width: auto;
         min-width: 0;
+        height: auto;
         align-self: stretch;
     }
 

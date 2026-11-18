@@ -2,7 +2,9 @@
 @inject LocalizationService L
 @inject GitBranchService GitBranchService
 @inject AiCommitMessageService AiCommitMessageService
+@inject IJSRuntime JS
 @inject ISnackbar Snackbar
+@implements IAsyncDisposable
 
 <MudDialog Class="git-overview-dialog">
     <DialogContent>
@@ -14,16 +16,14 @@
                         <MudText Typo="Typo.subtitle1">@RepositoryName</MudText>
                         <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="@L.T("Close")" OnClick="Close" />
                     </MudStack>
-                    <MudStack Spacing="1" Class="git-overview-progress">
+                    <div class="git-overview-progress git-overview-progress-active" aria-live="polite">
                         <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
-                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
-                            <MudText Typo="Typo.caption">@L.T(_loadingStage)</MudText>
-                            @if (_loadedBranchCount is not null)
-                            {
-                                <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Branches loaded: {0}", _loadedBranchCount.Value)</MudText>
-                            }
-                        </MudStack>
-                    </MudStack>
+                        <span>@L.T(_loadingStage)</span>
+                        @if (_loadedBranchCount is not null)
+                        {
+                            <span class="git-overview-progress-count">@L.T("Branches loaded: {0}", _loadedBranchCount.Value)</span>
+                        }
+                    </div>
                     <div class="git-overview-loading-space"></div>
                 </MudStack>
             }
@@ -49,19 +49,14 @@
                                     <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="@L.T("Close")" OnClick="Close" />
                     </MudStack>
                 </MudStack>
-                @if (_isLoading)
-                {
-                    <MudStack Spacing="1" Class="git-overview-progress">
-                        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
-                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
-                            <MudText Typo="Typo.caption">@L.T(_loadingStage)</MudText>
-                            @if (_loadedBranchCount is not null)
-                            {
-                                <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Branches loaded: {0}", _loadedBranchCount.Value)</MudText>
-                            }
-                        </MudStack>
-                    </MudStack>
-                }
+                <div class="git-overview-progress @(_isLoading ? "git-overview-progress-active" : "")" aria-live="polite">
+                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                    <span>@L.T(_loadingStage)</span>
+                    @if (_loadedBranchCount is not null)
+                    {
+                        <span class="git-overview-progress-count">@L.T("Branches loaded: {0}", _loadedBranchCount.Value)</span>
+                    }
+                </div>
                 @if (!string.IsNullOrWhiteSpace(_snapshot.Warning))
                 {
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@_snapshot.Warning</MudAlert>
@@ -95,45 +90,54 @@
 
                 @if (_view == GitView.History)
                 {
-                    <MudGrid Spacing="3" Class="git-history-workspace">
-                        <MudItem xs="12" md="3" xl="2">
-                            <MudPaper Class="pa-3 git-dialog-panel git-branch-panel" Outlined="true" Elevation="0">
-                                <div class="git-branch-header">
-                                    <MudText Typo="Typo.subtitle1">@L.T("Branches")</MudText>
-                    <span class="git-branch-count">@_snapshot.Branches.Count</span>
-                                </div>
-                                <div class="git-branch-groups">
-                                    <details class="git-branch-group" open>
-                                         <summary><span>@L.T("Local branches")</span><span class="git-branch-count">@LocalBranches.Count</span></summary>
-                                        <div class="git-dialog-list git-branch-list">
-                                            @foreach (var folder in LocalBranchFolders)
-                                            {
-                                                @BranchFolderContent(folder, false)
-                                            }
-                                            @if (LocalBranches.Count == 0)
-                                            {
-                                                <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No local branches.")</MudText>
-                                            }
-                                        </div>
-                                    </details>
-                                    <details class="git-branch-group" open>
-                                         <summary><span>@L.T("Remote branches")</span><span class="git-branch-count">@RemoteBranches.Count</span></summary>
-                                        <div class="git-dialog-list git-branch-list">
-                                            @foreach (var folder in RemoteBranchFolders)
-                                            {
-                                                @BranchFolderContent(folder, true)
-                                            }
-                                            @if (RemoteBranches.Count == 0)
-                                            {
-                                                <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No remote branches.")</MudText>
-                                            }
-                                        </div>
-                                    </details>
-                                </div>
-                            </MudPaper>
-                        </MudItem>
-                        <MudItem xs="12" md="9" xl="10">
-                            <MudPaper Class="pa-3 git-dialog-panel" Outlined="true" Elevation="0">
+                    <div class="git-history-workspace @(_isBranchPanelCollapsed ? "git-history-workspace-collapsed" : "")">
+                        <MudPaper Class="pa-3 git-dialog-panel git-branch-panel" Outlined="true" Elevation="0">
+                            <div class="git-branch-header">
+                                <MudIconButton Class="git-branch-collapse-button" Icon="@Icons.Material.Filled.ChevronLeft"
+                                               aria-label="@L.T("Collapse branch panel")" OnClick="ToggleBranchPanel" />
+                            </div>
+                            <div class="git-branch-groups">
+                                <details class="git-branch-group" open>
+                                    <summary><span>@L.T("Local branches")</span><span class="git-branch-count">@LocalBranches.Count</span></summary>
+                                    <div class="git-dialog-list git-branch-list">
+                                        @foreach (var folder in LocalBranchFolders)
+                                        {
+                                            @BranchFolderContent(folder, false)
+                                        }
+                                        @if (LocalBranches.Count == 0)
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No local branches.")</MudText>
+                                        }
+                                    </div>
+                                </details>
+                                <details class="git-branch-group" open>
+                                    <summary><span>@L.T("Remote branches")</span><span class="git-branch-count">@RemoteBranches.Count</span></summary>
+                                    <div class="git-dialog-list git-branch-list">
+                                        @foreach (var folder in RemoteBranchFolders)
+                                        {
+                                            @BranchFolderContent(folder, true)
+                                        }
+                                        @if (RemoteBranches.Count == 0)
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No remote branches.")</MudText>
+                                        }
+                                    </div>
+                                </details>
+                            </div>
+                            <div class="git-branch-collapsed-rail">
+                                <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" aria-label="@L.T("Expand branch panel")" OnClick="ToggleBranchPanel" />
+                                <button class="git-branch-rail-item" aria-label="@L.T("Local branches") — @LocalBranches.Count" title="@L.T("Local branches")" @onclick="ExpandBranchPanel">
+                                    <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" />
+                                    <span>@LocalBranches.Count</span>
+                                </button>
+                                <button class="git-branch-rail-item" aria-label="@L.T("Remote branches") — @RemoteBranches.Count" title="@L.T("Remote branches")" @onclick="ExpandBranchPanel">
+                                    <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small" />
+                                    <span>@RemoteBranches.Count</span>
+                                </button>
+                            </div>
+                        </MudPaper>
+                        <div class="git-history-splitter" role="separator" aria-orientation="vertical" aria-label="Resize branch panel" tabindex="0"></div>
+                        <MudPaper Class="pa-3 git-dialog-panel git-commit-history-panel" Outlined="true" Elevation="0">
                                 <MudText Typo="Typo.subtitle1" Class="mb-2">@L.T("Recent commits")</MudText>
                                  <MudStack Spacing="0" Class="git-dialog-list git-commit-list">
                                     @foreach (var commit in _snapshot.Commits)
@@ -200,9 +204,8 @@
                                         <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("No commits found.")</MudText>
                                     }
                                 </MudStack>
-                            </MudPaper>
-                        </MudItem>
-                    </MudGrid>
+                        </MudPaper>
+                    </div>
                 }
                 else
                 {
@@ -313,6 +316,8 @@
     private bool _isOperating;
     private bool _isGeneratingMessage;
     private GitView _view = GitView.History;
+    private bool _isBranchPanelCollapsed;
+    private IJSObjectReference? _gitHistoryModule;
     private string? _selectedCommitHash;
     private IReadOnlyList<GitBranchEntry> LocalBranches => _snapshot?.Branches.Where(branch => !branch.IsRemote).ToList() ?? [];
     private IReadOnlyList<GitBranchEntry> RemoteBranches => _snapshot?.Branches.Where(branch => branch.IsRemote).ToList() ?? [];
@@ -325,9 +330,14 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender)
+            _gitHistoryModule = await JS.InvokeAsync<IJSObjectReference>("import", "./git-history.js");
+
+        if (_view == GitView.History && _snapshot?.IsValid == true && _gitHistoryModule is not null)
+            await _gitHistoryModule.InvokeVoidAsync("attachHistorySplitter");
+
         if (!firstRender)
             return;
-
         await RefreshAsync(fetch: true);
         _view = _files.Count > 0 ? GitView.Commit : GitView.History;
         await InvokeAsync(StateHasChanged);
@@ -563,6 +573,10 @@
         return separator < 0 ? branchName : branchName[(separator + 1)..];
     }
 
+    private void ToggleBranchPanel() => _isBranchPanelCollapsed = !_isBranchPanelCollapsed;
+
+    private void ExpandBranchPanel() => _isBranchPanelCollapsed = false;
+
     private bool IsSelectedCommit(GitCommitEntry commit) => _selectedCommitHash == commit.Hash;
 
     private void SelectCommit(GitCommitEntry commit) =>
@@ -687,6 +701,19 @@
     {
         var index = Math.Abs(color % GraphPalette.Length);
         return $"var(--git-graph-{index}, #{GraphPalette[index]:X6})";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_gitHistoryModule is not null)
+        {
+            try
+            {
+                await _gitHistoryModule.InvokeVoidAsync("detachHistorySplitter");
+                await _gitHistoryModule.DisposeAsync();
+            }
+            catch (JSDisconnectedException) { }
+        }
     }
     private static string GraphStrokeStyle(int color) => $"stroke: {GraphColor(color)}";
     private string GraphPath(GitGraphEdge edge)

@@ -1,0 +1,231 @@
+@inject OpenCodeRepositoryConfigService ConfigService
+@inject LocalizationService L
+@inject ISnackbar Snackbar
+
+<MudDialog Class="settings-dialog">
+    <TitleContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <img class="repository-agent-logo" src="opencode.svg" alt="OpenCode" />
+            <MudText Typo="Typo.h6">OpenCode — @RepositoryName</MudText>
+        </MudStack>
+    </TitleContent>
+    <DialogContent>
+        <MudTabs Rounded="true" Border="true" KeepPanelsAlive="true">
+            <MudTabPanel Text="@L.T("Project settings")" Icon="@Icons.Material.Filled.Tune">
+                <MudStack Spacing="3" Class="pa-3">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@ConfigService.GetProjectConfigPath(RepositoryPath)</MudText>
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                        @L.T("OpenCode project settings and MCP servers are read from opencode.json or .opencode/opencode.json. Existing files are backed up before changes.")
+                    </MudAlert>
+                    @if (_servers.Count > 0)
+                    {
+                        <MudText Typo="Typo.subtitle1">@L.T("MCP servers")</MudText>
+                        @foreach (var server in _servers)
+                        {
+                            <MudPaper @key="server.Name" Outlined="true" Elevation="0" Class="pa-2">
+                                <MudSwitch T="bool" Value="server.Enabled" ValueChanged="@(enabled => ToggleMcpServerAsync(server.Name, enabled))"
+                                           Color="Color.Primary" Label="@server.Name" Disabled="@_isSaving" />
+                            </MudPaper>
+                        }
+                    }
+                    else if (!_isLoading)
+                    {
+                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@L.T("No MCP servers found in this project config.")</MudAlert>
+                    }
+                    <MudExpansionPanels Elevation="0" Outlined="true">
+                        <MudExpansionPanel Text="@L.T("Project configuration (JSON)")">
+                            <MudStack Spacing="2">
+                                <MudTextField @bind-Value="_configJson" Label="@L.T("Project configuration (JSON)")"
+                                              Lines="18" Sizing="InputSizing.Fixed" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                              Disabled="@_isLoading" />
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Save"
+                                           OnClick="SaveConfigAsync" Disabled="@(_isLoading || _isSaving)" Class="align-self-start">
+                                    @L.T("Save project config")
+                                </MudButton>
+                            </MudStack>
+                        </MudExpansionPanel>
+                    </MudExpansionPanels>
+                </MudStack>
+            </MudTabPanel>
+            <MudTabPanel Text="@L.T("Project skills")" Icon="@Icons.Material.Filled.AutoAwesome">
+                <MudStack Spacing="3" Class="pa-3">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@ConfigService.GetSkillsDirectory(RepositoryPath)</MudText>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudSelect T="string" Value="_selectedSkillPath" ValueChanged="LoadSkillAsync" Label="@L.T("Skill")" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                   Disabled="@(_skills.Count == 0 || _isLoading)">
+                            @foreach (var skill in _skills)
+                            {
+                                <MudSelectItem T="string" Value="@skill.RelativePath">@skill.Id</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="StartNewSkill" Disabled="@_isSaving">
+                            @L.T("New skill")
+                        </MudButton>
+                    </MudStack>
+                    @if (_isCreatingSkill)
+                    {
+                        <MudTextField @bind-Value="_newSkillId" Label="@L.T("Skill ID")" HelperText="@L.T("Use lowercase letters, numbers, and hyphens.")"
+                                      Margin="Margin.Dense" Variant="Variant.Outlined" />
+                    }
+                    @if (_selectedSkillPath is not null || _isCreatingSkill)
+                    {
+                        <MudTextField @bind-Value="_skillContent" Label="@L.T("Skill content (Markdown)")"
+                                      Lines="18" Sizing="InputSizing.Fixed" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                      Disabled="@_isLoading" />
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Save"
+                                   OnClick="SaveSkillAsync" Disabled="@(_isLoading || _isSaving)" Class="align-self-start">
+                            @L.T("Save skill")
+                        </MudButton>
+                    }
+                    else if (_skills.Count == 0)
+                    {
+                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@L.T("No project skills found. Create one to add it under .opencode/skills.")</MudAlert>
+                    }
+                </MudStack>
+            </MudTabPanel>
+        </MudTabs>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Size="Size.Small" OnClick="Close">@L.T("Close")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter, EditorRequired] public string RepositoryPath { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string RepositoryName { get; set; } = string.Empty;
+
+    private string _configJson = "{}";
+    private IReadOnlyList<OpenCodeProjectMcpServer> _servers = [];
+    private IReadOnlyList<OpenCodeProjectSkill> _skills = [];
+    private string? _selectedSkillPath;
+    private string _skillContent = string.Empty;
+    private string _newSkillId = string.Empty;
+    private bool _isCreatingSkill;
+    private bool _isLoading = true;
+    private bool _isSaving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadConfigAsync();
+        await LoadSkillsAsync();
+    }
+
+    private async Task LoadConfigAsync()
+    {
+        _isLoading = true;
+        try
+        {
+            _configJson = await ConfigService.LoadProjectConfigAsync(RepositoryPath);
+            _servers = await ConfigService.GetMcpServersAsync(_configJson);
+        }
+        catch (Exception exception)
+        {
+            _servers = [];
+            Snackbar.Add(L.T("Could not load project config: {0}", exception.Message), Severity.Error);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task ToggleMcpServerAsync(string name, bool enabled)
+    {
+        _isSaving = true;
+        try
+        {
+            _configJson = await ConfigService.SetMcpServerEnabledAsync(RepositoryPath, _configJson, name, enabled);
+            _servers = await ConfigService.GetMcpServersAsync(_configJson);
+            Snackbar.Add(L.T("Repository MCP setting saved."), Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not update project MCP server: {0}", exception.Message), Severity.Error);
+            await LoadConfigAsync();
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task SaveConfigAsync()
+    {
+        _isSaving = true;
+        try
+        {
+            await ConfigService.SaveProjectConfigAsync(RepositoryPath, _configJson);
+            _servers = await ConfigService.GetMcpServersAsync(_configJson);
+            Snackbar.Add(L.T("Repository project config saved."), Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not save project config: {0}", exception.Message), Severity.Error);
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task LoadSkillsAsync()
+    {
+        try
+        {
+            _skills = await ConfigService.GetSkillsAsync(RepositoryPath);
+            _selectedSkillPath = _skills.FirstOrDefault()?.RelativePath;
+            if (_selectedSkillPath is not null)
+                await LoadSkillAsync(_selectedSkillPath);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not load project skills: {0}", exception.Message), Severity.Error);
+        }
+    }
+
+    private async Task LoadSkillAsync(string path)
+    {
+        _selectedSkillPath = path;
+        _isCreatingSkill = false;
+        _skillContent = await ConfigService.LoadSkillAsync(RepositoryPath, path);
+    }
+
+    private void StartNewSkill()
+    {
+        _selectedSkillPath = null;
+        _skillContent = "---\nname: \ndescription: \n---\n\n";
+        _newSkillId = string.Empty;
+        _isCreatingSkill = true;
+    }
+
+    private async Task SaveSkillAsync()
+    {
+        _isSaving = true;
+        try
+        {
+            if (_isCreatingSkill)
+            {
+                await ConfigService.SaveNewSkillAsync(RepositoryPath, _newSkillId, _skillContent);
+                _selectedSkillPath = Path.Combine(_newSkillId, "SKILL.md");
+                _isCreatingSkill = false;
+            }
+            else if (_selectedSkillPath is not null)
+            {
+                await ConfigService.SaveSkillAsync(RepositoryPath, _selectedSkillPath, _skillContent);
+            }
+            await LoadSkillsAsync();
+            Snackbar.Add(L.T("Project skill saved."), Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not save project skill: {0}", exception.Message), Severity.Error);
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private void Close() => MudDialog.Close();
+}

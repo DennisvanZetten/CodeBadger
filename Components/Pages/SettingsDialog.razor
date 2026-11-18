@@ -51,6 +51,13 @@
                                         @L.T("Claude Code config")
                                     </MudButton>
                                 }
+                                else if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && !string.IsNullOrWhiteSpace(repository.Path))
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.SettingsSuggest"
+                                               OnClick="@(() => OpenOpenCodeRepositoryConfigAsync(repository))">
+                                        @L.T("OpenCode project config & skills")
+                                    </MudButton>
+                                }
                             </MudStack>
                             <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.FolderOpen" Color="Color.Primary" aria-label="@L.T("Browse for repository folder")"
                                            Disabled="@(!FolderPicker.IsSupported)" OnClick="@(() => BrowseRepositoryAsync(repository))" />
@@ -279,6 +286,17 @@
         };
         var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Large, CloseButton = true, CloseOnEscapeKey = true };
         await DialogService.ShowAsync<ClaudeRepositoryConfigDialog>(L.T("Claude Code project config"), parameters, options);
+    }
+
+    private async Task OpenOpenCodeRepositoryConfigAsync(RepositoryEntry repository)
+    {
+        var parameters = new DialogParameters<OpenCodeRepositoryConfigDialog>
+        {
+            { dialog => dialog.RepositoryPath, repository.Path },
+            { dialog => dialog.RepositoryName, repository.Name }
+        };
+        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Large, CloseButton = true, CloseOnEscapeKey = true };
+        await DialogService.ShowAsync<OpenCodeRepositoryConfigDialog>(L.T("OpenCode project config & skills"), parameters, options);
     }
 
     private async Task BrowseRepositoryAsync(RepositoryEntry repository)

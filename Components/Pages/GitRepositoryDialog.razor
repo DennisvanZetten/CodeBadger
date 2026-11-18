@@ -307,12 +307,16 @@
                                             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="git-unstaged-actions">
                                                 <MudCheckBox T="bool" Value="@AreAllUnstagedFilesSelected" ValueChanged="SetAllUnstagedFilesSelected"
                                                              Label="@L.T("Select all")" Disabled="@_isOperating" Size="Size.Small" />
-                                                <MudButton Size="Size.Small" Color="Color.Error" Variant="Variant.Outlined"
-                                                           StartIcon="@Icons.Material.Filled.DeleteForever"
-                                                           Disabled="@(_isOperating || SelectedUnstagedFiles.Count == 0)"
-                                                           OnClick="DiscardSelectedUnstagedFilesAsync">
-                                                    @L.T("Undo selected ({0})", SelectedUnstagedFiles.Count)
-                                                </MudButton>
+                                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="0">
+                                                    <MudButton Size="Size.Small" Disabled="@(_isOperating || SelectedUnstagedFiles.Count == 0)"
+                                                               OnClick="StageSelectedAsync">
+                                                        @L.T("Stage selected ({0})", SelectedUnstagedFiles.Count)
+                                                    </MudButton>
+                                                    <MudIconButton Size="Size.Small" Color="Color.Error" Icon="@Icons.Material.Filled.DeleteOutline"
+                                                                   aria-label="@L.T("Undo selected ({0})", SelectedUnstagedFiles.Count)"
+                                                                   Disabled="@(_isOperating || SelectedUnstagedFiles.Count == 0)"
+                                                                   OnClick="DiscardSelectedUnstagedFilesAsync" />
+                                                </MudStack>
                                             </MudStack>
                                         }
                                         @if (UnstagedFiles.Count == 0)
@@ -531,6 +535,35 @@
             if (failed > 0)
                 Snackbar.Add(L.T("Stage failed for {0} file(s).", failed), Severity.Error);
             await RefreshAsync();
+        }
+        finally
+        {
+            _isOperating = false;
+        }
+    }
+
+    private async Task StageSelectedAsync()
+    {
+        var files = SelectedUnstagedFiles.ToList();
+        if (files.Count == 0)
+            return;
+
+        _isOperating = true;
+        try
+        {
+            var failed = 0;
+            foreach (var file in files)
+            {
+                var result = await GitBranchService.StageFileAsync(RepositoryPath, file.Path);
+                if (!result.Success)
+                    failed++;
+                else
+                    _selectedUnstagedFilePaths.Remove(file.Path);
+            }
+
+            await RefreshAsync();
+            if (failed > 0)
+                Snackbar.Add(L.T("Stage failed for {0} file(s).", failed), Severity.Error);
         }
         finally
         {

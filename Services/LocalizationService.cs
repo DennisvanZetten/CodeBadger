@@ -150,6 +150,7 @@ public sealed class LocalizationService
         ["Unstaged ({0})"] = ["Unstaged ({0})", "Niet staged ({0})", "Nicht vorgemerkt ({0})", "Non indexés ({0})"],
         ["Stage all"] = ["Stage all", "Stage alles", "Alle vormerken", "Tout indexer"],
         ["Select all"] = ["Select all", "Alles selecteren", "Alle auswählen", "Tout sélectionner"],
+        ["Stage selected ({0})"] = ["Stage selected ({0})", "Selectie stagen ({0})", "Auswahl vormerken ({0})", "Indexer la sélection ({0})"],
         ["Undo selected ({0})"] = ["Undo selected ({0})", "Selectie ongedaan maken ({0})", "Auswahl rückgängig ({0})", "Annuler la sélection ({0})"],
         ["Undo unstaged changes?"] = ["Undo unstaged changes?", "Niet-gestagede wijzigingen terugdraaien?", "Nicht vorgemerkte Änderungen rückgängig machen?", "Annuler les modifications non indexées ?"],
         ["Undo confirmation"] = ["This will permanently discard unstaged changes in {0} selected file(s). Staged changes are kept. Untracked files will be deleted.", "Hiermee worden de niet-gestagede wijzigingen in {0} geselecteerd(e) bestand(en) definitief verwijderd. Gestagede wijzigingen blijven behouden. Niet-gevolgde bestanden worden verwijderd.", "Dadurch werden nicht vorgemerkte Änderungen in {0} ausgewählten Datei(en) endgültig verworfen. Vorgemerkte Änderungen bleiben erhalten. Nicht verfolgte Dateien werden gelöscht.", "Cette action supprimera définitivement les modifications non indexées dans {0} fichier(s) sélectionné(s). Les modifications indexées sont conservées. Les fichiers non suivis seront supprimés."],

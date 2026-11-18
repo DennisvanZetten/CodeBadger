@@ -51,7 +51,7 @@
                                     <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="@L.T("Close")" OnClick="Close" />
                     </MudStack>
                 </MudStack>
-                <div class="git-overview-progress @(_isLoading ? "git-overview-progress-active" : "")" aria-live="polite">
+                <div class="git-overview-progress @(_isLoading || _isOperating ? "git-overview-progress-active" : "")" aria-live="polite">
                     <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
                     <span>@L.T(_loadingStage)</span>
                     @if (_loadedBranchCount is not null)
@@ -682,6 +682,7 @@
     private async Task CommitChangesAsync()
     {
         _isOperating = true;
+        _loadingStage = "Creating commit...";
         try
         {
             var commitMessage = string.IsNullOrWhiteSpace(_commitDescription)
@@ -965,6 +966,7 @@
     private async Task RunGitOperationAsync(Func<Task<GitOperationResult>> operation, string name)
     {
         _isOperating = true;
+        _loadingStage = name == "Pull" ? "Pulling changes..." : "Pushing changes...";
         try
         {
             var result = await operation();

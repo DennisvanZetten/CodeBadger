@@ -84,13 +84,19 @@
                     {
                         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@L.T("No MCP servers found in this config.")</MudAlert>
                     }
-                    <MudTextField @bind-Value="_agentConfigJson" Label="@L.T("Agent configuration (JSON)")"
-                                  Lines="18" Sizing="InputSizing.Fixed" Margin="Margin.Dense" Variant="Variant.Outlined"
-                                  Disabled="@_isLoadingAgentConfig" />
-                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Save"
-                               OnClick="SaveAgentConfigAsync" Disabled="@(_isLoadingAgentConfig || _isSavingAgentConfig)" Class="align-self-start">
-                        @L.T("Save agent config")
-                    </MudButton>
+                    <MudExpansionPanels Elevation="0" Outlined="true">
+                        <MudExpansionPanel Text="@L.T("Agent configuration (JSON)")">
+                            <MudStack Spacing="2">
+                                <MudTextField @bind-Value="_agentConfigJson" Label="@L.T("Agent configuration (JSON)")"
+                                              Lines="18" Sizing="InputSizing.Fixed" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                              Disabled="@_isLoadingAgentConfig" />
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Save"
+                                           OnClick="SaveAgentConfigAsync" Disabled="@(_isLoadingAgentConfig || _isSavingAgentConfig)" Class="align-self-start">
+                                    @L.T("Save agent config")
+                                </MudButton>
+                            </MudStack>
+                        </MudExpansionPanel>
+                    </MudExpansionPanels>
                 </MudStack>
             </MudTabPanel>
             <MudTabPanel Text="@L.T("AI provider")" Icon="@Icons.Material.Filled.AutoAwesome">

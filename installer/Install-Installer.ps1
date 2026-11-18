@@ -33,4 +33,4 @@ else {
     Add-AppxPackage -Path $package
 }
 
-Write-Host "Repo Launcher is geïnstalleerd voor de huidige gebruiker." -ForegroundColor Green
+Write-Host "CodeBadger is geïnstalleerd voor de huidige gebruiker." -ForegroundColor Green

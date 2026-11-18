@@ -9,7 +9,7 @@
 @inject ISnackbar Snackbar
 @implements IDisposable
 
-<PageTitle>Repo Launcher</PageTitle>
+<PageTitle>CodeBadger</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.False" Class="py-5 repository-home">
     @if (_activeRepositories.Count == 0)
@@ -55,7 +55,7 @@
                                 }
                                 else
                                 {
-                                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("{0} was not detected. The agent cannot start; install it or choose another agent in Settings, then restart Repo Launcher.", AgentTools.Normalize(repository.AgentTool))</MudAlert>
+                                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("{0} was not detected. The agent cannot start; install it or choose another agent in Settings, then restart CodeBadger.", AgentTools.Normalize(repository.AgentTool))</MudAlert>
                                 }
                             </MudPaper>
                             <MudPaper Outlined="true" Elevation="0" Class="pa-4 repository-git-panel">

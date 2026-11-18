@@ -16,9 +16,9 @@
 {
     <div class="startup-splash" role="status" aria-live="polite">
         <div class="startup-logo-halo">
-            <img class="startup-logo" src="repo-launcher.svg" alt="Repo Launcher" />
+            <img class="startup-logo" src="codebadger.svg" alt="CodeBadger" />
         </div>
-        <MudText Typo="Typo.h5">Repo Launcher</MudText>
+        <MudText Typo="Typo.h5">CodeBadger</MudText>
         <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T(_startupStage)</MudText>
         <MudProgressLinear Value="_startupProgress" Color="Color.Primary" Rounded="true" />
         <MudText Typo="Typo.caption" Color="Color.Secondary">@((int)_startupProgress)%</MudText>
@@ -28,8 +28,8 @@ else
 {
     <MudLayout>
         <MudAppBar Elevation="0" Color="Color.Surface" Dense="true">
-            <img class="appbar-logo mr-3" src="repo-launcher.svg" alt="Repo Launcher" />
-            <MudText Typo="Typo.h6">Repo Launcher</MudText>
+            <img class="appbar-logo mr-3" src="codebadger.svg" alt="CodeBadger" />
+            <MudText Typo="Typo.h6">CodeBadger</MudText>
             <MudSpacer />
             <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Default" Size="Size.Small"
                             aria-label="@L.T("Open settings")" OnClick="OpenSettingsAsync" />

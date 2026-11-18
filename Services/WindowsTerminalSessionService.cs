@@ -171,7 +171,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
                 {
                     var errorCode = Marshal.GetLastWin32Error();
                     throw new InvalidOperationException(
-                        _localization.T("The configured command '{0}' could not be started (Windows error {1}: {2}). Found executable: {3}. Check that the application is available to Repo Launcher.",
+                        _localization.T("The configured command '{0}' could not be started (Windows error {1}: {2}). Found executable: {3}. Check that the application is available to CodeBadger.",
                             commandLine, errorCode, new Win32Exception(errorCode).Message, launch.Executable));
                 }
 
@@ -288,7 +288,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         }
 
         return candidates.FirstOrDefault(File.Exists) ?? throw new FileNotFoundException(
-            _localization.T("Could not find '{0}' in Repo Launcher’s PATH. You can enter the full application path in Settings.", executable), executable);
+            _localization.T("Could not find '{0}' in CodeBadger’s PATH. You can enter the full application path in Settings.", executable), executable);
     }
 
     private string? TryFindExecutable(string executable)

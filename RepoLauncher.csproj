@@ -29,9 +29,10 @@
         <MauiXamlInflator>SourceGen</MauiXamlInflator>
 
         <!-- Display name -->
-        <ApplicationTitle>Repo Launcher</ApplicationTitle>
+        <ApplicationTitle>CodeBadger</ApplicationTitle>
 
         <!-- App Identifier -->
+        <!-- Keep the package ID so existing installations upgrade in place. -->
         <ApplicationId>com.local.repolauncher</ApplicationId>
 
         <!-- Versions -->

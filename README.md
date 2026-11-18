@@ -1,10 +1,10 @@
-# Repo Launcher
+# CodeBadger
 
-Repo Launcher is a Windows app built with .NET MAUI Blazor Hybrid and MudBlazor. The installer is packaged as an MSIX and signed locally with a temporary self-signed certificate.
+CodeBadger is a Windows app for managing repositories, coding agents, MCP servers, skills, and Git workflows. It is built with .NET MAUI Blazor Hybrid and MudBlazor. The installer is packaged as an MSIX and signed locally with a temporary self-signed certificate.
 
 ## Building the MSIX
 
-Open PowerShell in the `RepoLauncher` directory and run:
+Open PowerShell in the project directory and run:
 
 ```powershell
 ./installer/Build-Installer.ps1
@@ -18,8 +18,8 @@ Trust the package certificate and install the MSIX for the current Windows user:
 
 ```powershell
 ./installer/Install-Installer.ps1 `
-  -PackagePath "./artifacts/installer/<timestamp>/RepoLauncher_1.0.0.1_x64.msix" `
-  -CertificatePath "./artifacts/installer/<timestamp>/RepoLauncher_1.0.0.1_x64.cer"
+  -PackagePath "./artifacts/installer/<timestamp>/CodeBadger_1.0.0.1_x64.msix" `
+  -CertificatePath "./artifacts/installer/<timestamp>/CodeBadger_1.0.0.1_x64.cer"
 ```
 
 Use the actual version numbers in the package name, or run `Install.ps1` from the generated output directory. The local certificate includes code-signing and explicit Basic Constraints extensions so that Windows' installation script can validate it. Windows may require sideloading to be enabled. The certificate is added to `CurrentUser\TrustedPeople` so the package can be installed from this local publisher.

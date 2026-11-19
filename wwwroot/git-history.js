@@ -11,6 +11,26 @@ export function positionCommitContextMenu(clientX, clientY) {
     menu.style.top = `${clientY - bounds.top}px`;
 }
 
+export function scrollToCurrentBranch() {
+    const branch = document.querySelector(".git-branch-list [data-branch-name]");
+    if (!branch)
+        return;
+
+    for (let folder = branch.closest("details"); folder; folder = folder.parentElement?.closest("details"))
+        folder.open = true;
+
+    const list = branch.closest(".git-branch-list");
+    if (!list)
+        return;
+
+    const listBounds = list.getBoundingClientRect();
+    const branchBounds = branch.getBoundingClientRect();
+    list.scrollTo({
+        top: list.scrollTop + branchBounds.top - listBounds.top - (list.clientHeight - branchBounds.height) / 2,
+        behavior: "smooth"
+    });
+}
+
 export function attachHistorySplitter() {
     for (const splitter of document.querySelectorAll(".git-history-workspace .git-history-splitter")) {
         const workspace = splitter.closest(".git-history-workspace");

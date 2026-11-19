@@ -149,7 +149,7 @@
                                         <div @key="commit.Hash"
                                              class="git-commit-row @(IsSelectedCommit(commit) ? "git-commit-row-selected" : "")"
                                              role="button" tabindex="0" aria-pressed="@IsSelectedCommit(commit)"
-                                             @onclick="@(() => SelectCommit(commit))"
+                                             @onclick="@(args => HandleCommitRowClickAsync(args, commit))"
                                              @oncontextmenu:preventDefault="true"
                                              @oncontextmenu="@(args => OpenCommitContextMenuAsync(commit, args))"
                                              @onkeydown="@(args => HandleCommitRowKeyDown(args, commit))">
@@ -486,6 +486,7 @@
     private string _newBranchName = string.Empty;
     private string _createBranchStartPoint = "HEAD";
     private string _createBranchStartPointLabel = "HEAD";
+    private bool _shouldScrollToCurrentBranch;
     private IJSObjectReference? _gitHistoryModule;
     private string? _selectedCommitHash;
     private readonly HashSet<string> _selectedUnstagedFilePaths = new(StringComparer.Ordinal);
@@ -509,7 +510,14 @@
         }
 
         if (_view == GitView.History && _snapshot?.IsValid == true && _gitHistoryModule is not null)
+        {
             await _gitHistoryModule.InvokeVoidAsync("attachHistorySplitter");
+            if (_shouldScrollToCurrentBranch)
+            {
+                _shouldScrollToCurrentBranch = false;
+                await _gitHistoryModule.InvokeVoidAsync("scrollToCurrentBranch");
+            }
+        }
 
         if ((_contextMenuNeedsPosition && _contextMenuCommit is not null || _branchContextMenuNeedsPosition && _contextMenuBranch is not null) && _gitHistoryModule is not null)
         {
@@ -535,6 +543,7 @@
         try
         {
             _snapshot = await GitBranchService.GetRepositorySnapshotAsync(RepositoryPath, fetch, ReportSnapshotProgressAsync);
+            _shouldScrollToCurrentBranch = _snapshot?.IsValid == true && _snapshot.Branch is not null;
             _files = await GitBranchService.GetFileChangesAsync(RepositoryPath);
             _selectedUnstagedFilePaths.IntersectWith(UnstagedFiles.Select(file => file.Path));
             if (_snapshot?.IsValid == true && _files.Count > 0)
@@ -831,7 +840,7 @@
     private RenderFragment BranchFolderContent(BranchFolder folder, bool remote) => @<div>
         @if (folder.Name is not null)
         {
-            <details class="git-branch-folder">
+            <details class="git-branch-folder" open="@folder.Branches.Any(branch => branch.IsCurrent)">
                 <summary><MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" /><span>@folder.Name</span><span class="git-branch-count">@folder.Branches.Count</span></summary>
                 <MudStack Spacing="1" Class="git-branch-folder-children">
                     @foreach (var branch in folder.Branches)
@@ -851,9 +860,12 @@
     </div>;
 
     private RenderFragment BranchButton(GitBranchEntry branch, bool remote) => @<MudButton @key="branch.Name" FullWidth="true"
+        Class="@(branch.IsCurrent ? "git-branch-current" : string.Empty)"
+        data-branch-name="@(!remote && branch.IsCurrent ? branch.Name : null)"
         Variant="@(branch.IsCurrent ? Variant.Filled : Variant.Text)"
         Color="@(branch.IsCurrent ? Color.Primary : Color.Default)" Size="Size.Small"
         StartIcon="@(remote ? Icons.Material.Filled.Cloud : Icons.Material.Filled.CallSplit)"
+        EndIcon="@(branch.IsCurrent ? Icons.Material.Filled.CheckCircle : null)"
         Disabled="@(_isOperating || (!remote && branch.IsCurrent))"
         OnClick="@(() => CheckoutBranchAsync(branch.Name))">
         <span class="git-branch-name">@BranchLeafName(branch.Name)</span>
@@ -886,6 +898,43 @@
     private void ToggleCommitFilesPanel() => _isCommitFilesPanelCollapsed = !_isCommitFilesPanelCollapsed;
 
     private bool IsSelectedCommit(GitCommitEntry commit) => _selectedCommitHash == commit.Hash;
+
+    private async Task HandleCommitRowClickAsync(MouseEventArgs args, GitCommitEntry commit)
+    {
+        if (args.Detail >= 2)
+        {
+            await CheckoutCommitBranchAsync(commit);
+            return;
+        }
+
+        await SelectCommit(commit);
+    }
+
+    private async Task CheckoutCommitBranchAsync(GitCommitEntry commit)
+    {
+        if (_isOperating || _snapshot is null)
+            return;
+
+        var label = commit.BranchLabels?
+            .Where(branchLabel => branchLabel.IsLocal)
+            .OrderBy(branchLabel => string.Equals(branchLabel.Name, _snapshot.Branch, StringComparison.Ordinal))
+            .FirstOrDefault()
+            ?? GetPathBranchLabel(commit);
+        var branch = label is { IsLocal: true }
+            ? LocalBranches.FirstOrDefault(candidate => string.Equals(candidate.Name, label.Name, StringComparison.Ordinal))?.Name
+            : label is { IsRemote: true }
+                ? RemoteBranches.FirstOrDefault(candidate => candidate.Name == label.Name)?.Name
+                : null;
+
+        branch ??= RemoteBranches.FirstOrDefault(candidate => candidate.TipHash == commit.Hash)?.Name;
+        if (branch is null)
+        {
+            Snackbar.Add(L.T("No branch is attached to this commit."), Severity.Warning);
+            return;
+        }
+
+        await CheckoutBranchAsync(branch);
+    }
 
     private async Task SelectCommit(GitCommitEntry commit)
     {
@@ -1197,6 +1246,11 @@
             Snackbar.Add(result.Success ? L.T("Branch '{0}' checked out.", branch) : result.Message,
                 result.Success ? Severity.Success : Severity.Error);
             await RefreshAsync();
+            if (_view != GitView.History)
+            {
+                _view = GitView.History;
+                _shouldScrollToCurrentBranch = true;
+            }
         }
         finally
         {

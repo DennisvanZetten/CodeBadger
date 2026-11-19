@@ -743,6 +743,22 @@ h1:focus {
     max-height: 92vh;
 }
 
+.git-branch-list .git-branch-current {
+    border-inline-start: 3px solid var(--mud-palette-primary);
+    background: color-mix(in srgb, var(--mud-palette-primary) 17%, var(--mud-palette-surface));
+    color: var(--mud-palette-primary-text);
+    font-weight: 700;
+}
+
+.git-branch-list .git-branch-current:hover {
+    background: color-mix(in srgb, var(--mud-palette-primary) 24%, var(--mud-palette-surface));
+}
+
+.git-branch-list .git-branch-current .mud-button-end-icon {
+    margin-inline-start: auto;
+    margin-inline-end: 0;
+}
+
 .git-overview-dialog .mud-secondary-text {
     font-size: 0.7rem !important;
     line-height: 1.35;

@@ -295,6 +295,7 @@ public sealed class LocalizationService
         ["Push completed."] = ["Push completed.", "Push voltooid.", "Push abgeschlossen.", "Push terminé."],
         ["Push failed: {0}"] = ["Push failed: {0}", "Push mislukt: {0}", "Push fehlgeschlagen: {0}", "Échec du push : {0}"],
         ["Branch '{0}' checked out."] = ["Branch '{0}' checked out.", "Branch '{0}' uitgecheckt.", "Branch '{0}' ausgecheckt.", "Branche '{0}' extraite."],
+        ["No branch is attached to this commit."] = ["No branch is attached to this commit.", "Er is geen branch gekoppeld aan deze commit.", "Diesem Commit ist kein Branch zugeordnet.", "Aucune branche n’est associée à ce commit."],
         ["VS Code could not be opened: {0}"] = ["VS Code could not be opened: {0}", "Vergelijking kon niet worden geopend: {0}", "VS Code konnte nicht geöffnet werden: {0}", "Impossible d’ouvrir VS Code : {0}"],
         ["The built-in terminal is only available on Windows."] = ["The built-in terminal is only available on Windows.", "De ingebouwde terminal is alleen beschikbaar op Windows.", "Das integrierte Terminal ist nur unter Windows verfügbar.", "Le terminal intégré est uniquement disponible sous Windows."],
         ["Terminal failed to start: {0}"] = ["Terminal failed to start: {0}", "Terminal starten mislukt: {0}", "Terminal konnte nicht gestartet werden: {0}", "Échec du démarrage du terminal : {0}"],

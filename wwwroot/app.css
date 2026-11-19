@@ -1369,6 +1369,28 @@ h1:focus {
     cursor: default;
 }
 
+.git-create-branch-backdrop {
+    position: fixed;
+    z-index: 1600;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: color-mix(in srgb, #000 42%, transparent);
+}
+
+.git-create-branch-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    width: min(100%, 26rem);
+    padding: 1.25rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 8px;
+    background: var(--mud-palette-surface);
+    box-shadow: var(--mud-elevation-12);
+}
+
 .git-commit-branch-label-context {
     opacity: 0.62;
     border-style: dashed;

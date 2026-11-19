@@ -42,6 +42,8 @@
                         <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.CallSplit">@_snapshot.Branch</MudChip>
                     </MudStack>
                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                                   Disabled="@_isOperating" OnClick="@(() => OpenCreateBranchDialog("HEAD"))">@L.T("New branch")</MudButton>
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Download"
                                    Disabled="@_isOperating" OnClick="PullAsync">@L.T("Pull ({0})", _snapshot.Behind)</MudButton>
                         <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Upload"
@@ -158,7 +160,7 @@
                                                     {
                                                         <span @key="label.Name" class="git-commit-branch-label @(label.IsLocal && !IsCurrentBranchLabel(label) ? "git-commit-branch-label-actionable" : "")"
                                                                style="--branch-color: @GraphColor(label.Color)" title="@label.Name"
-                                                               @oncontextmenu:preventDefault="true" @oncontextmenu:stopPropagation="true"
+                                                               @oncontextmenu:preventDefault="@(label.IsLocal && !IsCurrentBranchLabel(label))" @oncontextmenu:stopPropagation="@(label.IsLocal && !IsCurrentBranchLabel(label))"
                                                                @oncontextmenu="@(args => OpenBranchContextMenuAsync(label, args))">
                                                             @if (label.IsLocal)
                                                             {
@@ -220,6 +222,10 @@
                                                 <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" />
                                                 <span>@L.T("Cherry-pick commit")</span>
                                             </button>
+                                            <button class="git-commit-context-menu-item" disabled="@_isOperating" @onclick="@(() => OpenCreateBranchDialog(_contextMenuCommit.Hash))">
+                                                <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+                                                <span>@L.T("Create branch here")</span>
+                                            </button>
                                         </div>
                                     </div>
                                 }
@@ -241,6 +247,24 @@
                                                     <span>@L.T("Merge {0} into {1}", _contextMenuBranch ?? string.Empty, _contextMenuTargetBranch ?? string.Empty)</span>
                                                 </button>
                                             }
+                                        </div>
+                                    </div>
+                                }
+                                @if (_isCreateBranchDialogOpen)
+                                {
+                                    <div class="git-create-branch-backdrop" @onclick="CloseCreateBranchDialog">
+                                        <div class="git-create-branch-dialog" role="dialog" aria-modal="true" aria-labelledby="create-branch-title" @onclick:stopPropagation="true">
+                                            <MudText id="create-branch-title" Typo="Typo.h6">@L.T("Create new branch")</MudText>
+                                            <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Create branch from {0}", _createBranchStartPointLabel)</MudText>
+                                            <MudTextField @bind-Value="_newBranchName" Label="@L.T("Branch name")" Variant="Variant.Outlined" AutoFocus="true"
+                                                          OnKeyDown="HandleCreateBranchKeyDown" Disabled="@_isCreatingBranch" />
+                                            <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2" Class="mt-2">
+                                                <MudButton Variant="Variant.Text" Disabled="@_isCreatingBranch" OnClick="CloseCreateBranchDialog">@L.T("Cancel")</MudButton>
+                                                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                                                           Disabled="@(_isCreatingBranch || string.IsNullOrWhiteSpace(_newBranchName))" OnClick="CreateBranchAsync">
+                                                    @L.T("Create and checkout")
+                                                </MudButton>
+                                            </MudStack>
                                         </div>
                                     </div>
                                 }
@@ -457,6 +481,11 @@
     private bool _isCheckingMergeBranch;
     private bool _mergeBranchReady;
     private string? _mergeBranchError;
+    private bool _isCreateBranchDialogOpen;
+    private bool _isCreatingBranch;
+    private string _newBranchName = string.Empty;
+    private string _createBranchStartPoint = "HEAD";
+    private string _createBranchStartPointLabel = "HEAD";
     private IJSObjectReference? _gitHistoryModule;
     private string? _selectedCommitHash;
     private readonly HashSet<string> _selectedUnstagedFilePaths = new(StringComparer.Ordinal);
@@ -968,6 +997,60 @@
         _isCheckingMergeBranch = false;
         _mergeBranchReady = false;
         _mergeBranchError = null;
+    }
+
+    private void OpenCreateBranchDialog(string startPoint)
+    {
+        var commit = _snapshot?.Commits.FirstOrDefault(item => item.Hash == startPoint);
+        _createBranchStartPoint = startPoint;
+        _createBranchStartPointLabel = commit is null
+            ? _snapshot?.Branch ?? "HEAD"
+            : $"{commit.ShortHash} · {commit.Subject}";
+        _newBranchName = string.Empty;
+        _contextMenuCommit = null;
+        _contextMenuNeedsPosition = false;
+        CloseBranchContextMenu();
+        _isCreateBranchDialogOpen = true;
+    }
+
+    private void CloseCreateBranchDialog()
+    {
+        if (_isCreatingBranch)
+            return;
+        _isCreateBranchDialogOpen = false;
+    }
+
+    private void HandleCreateBranchKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter" && !string.IsNullOrWhiteSpace(_newBranchName) && !_isCreatingBranch)
+            _ = CreateBranchAsync();
+        else if (args.Key == "Escape")
+            CloseCreateBranchDialog();
+    }
+
+    private async Task CreateBranchAsync()
+    {
+        if (_isCreatingBranch || string.IsNullOrWhiteSpace(_newBranchName))
+            return;
+
+        _isCreatingBranch = true;
+        try
+        {
+            var result = await GitBranchService.CreateAndCheckoutBranchAsync(RepositoryPath, _newBranchName, _createBranchStartPoint);
+            if (!result.Success)
+            {
+                Snackbar.Add(L.T("Could not create branch: {0}", result.Message), Severity.Error);
+                return;
+            }
+
+            _isCreateBranchDialogOpen = false;
+            Snackbar.Add(L.T("Branch '{0}' created and checked out.", _newBranchName.Trim()), Severity.Success);
+            await RefreshAsync();
+        }
+        finally
+        {
+            _isCreatingBranch = false;
+        }
     }
 
     private async Task MergeSelectedBranchAsync()

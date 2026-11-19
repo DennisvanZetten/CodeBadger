@@ -213,6 +213,23 @@ public sealed class GitBranchService
     public async Task<GitOperationResult> CherryPickCommitAsync(string path, string commitHash) =>
         await RunGitAsync(path, "cherry-pick", commitHash);
 
+    public async Task<GitOperationResult> CreateAndCheckoutBranchAsync(string path, string branchName, string startPoint)
+    {
+        branchName = branchName.Trim();
+        if (string.IsNullOrWhiteSpace(branchName))
+            return new GitOperationResult(false, _localization.T("Enter a branch name."), string.Empty);
+
+        var branchNameResult = await RunGitAsync(path, "check-ref-format", $"refs/heads/{branchName}");
+        if (!branchNameResult.Success)
+            return new GitOperationResult(false, _localization.T("Invalid branch name: {0}", branchName), string.Empty);
+
+        var startPointResult = await RunGitAsync(path, "rev-parse", "--verify", "--quiet", $"{startPoint}^{{commit}}");
+        if (!startPointResult.Success)
+            return new GitOperationResult(false, _localization.T("The selected starting point is no longer available."), string.Empty);
+
+        return await RunGitAsync(path, "switch", "--create", branchName, startPointResult.Output.Trim());
+    }
+
     public async Task<GitBranchMergeCheck> CheckBranchCanMergeAsync(string path, string sourceBranch)
     {
         var sourceResult = await RunGitAsync(path, "show-ref", "--verify", "--quiet", $"refs/heads/{sourceBranch}");

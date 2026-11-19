@@ -78,17 +78,17 @@ namespace CodeBadger.Services
         }
 
         public static WindowsSandboxProcess StartWithWorkspacePrepared(string executable, string repositoryPath,
-            IEnumerable<string> selectedFiles, IntPtr pseudoConsole, Func<string, string, string> prepare)
+            IEnumerable<string> selectedFiles, IntPtr pseudoConsole, Func<string, string, string> prepare, SandboxWorkspace.Limits? limits = null)
         {
             ArgumentNullException.ThrowIfNull(repositoryPath);
             ArgumentNullException.ThrowIfNull(selectedFiles);
             ArgumentNullException.ThrowIfNull(prepare);
-            return StartStagedCore(executable, string.Empty, repositoryPath, selectedFiles, pseudoConsole, prepare);
+            return StartStagedCore(executable, string.Empty, repositoryPath, selectedFiles, pseudoConsole, prepare, limits);
         }
 
         private static WindowsSandboxProcess StartStagedCore(string executable, string arguments,
             string? repositoryPath, IEnumerable<string>? selectedFiles, IntPtr pseudoConsole = default,
-            Func<string, string, string>? prepare = null)
+            Func<string, string, string>? prepare = null, SandboxWorkspace.Limits? limits = null)
         {
             ValidateStart(executable, arguments, Environment.SystemDirectory);
             var profile = WindowsAppContainerProfile.Create();
@@ -105,7 +105,7 @@ namespace CodeBadger.Services
                 stagedExecutable = Path.Combine(bin, Path.GetFileName(executable));
                 File.Copy(executable, stagedExecutable, overwrite: false);
                 if (repositoryPath != null)
-                    workspace = SandboxWorkspace.Create(repositoryPath, profile.FolderPath, selectedFiles!);
+                    workspace = SandboxWorkspace.Create(repositoryPath, profile.FolderPath, selectedFiles!, limits);
                 environment = SandboxProcessEnvironment.CreateWindowsBlock(
                     Environment.GetFolderPath(Environment.SpecialFolder.Windows), profile.FolderPath);
                 if (prepare is not null)

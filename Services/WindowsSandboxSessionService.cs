@@ -40,7 +40,7 @@ public sealed class WindowsSandboxSessionService : IAsyncDisposable
 
     public async Task StartOpenCodeAsync(Guid repositoryId, string repositoryPath, string executable,
         IReadOnlyList<string> selectedFiles, Uri endpoint, string model, string hostApiKey,
-        SandboxNetworkBroker broker, SandboxApprovalService approvals)
+        SandboxNetworkBroker broker, SandboxApprovalService approvals, SandboxWorkspace.Limits? limits = null)
     {
         string pluginSource;
         string transportSource;
@@ -57,11 +57,11 @@ public sealed class WindowsSandboxSessionService : IAsyncDisposable
                 return bridge;
             }
             catch { bridge.Dispose(); throw; }
-        });
+        }, limits);
     }
 
     private async Task StartCoreAsync(Guid repositoryId, string repositoryPath, string executable, string arguments,
-        IReadOnlyList<string> selectedFiles, Func<string, string, SandboxProviderBridge>? prepare)
+        IReadOnlyList<string> selectedFiles, Func<string, string, SandboxProviderBridge>? prepare, SandboxWorkspace.Limits? limits = null)
     {
         if (repositoryId == Guid.Empty) throw new ArgumentException("A repository ID is required.");
         string path = CanonicalPath(repositoryPath);
@@ -82,7 +82,7 @@ public sealed class WindowsSandboxSessionService : IAsyncDisposable
                     {
                         bridge = prepare(sid, folder);
                         return arguments;
-                    }));
+                    }, limits: limits));
             }
             catch { bridge?.Dispose(); throw; }
             var session = new Session { RepositoryPath = path, Terminal = terminal, Bridge = bridge };

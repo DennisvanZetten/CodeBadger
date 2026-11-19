@@ -34,11 +34,12 @@ namespace CodeBadger.Services
             => StartCore(executable, arguments, repositoryPath, selectedFiles, columns, rows, null);
 
         public static WindowsSandboxTerminal StartPrepared(string executable, string repositoryPath,
-            IEnumerable<string> selectedFiles, Func<string, string, string> prepare, int columns = 120, int rows = 30)
-            => StartCore(executable, string.Empty, repositoryPath, selectedFiles, columns, rows, prepare);
+            IEnumerable<string> selectedFiles, Func<string, string, string> prepare, int columns = 120, int rows = 30,
+            SandboxWorkspace.Limits? limits = null)
+            => StartCore(executable, string.Empty, repositoryPath, selectedFiles, columns, rows, prepare, limits);
 
         private static WindowsSandboxTerminal StartCore(string executable, string arguments, string repositoryPath,
-            IEnumerable<string> selectedFiles, int columns, int rows, Func<string, string, string>? prepare)
+            IEnumerable<string> selectedFiles, int columns, int rows, Func<string, string, string>? prepare, SandboxWorkspace.Limits? limits = null)
         {
             if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
             SafeFileHandle? inputRead = null, inputWrite = null, outputRead = null, outputWrite = null;
@@ -61,7 +62,7 @@ namespace CodeBadger.Services
                 outputRead = null;
                 process = prepare is null
                     ? WindowsSandboxProcess.StartWithWorkspace(executable, arguments, repositoryPath, selectedFiles, console)
-                    : WindowsSandboxProcess.StartWithWorkspacePrepared(executable, repositoryPath, selectedFiles, console, prepare);
+                    : WindowsSandboxProcess.StartWithWorkspacePrepared(executable, repositoryPath, selectedFiles, console, prepare, limits);
                 // Keep ConPTY's supplied endpoints alive until process creation
                 // has completed, as required by Microsoft's session lifecycle.
                 inputRead.Dispose(); inputRead = null;

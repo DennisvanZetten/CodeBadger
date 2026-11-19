@@ -9,6 +9,19 @@ try {
     $source = Join-Path $repo 'src\example.txt'
     [IO.File]::WriteAllText($source, 'reviewed test content')
     [IO.File]::WriteAllText((Join-Path $repo '.env'), 'test-secret-only')
+    $large = Join-Path $repo 'src\large.bin'
+    $stream = [IO.File]::Create($large)
+    try { $stream.SetLength(17MB) } finally { $stream.Dispose() }
+    $normal = [CodeBadger.Services.SandboxWorkspace]::Create($repo, $private, [string[]]@('src/large.bin'))
+    if ($normal.Files[0].Length -ne 17MB -or $normal.Limits.FileBytes -ne 64MB -or $normal.Limits.TotalBytes -ne 1024MB) { throw 'Default sandbox limits were not applied.' }
+    $rejected = $false
+    try { $null = [CodeBadger.Services.SandboxWorkspace]::Create($repo, $private, [string[]]@('src/large.bin'), [CodeBadger.Services.SandboxWorkspace+Limits]::new(16, 1024)) }
+    catch { $rejected = $true }
+    if (-not $rejected) { throw 'Custom per-file limit was not enforced.' }
+    $rejected = $false
+    try { $null = [CodeBadger.Services.SandboxWorkspace]::Create($repo, $private, [string[]]@('src/large.bin'), [CodeBadger.Services.SandboxWorkspace+Limits]::new(64, 16)) }
+    catch { $rejected = $true }
+    if (-not $rejected) { throw 'Custom total limit was not enforced.' }
     $workspace = [CodeBadger.Services.SandboxWorkspace]::Create($repo, $private, [string[]]@('src/example.txt'))
     if ($workspace.Files.Count -ne 1) { throw 'Unexpected copied file count.' }
     if ([IO.File]::ReadAllText((Join-Path $workspace.Directory 'src\example.txt')) -ne 'reviewed test content') { throw 'Copied content differs.' }

@@ -214,6 +214,14 @@
                     </MudButton>
                 </MudStack>
             </MudTabPanel>
+            <MudTabPanel Text="Sandbox" Icon="@Icons.Material.Filled.Security">
+                <MudStack Spacing="3">
+                    <MudText Typo="Typo.h6">@L.T("General sandbox limits")</MudText>
+                    <MudNumericField T="int" @bind-Value="Settings.SandboxMaxFileMb" Label="@L.T("Maximum per file (MB)")" Min="1" Max="512" Variant="Variant.Outlined" />
+                    <MudNumericField T="int" @bind-Value="Settings.SandboxMaxTotalMb" Label="@L.T("Maximum total selection (MB)")" Min="1" Max="2048" Variant="Variant.Outlined" />
+                    <MudText Typo="Typo.caption">@L.T("Applies to new sandbox sessions. Larger limits increase disk and memory use.")</MudText>
+                </MudStack>
+            </MudTabPanel>
             <MudTabPanel Text="@L.T("Other")" Icon="@Icons.Material.Filled.Tune">
                 <MudStack Spacing="3">
                     <MudText Typo="Typo.h6">@L.T("Other settings")</MudText>

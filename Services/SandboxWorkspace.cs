@@ -19,7 +19,12 @@ namespace CodeBadger.Services
     public static class SandboxWorkspace
     {
         public sealed record PreparedFile(string RelativePath, string Sha256, long Length);
-        public sealed record PreparedWorkspace(string Directory, IReadOnlyList<PreparedFile> Files);
+        public sealed record Limits(int FileMb = 64, int TotalMb = 1024)
+        {
+            public long FileBytes => (long)Math.Clamp(FileMb, 1, 512) * 1024 * 1024;
+            public long TotalBytes => (long)Math.Clamp(TotalMb, 1, 2048) * 1024 * 1024;
+        }
+        public sealed record PreparedWorkspace(string Directory, IReadOnlyList<PreparedFile> Files, Limits Limits);
         public sealed record BrowserEntry(string Name, string RelativePath, bool IsDirectory, bool IsSensitive, IReadOnlyList<BrowserEntry> Children);
 
         /// <summary>Lists a bounded tree without following links or exposing sensitive paths as selectable entries.</summary>
@@ -61,13 +66,15 @@ namespace CodeBadger.Services
             public string RelativePath { get; }
             public string OriginalSha256 { get; }
             public string? UpdatedSha256 { get; }
+            public Limits Limits { get; }
             public bool Deleted => UpdatedSha256 is null;
             public byte[] GetContent() => (byte[])_content.Clone();
 
-            internal FileChange(string relativePath, string originalSha256, byte[]? content)
+            internal FileChange(string relativePath, string originalSha256, byte[]? content, Limits limits)
             {
                 RelativePath = relativePath;
                 OriginalSha256 = originalSha256;
+                Limits = limits;
                 _content = content ?? Array.Empty<byte>();
                 UpdatedSha256 = content is null ? null : Convert.ToHexString(SHA256.HashData(content));
             }
@@ -91,7 +98,7 @@ namespace CodeBadger.Services
             if (Within(root, backupRoot) || Within(backupRoot, root))
                 throw new ArgumentException("Repository and backup trees must not overlap.");
             byte[] content = change.GetContent();
-            if (content.Length > 16 * 1024 * 1024) throw new InvalidDataException("Modification exceeds size limit.");
+            if (content.LongLength > change.Limits.FileBytes) throw new InvalidDataException("Modification exceeds size limit.");
             string relative = ValidateSelection(change.RelativePath);
             var locks = new List<SafeFileHandle>();
             try
@@ -107,7 +114,7 @@ namespace CodeBadger.Services
                 if ((info.Attributes & (uint)(FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0 || info.Links != 1)
                     throw new UnauthorizedAccessException("Linked targets cannot be modified.");
                 long length = ((long)info.SizeHigh << 32) | info.SizeLow;
-                if (length > 16 * 1024 * 1024) throw new InvalidDataException("Original file exceeds size limit.");
+                if (length > change.Limits.FileBytes) throw new InvalidDataException("Original file exceeds size limit.");
                 using var targetStream = new FileStream(handle, FileAccess.ReadWrite);
                 byte[] original = new byte[(int)length];
                 targetStream.ReadExactly(original);
@@ -174,7 +181,7 @@ namespace CodeBadger.Services
                     try { handle = OpenLocked(file, isDirectory: false); }
                     catch (Win32Exception error) when (error.NativeErrorCode == 2)
                     {
-                        changes.Add(new FileChange(relative, original.Sha256, null));
+                        changes.Add(new FileChange(relative, original.Sha256, null, workspace.Limits));
                         continue;
                     }
                     using (handle)
@@ -183,7 +190,7 @@ namespace CodeBadger.Services
                         if ((info.Attributes & (uint)(FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0 || info.Links != 1)
                             throw new UnauthorizedAccessException("Linked output files cannot be reviewed.");
                         long length = ((long)info.SizeHigh << 32) | info.SizeLow;
-                        if (length > 16 * 1024 * 1024 || total + length > 256 * 1024 * 1024)
+                        if (length > workspace.Limits.FileBytes || total + length > workspace.Limits.TotalBytes)
                             throw new InvalidDataException("Workspace output exceeds size limits.");
                         using var input = new FileStream(handle, FileAccess.Read);
                         using var content = new MemoryStream();
@@ -191,13 +198,13 @@ namespace CodeBadger.Services
                         int count;
                         while ((count = input.Read(buffer, 0, buffer.Length)) != 0)
                         {
-                            if (content.Length + count > 16 * 1024 * 1024 || total + content.Length + count > 256 * 1024 * 1024)
+                            if (content.Length + count > workspace.Limits.FileBytes || total + content.Length + count > workspace.Limits.TotalBytes)
                                 throw new InvalidDataException("Workspace output changed or exceeds limits.");
                             content.Write(buffer, 0, count);
                         }
                         if (content.Length != length) throw new IOException("Workspace output changed while capturing.");
                         total += length;
-                        var change = new FileChange(relative, original.Sha256, content.ToArray());
+                        var change = new FileChange(relative, original.Sha256, content.ToArray(), workspace.Limits);
                         if (!string.Equals(change.UpdatedSha256, original.Sha256, StringComparison.OrdinalIgnoreCase))
                             changes.Add(change);
                     }
@@ -207,8 +214,9 @@ namespace CodeBadger.Services
             finally { foreach (var handle in locks) handle.Dispose(); }
         }
 
-        public static PreparedWorkspace Create(string repositoryPath, string privateParent, IEnumerable<string> selectedFiles)
+        public static PreparedWorkspace Create(string repositoryPath, string privateParent, IEnumerable<string> selectedFiles, Limits? limits = null)
         {
+            limits ??= new Limits();
             if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Workspace preparation currently requires Windows.");
             if (!Path.IsPathFullyQualified(repositoryPath) || !Path.IsPathFullyQualified(privateParent))
                 throw new ArgumentException("Absolute repository and private destination paths are required.");
@@ -243,10 +251,10 @@ namespace CodeBadger.Services
                     if ((info.Attributes & (uint)(FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0 || info.Links != 1)
                         throw new UnauthorizedAccessException("Linked files are not allowed in the workspace.");
                     long length = ((long)info.SizeHigh << 32) | info.SizeLow;
-                    const long maximumFile = 16 * 1024 * 1024;
-                    const long maximumTotal = 256 * 1024 * 1024;
-                    if (length > maximumFile || totalBytes + length > maximumTotal)
-                        throw new InvalidDataException("Selected files exceed workspace size limits.");
+                    if (length > limits.FileBytes)
+                        throw new InvalidDataException($"Selected file '{relative}' exceeds the {limits.FileBytes / (1024 * 1024)} MB per-file sandbox limit.");
+                    if (totalBytes + length > limits.TotalBytes)
+                        throw new InvalidDataException($"Selected files exceed the {limits.TotalBytes / (1024 * 1024)} MB sandbox total limit when adding '{relative}'.");
                     string target = Path.Combine(destination, relative);
                     Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                     using var input = new FileStream(handle, FileAccess.Read);
@@ -258,7 +266,7 @@ namespace CodeBadger.Services
                     while ((count = input.Read(buffer, 0, buffer.Length)) > 0)
                     {
                         copied += count;
-                        if (copied > maximumFile || totalBytes + copied > maximumTotal)
+                        if (copied > limits.FileBytes || totalBytes + copied > limits.TotalBytes)
                             throw new InvalidDataException("Selected files changed or exceed workspace size limits.");
                         hash.AppendData(buffer, 0, count);
                         output.Write(buffer, 0, count);
@@ -267,7 +275,7 @@ namespace CodeBadger.Services
                     files.Add(new PreparedFile(relative, Convert.ToHexString(hash.GetHashAndReset()), copied));
                     totalBytes += copied;
                 }
-                return new PreparedWorkspace(destination, files.AsReadOnly());
+                return new PreparedWorkspace(destination, files.AsReadOnly(), limits);
             }
             finally { foreach (var handle in locks) handle.Dispose(); }
         }

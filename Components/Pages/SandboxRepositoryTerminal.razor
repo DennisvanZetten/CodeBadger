@@ -3,6 +3,7 @@
 @inject SandboxOpenCodeProviderService Providers
 @inject SandboxNetworkBroker Broker
 @inject SandboxApprovalService Approvals
+@inject LauncherSettingsService Settings
 @inject IDialogService Dialogs
 @inject IJSRuntime JS
 @inject LocalizationService L
@@ -77,12 +78,13 @@
             _stage = "Loading sandbox startup model...";
             await InvokeAsync(StateHasChanged);
             var provider = await Providers.ResolveAsync(RepositoryPath, ModelReference);
+            var settings = await Settings.LoadAsync();
             if (_disposed) return;
             var files = ReviewedFiles.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             _stage = "Copying reviewed files and starting isolated OpenCode...";
             await InvokeAsync(StateHasChanged);
             await Sessions.StartOpenCodeAsync(RepositoryId, RepositoryPath, executable, files, provider.Endpoint,
-                provider.Model, provider.ApiKey, Broker, Approvals);
+                provider.Model, provider.ApiKey, Broker, Approvals, new SandboxWorkspace.Limits(settings.SandboxMaxFileMb, settings.SandboxMaxTotalMb));
             if (_disposed) { await Sessions.StopAsync(RepositoryId); return; }
             _started = true;
         }

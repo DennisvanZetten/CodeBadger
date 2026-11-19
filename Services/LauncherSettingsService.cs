@@ -39,6 +39,8 @@ public sealed class LauncherSettingsService
             settings.Theme = LauncherThemes.Get(settings.Theme).Id;
             settings.CompletionSound = CompletionSounds.Normalize(settings.CompletionSound);
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
+            settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
+            settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);
             foreach (var repository in settings.Repositories)
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
             settings.AiApiKey = await SecureStorage.Default.GetAsync(AiApiKeyStorageKey) ?? string.Empty;
@@ -59,6 +61,8 @@ public sealed class LauncherSettingsService
             settings.Theme = LauncherThemes.Get(settings.Theme).Id;
             settings.CompletionSound = CompletionSounds.Normalize(settings.CompletionSound);
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
+            settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
+            settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);
             foreach (var repository in settings.Repositories)
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
             Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);

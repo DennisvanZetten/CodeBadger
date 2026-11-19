@@ -1305,6 +1305,27 @@ h1:focus {
     background: var(--terminal-background, #0b1220);
 }
 
+.sandbox-terminal-layout {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.sandbox-terminal-layout > .repository-terminal {
+    flex: 1 1 0;
+    height: auto;
+    min-height: 0;
+}
+
+.sandbox-terminal-layout > :not(.repository-terminal) {
+    flex: 0 0 auto;
+}
+
+.repository-sandbox-shield {
+    cursor: pointer;
+    transform: translateY(3px);
+}
+
 :root[data-theme]:not([data-theme="midnight"]) {
     --git-accent: var(--mud-palette-primary);
 }

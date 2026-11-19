@@ -73,7 +73,6 @@ public sealed class SandboxNetworkBroker : IDisposable
         ValidateDestination(destination);
         await _requests.WaitAsync(cancellationToken);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        lifetime.CancelAfter(TimeSpan.FromSeconds(60));
         Guid requestId = Guid.NewGuid();
         // Register before approval so revocation can also cancel a pending prompt.
         var registration = new ActiveRequest(repositoryId, lifetime);
@@ -83,15 +82,20 @@ public sealed class SandboxNetworkBroker : IDisposable
             Uri origin = new(destination.GetLeftPart(UriPartial.Authority));
             if (!await _permissions.IsAllowedAsync(repositoryId, repositoryPath, origin))
             {
+                lifetime.CancelAfter(TimeSpan.FromMinutes(5));
                 if (!await requestApproval(origin, lifetime.Token))
-                    throw new UnauthorizedAccessException("Network access was rejected.");
+                    throw new SandboxBrokerException("Network access was rejected in CodeBadger.");
                 lifetime.Token.ThrowIfCancellationRequested();
                 await _permissions.GrantAsync(repositoryId, repositoryPath, origin);
                 lifetime.Token.ThrowIfCancellationRequested();
             }
             lifetime.Token.ThrowIfCancellationRequested();
             if (!await _permissions.IsAllowedAsync(repositoryId, repositoryPath, origin))
-                throw new UnauthorizedAccessException("Network permission has been revoked.");
+                throw new SandboxBrokerException("Network permission has been revoked in CodeBadger.");
+
+            // Reasoning models can take more than a minute before any response
+            // arrives, especially with the bounded non-streaming provider route.
+            lifetime.CancelAfter(TimeSpan.FromMinutes(5));
 
             using var handler = new SocketsHttpHandler
             {
@@ -116,7 +120,7 @@ public sealed class SandboxNetworkBroker : IDisposable
             // Do not expose provider errors, headers or cookies to the sandbox:
             // they can contain authentication data or reflected request metadata.
             if (!response.IsSuccessStatusCode)
-                throw new HttpRequestException("Approved network request failed with status " + (int)response.StatusCode + ".");
+                throw new SandboxBrokerException("Provider returned HTTP " + (int)response.StatusCode + ". Check provider access, API key and selected model in OpenCode settings.");
             const int maximumBytes = 1024 * 1024;
             if (response.Content.Headers.ContentLength is > maximumBytes)
                 throw new InvalidDataException("Network response exceeds the sandbox size limit.");
@@ -136,6 +140,18 @@ public sealed class SandboxNetworkBroker : IDisposable
                 text.Contains(JsonSerializer.Serialize(hostApiKey).Trim('"'), StringComparison.Ordinal)))
                 throw new InvalidDataException("Provider response contained protected authentication material.");
             return text;
+        }
+        catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new SandboxBrokerException("Provider request timed out or permission was revoked. Try again or check the permission dialog in CodeBadger.", error);
+        }
+        catch (HttpRequestException error)
+        {
+            throw new SandboxBrokerException("CodeBadger could not connect to the provider (network or TLS error).", error);
+        }
+        catch (UnauthorizedAccessException error)
+        {
+            throw new SandboxBrokerException("Provider destination resolved to a blocked local or non-public address.", error);
         }
         finally
         {

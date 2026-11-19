@@ -58,6 +58,7 @@ else
                             {
                                 <MudTooltip Class="repository-sandbox-indicator" Text="@L.T(SandboxSessions.IsRunning(repository.Id) ? "Sandbox active" : "Sandbox enabled; not running")">
                                     <MudIcon Icon="@Icons.Material.Filled.Shield" Size="Size.Small"
+                                             Class="repository-sandbox-shield" @onclick="@(() => ReviewSandboxChangesAsync(repository))"
                                              Color="@(SandboxSessions.IsRunning(repository.Id) ? Color.Success : Color.Warning)"
                                              aria-label="@L.T(SandboxSessions.IsRunning(repository.Id) ? "Sandbox active" : "Sandbox enabled; not running")" />
                                 </MudTooltip>
@@ -88,11 +89,6 @@ else
                                         RepositoryPath="@repository.Path" RepositoryName="@RepositoryTitle(repository)"
                                         ModelReference="@repository.OpenCodeSandboxModel" ReviewedFiles="@repository.OpenCodeSandboxFiles"
                                         IsVisible="@(_activeRepositories.IndexOf(repository) == _activeTabIndex)" />
-                                    <MudButton Size="Size.Small" Variant="Variant.Outlined"
-                                               Disabled="@(SandboxSessions.GetChanges(repository.Id, repository.Path).Count == 0)"
-                                               OnClick="@(() => ReviewSandboxChangesAsync(repository))">
-                                        @L.T("Review sandbox changes")
-                                    </MudButton>
                                 }
                                 else if (StartupDetection.IsAgentAvailable(repository.AgentTool))
                                 {
@@ -246,6 +242,14 @@ else
 
     private async Task ReviewSandboxChangesAsync(RepositoryEntry repository)
     {
+        if (SandboxSessions.IsRunning(repository.Id))
+        {
+            if (await DialogService.ShowMessageBoxAsync(L.T("Stop sandbox and review changes"),
+                L.T("Stop sandbox and review changes"), yesText: L.T("Stop"), cancelText: L.T("Cancel")) != true)
+                return;
+            try { await SandboxSessions.StopAsync(repository.Id); }
+            catch { Snackbar.Add(L.T("Could not load sandbox permissions."), Severity.Error); return; }
+        }
         var parameters = new DialogParameters<SandboxChangesDialog>
         {
             { dialog => dialog.RepositoryName, RepositoryTitle(repository) },

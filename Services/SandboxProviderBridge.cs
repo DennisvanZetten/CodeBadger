@@ -21,8 +21,11 @@ public sealed class SandboxProviderBridge : IDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private bool _disposed;
     private int _requestCount;
-    public string PipeName => _pipe.Name;
+    // Pass the host's explicit namespace path, not a LOCAL alias whose
+    // resolution can differ between packaged hosts and sandbox subprocesses.
+    public string PipeName => _pipe.HostName;
     public Task Completion { get; }
+    public string? Failure { get; private set; }
 
     public SandboxProviderBridge(string appContainerSid, Guid repositoryId, string repositoryPath,
         Uri endpoint, string model, string hostApiKey, SandboxNetworkBroker broker, SandboxApprovalService approvals)
@@ -48,7 +51,12 @@ public sealed class SandboxProviderBridge : IDisposable
         Completion = _pipe.ServeAsync(HandleAsync, _lifetime.Token);
         // Observe transport failures without writing untrusted content or keys
         // into logs. The session owner can inspect Completion for failure status.
-        _ = Completion.ContinueWith(task => { _ = task.Exception; }, CancellationToken.None,
+        _ = Completion.ContinueWith(task =>
+        {
+            var error = task.Exception?.GetBaseException();
+            Failure = error is null ? null : "Sandbox provider pipe failed (" + error.GetType().Name +
+                ", HRESULT 0x" + error.HResult.ToString("X8") + "). Restart the sandbox and report this code.";
+        }, CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 

@@ -3,7 +3,7 @@ import net from "node:net";
 // No provider URL, credential, permission decision or repository ID is accepted
 // from the caller. Those are bound to the authenticated pipe by CodeBadger.
 export function createBrokerTransport(pipeName) {
-  if (!/^LOCAL\\CodeBadger\.Broker\.[a-f0-9]{32}$/.test(pipeName)) {
+  if (!/^(?:LOCAL\\|Sessions\\[0-9]+\\AppContainerNamedObjects\\S-1-15-2-(?:[0-9]+-)*[0-9]+\\)CodeBadger\.Broker\.[a-f0-9]{32}$/.test(pipeName)) {
     throw new Error("Invalid CodeBadger pipe name.");
   }
   let queue = Promise.resolve();
@@ -13,22 +13,27 @@ export function createBrokerTransport(pipeName) {
   let failed = false;
   let connecting;
   let rejectConnection;
-  function fail() {
+  let failureReason = "CodeBadger provider bridge closed.";
+  function fail(reason) {
+    if (typeof reason === "string") failureReason = reason;
     failed = true;
-    rejectConnection?.(new Error("CodeBadger provider bridge closed."));
+    rejectConnection?.(new Error(failureReason));
     rejectConnection = undefined;
-    pending?.reject(new Error("CodeBadger provider bridge closed."));
+    pending?.reject(new Error(failureReason));
     pending = undefined;
     socket?.destroy();
   }
   function connect() {
-    if (failed) throw new Error("CodeBadger provider bridge closed.");
+    if (failed) throw new Error(failureReason);
     if (connecting) return connecting;
     connecting = new Promise((resolve, reject) => {
       rejectConnection = reject;
       socket = net.createConnection(`\\\\.\\pipe\\${pipeName}`);
       socket.once("connect", () => { rejectConnection = undefined; resolve(); });
-      socket.on("error", () => { reject(new Error("CodeBadger bridge unavailable.")); fail(); });
+      socket.on("error", (error) => {
+        const code = /^[A-Z0-9_]+$/.test(error.code ?? "") ? error.code : "UNKNOWN";
+        fail(`CodeBadger pipe connection failed (${code}). Check the host sandbox error.`);
+      });
       socket.on("close", fail);
       socket.on("data", (chunk) => {
         if (!pending) return fail();
@@ -44,7 +49,8 @@ export function createBrokerTransport(pipeName) {
           const request = pending;
           pending = undefined;
           received = Buffer.alloc(0);
-          if (reply.error || !reply.response) request.reject(new Error("CodeBadger rejected the provider request."));
+          if (reply.error || !reply.response) request.reject(new Error(
+            typeof reply.error === "string" ? reply.error.slice(0, 512) : "CodeBadger rejected the provider request."));
           else request.resolve(reply.response);
         } catch { fail(); }
       });
@@ -54,8 +60,9 @@ export function createBrokerTransport(pipeName) {
   async function complete(body, signal) {
     const work = async () => {
       signal?.throwIfAborted();
-      const abort = () => fail();
-      const timeout = setTimeout(fail, 120000);
+      const abort = () => fail("OpenCode canceled the provider request. Restart the sandbox to reconnect.");
+      // Includes host approval and the provider's separate five-minute deadline.
+      const timeout = setTimeout(() => fail("Timed out waiting for CodeBadger provider bridge (11 minutes)."), 660000);
       signal?.addEventListener("abort", abort, { once: true });
       try {
         await connect();

@@ -15,6 +15,7 @@ public sealed class WindowsSandboxSessionService : IAsyncDisposable
     private bool _disposed;
     public event Action<Guid, string>? OutputReceived;
     public event Action<Guid>? StateChanged;
+    public event Action<Guid, string>? ProviderFailed;
 
     private sealed class Session
     {
@@ -87,6 +88,7 @@ public sealed class WindowsSandboxSessionService : IAsyncDisposable
             var session = new Session { RepositoryPath = path, Terminal = terminal, Bridge = bridge };
             _sessions[repositoryId] = session;
             session.Reader = Task.Run(() => ReadOutput(repositoryId, session));
+            if (bridge is not null) _ = MonitorBridgeAsync(repositoryId, session);
         }
         finally { _gate.Release(); }
         StateChanged?.Invoke(repositoryId);
@@ -163,6 +165,22 @@ public sealed class WindowsSandboxSessionService : IAsyncDisposable
         }
         catch (IOException) { }
         catch (ObjectDisposedException) { }
+    }
+
+    private async Task MonitorBridgeAsync(Guid repositoryId, Session session)
+    {
+        try { await session.Bridge!.Completion; }
+        catch (Exception error)
+        {
+            if (!_sessions.TryGetValue(repositoryId, out var active) || !ReferenceEquals(active, session)) return;
+            if (error is OperationCanceledException or ObjectDisposedException) return;
+            string message = "Sandbox provider pipe failed (" + error.GetType().Name + ", HRESULT 0x" +
+                error.HResult.ToString("X8") + "). Restart the sandbox and report this code.";
+            foreach (Action<Guid, string> listener in ProviderFailed?.GetInvocationList() ?? [])
+            {
+                try { listener(repositoryId, message); } catch { }
+            }
+        }
     }
 
     private void PublishOutput(Guid repositoryId, string text)

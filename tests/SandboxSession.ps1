@@ -44,6 +44,7 @@ namespace CodeBadger.Services
     public sealed class SandboxApprovalService { }
     public sealed class SandboxProviderBridge : IDisposable
     {
+        public Task Completion => Task.CompletedTask;
         public string PipeName => "test";
         public SandboxProviderBridge(string sid, Guid id, string path, Uri endpoint, string model, string key, SandboxNetworkBroker broker, SandboxApprovalService approvals) { }
         public void Dispose() { }

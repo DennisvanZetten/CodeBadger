@@ -83,10 +83,14 @@ public sealed class SandboxBrokerPipe : IDisposable
             }
             for (int messages = 0; messages < 1000; messages++)
             {
+                // Waiting for the next user prompt is not an in-flight request.
+                // Keep the authenticated session alive until explicit shutdown;
+                // start the frame deadline only once the client sends a byte.
+                if (messages > 0)
+                    await _pipe.ReadExactlyAsync(header.AsMemory(0, 1), lifetime.Token);
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
                 deadline.CancelAfter(TimeSpan.FromMinutes(2));
-                if (messages == 0) await _pipe.ReadExactlyAsync(header.AsMemory(1, 3), deadline.Token);
-                else await _pipe.ReadExactlyAsync(header, deadline.Token);
+                await _pipe.ReadExactlyAsync(header.AsMemory(1, 3), deadline.Token);
                 int length = BinaryPrimitives.ReadInt32LittleEndian(header);
                 if (length < 1 || length > 4 * 1024 * 1024) throw new InvalidDataException("Broker message exceeds size limit.");
                 byte[] body = new byte[length];
@@ -95,9 +99,16 @@ public sealed class SandboxBrokerPipe : IDisposable
                 // A client must send data first for named-pipe impersonation.
                 ValidateClient();
                 string response;
-                try { response = await handler(encoding.GetString(body), deadline.Token); }
+                // The frame timeout protects partial messages, not human approval
+                // or model generation. Those operations have their own deadlines.
+                deadline.CancelAfter(Timeout.InfiniteTimeSpan);
+                try { response = await handler(encoding.GetString(body), lifetime.Token); }
+                catch (SandboxBrokerException error) { response = System.Text.Json.JsonSerializer.Serialize(new { error = error.Message }); }
+                catch (OperationCanceledException) when (!lifetime.IsCancellationRequested)
+                { response = "{\"error\":\"Provider request timed out or was canceled. The sandbox connection remains open.\"}"; }
                 catch (OperationCanceledException) { throw; }
                 catch { response = "{\"error\":\"Broker request rejected.\"}"; }
+                deadline.CancelAfter(TimeSpan.FromMinutes(2));
                 byte[] output = encoding.GetBytes(response);
                 if (output.Length > 1024 * 1024) throw new InvalidDataException("Broker response exceeds size limit.");
                 BinaryPrimitives.WriteInt32LittleEndian(header, output.Length);

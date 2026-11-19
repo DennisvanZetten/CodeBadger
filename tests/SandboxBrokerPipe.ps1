@@ -1,4 +1,5 @@
 # Tests both host-user rejection and a real AppContainer client's request/reply.
+param([switch]$TestIdleTimeout)
 $ErrorActionPreference = 'Stop'
 $test = @'
 using System;
@@ -6,7 +7,7 @@ using System.IO.Pipes;
 using System.Threading.Tasks;
 public static class BrokerPipeTest
 {
-    public static async Task Run()
+    public static async Task Run(bool testIdleTimeout)
     {
         using var profile = CodeBadger.Services.WindowsAppContainerProfile.Create();
         using var pipe = new CodeBadger.Services.SandboxBrokerPipe(profile.Sid);
@@ -39,7 +40,9 @@ public static class BrokerPipeTest
                 string script = "$ErrorActionPreference='Stop'; try {" +
                     "$p=New-Object IO.Pipes.NamedPipeClientStream('.', '" + allowedPipe.Name + "', [IO.Pipes.PipeDirection]::InOut, [IO.Pipes.PipeOptions]::None, [Security.Principal.TokenImpersonationLevel]::Identification);" +
                     "$p.Connect(5000); $w=New-Object IO.BinaryWriter($p); $b=[Text.Encoding]::UTF8.GetBytes('sandbox-test'); $w.Write([int]$b.Length); $w.Write($b); $w.Flush();" +
-                    "$r=New-Object IO.BinaryReader($p); $n=$r.ReadInt32(); $s=[Text.Encoding]::UTF8.GetString($r.ReadBytes($n)); $p.Dispose(); if($s -ne 'host-response'){exit 3}; exit 42" +
+                    "$r=New-Object IO.BinaryReader($p); $n=$r.ReadInt32(); $s=[Text.Encoding]::UTF8.GetString($r.ReadBytes($n)); if($s -ne 'host-response'){exit 3};" +
+                    (testIdleTimeout ? "Start-Sleep -Seconds 125; $w.Write([int]$b.Length); $w.Write($b); $w.Flush(); $n=$r.ReadInt32(); $s=[Text.Encoding]::UTF8.GetString($r.ReadBytes($n)); if($s -ne 'host-response'){exit 5};" : "") +
+                    "$p.Dispose(); exit 42" +
                     "} catch {[IO.File]::WriteAllText('" + diagnostic + "',$_.ToString()); exit 4}";
                 string encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(script));
                 string powershell = System.IO.Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
@@ -47,7 +50,7 @@ public static class BrokerPipeTest
             });
         try
         {
-            uint result = sandbox.WaitForExit(15000);
+            uint result = sandbox.WaitForExit(testIdleTimeout ? 150000 : 15000);
             if (result != 42) throw new Exception("AppContainer pipe client failed (exit " + result + "): " +
                 (System.IO.File.Exists(diagnostic) ? System.IO.File.ReadAllText(diagnostic) : "No diagnostics"));
             try { await allowedServing.WaitAsync(TimeSpan.FromSeconds(10)); }
@@ -66,5 +69,6 @@ $workspace = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services
 $environment = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\SandboxProcessEnvironment.cs')
 $usings = "#nullable enable annotations`nusing System; using System.IO; using System.Threading; using System.Threading.Tasks;"
 $test = $test.Replace('using System;', '').Replace('using System.IO.Pipes;', '').Replace('using System.Threading.Tasks;', '')
-Add-Type -TypeDefinition ($usings + $pipe + $profile + $process + $workspace + $environment + $test)
-$null = [BrokerPipeTest]::Run().GetAwaiter().GetResult()
+$errorSource = (Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\SandboxBrokerException.cs')).Replace('namespace CodeBadger.Services;', 'namespace CodeBadger.Services {') + '}'
+Add-Type -TypeDefinition ($usings + $pipe + $errorSource + $profile + $process + $workspace + $environment + $test)
+$null = [BrokerPipeTest]::Run($TestIdleTimeout.IsPresent).GetAwaiter().GetResult()

@@ -24,9 +24,8 @@ namespace CodeBadger.Services
         public SandboxBrokerClient(string pipeName)
         {
             if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
-            if (!pipeName.StartsWith("LOCAL\\CodeBadger.Broker.", StringComparison.Ordinal) ||
-                pipeName.Length != "LOCAL\\CodeBadger.Broker.".Length + 32 ||
-                !Guid.TryParseExact(pipeName.Substring("LOCAL\\CodeBadger.Broker.".Length), "N", out _))
+            if (!System.Text.RegularExpressions.Regex.IsMatch(pipeName,
+                @"\A(?:LOCAL\\|Sessions\\[0-9]+\\AppContainerNamedObjects\\S-1-15-2-(?:[0-9]+-)*[0-9]+\\)CodeBadger\.Broker\.[a-f0-9]{32}\z"))
                 throw new ArgumentException("A CodeBadger broker pipe name is required.");
             // Identification allows token validation but forbids host operations
             // under an impersonation-capable client identity.

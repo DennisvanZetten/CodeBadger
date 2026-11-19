@@ -56,7 +56,7 @@ public static class OpenCodeProviderTest
                 {
                     model = "codebadger/test-model",
                     snapshots = false,
-                    plugins = new[] { new { package = plugin, options = new { pipeName = pipe.Name } } },
+                    plugins = new[] { new { package = plugin, options = new { pipeName = pipe.HostName } } },
                     providers = new System.Collections.Generic.Dictionary<string, object>
                     {
                         ["codebadger"] = new {
@@ -139,6 +139,7 @@ $pipe = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\Sand
 $pipe = $pipe.Replace('namespace CodeBadger.Services;', 'namespace CodeBadger.Services {') + '}'
 $usings = "#nullable enable annotations`nusing System; using System.IO; using System.Threading; using System.Threading.Tasks;"
 $test = $test.Replace('using System;', '').Replace('using System.IO;', '').Replace('using System.Text.Json;', '').Replace('using System.Threading.Tasks;', '')
-Add-Type -TypeDefinition ($usings + 'using System.Text.Json;' + $pipe + ($sources -join [Environment]::NewLine) + $test)
+$errorSource = (Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\SandboxBrokerException.cs')).Replace('namespace CodeBadger.Services;', 'namespace CodeBadger.Services {') + '}'
+Add-Type -TypeDefinition ($usings + 'using System.Text.Json;' + $pipe + $errorSource + ($sources -join [Environment]::NewLine) + $test)
 $assets = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\Resources\Raw\sandbox'))
 $null = [OpenCodeProviderTest]::Run($OpenCodeExecutable, $assets).GetAwaiter().GetResult()

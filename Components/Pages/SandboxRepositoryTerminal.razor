@@ -7,7 +7,7 @@
 @inject IJSRuntime JS
 @inject LocalizationService L
 
-<MudStack Spacing="2" Class="pa-3">
+<MudStack Spacing="0" Class="sandbox-terminal-layout">
     @if (_busy)
     {
         <MudStack Row="true" AlignItems="AlignItems.Center" role="status" aria-live="polite">
@@ -16,16 +16,12 @@
             <MudProgressCircular Indeterminate="true" Size="Size.Small" />
         </MudStack>
     }
-    else if (_started)
-    {
-        <MudButton Color="Color.Warning" Variant="Variant.Outlined" Disabled="@_busy" OnClick="StopAndReviewAsync">@L.T("Stop sandbox and review changes")</MudButton>
-    }
     @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
     @if (!_started && Sessions.GetChanges(RepositoryId, RepositoryPath).Count > 0)
     {
         <MudButton Color="Color.Warning" Disabled="@_busy" OnClick="DiscardAsync">@L.T("Discard captured sandbox changes")</MudButton>
     }
-    <div class="repository-terminal" style="min-height: 24rem;" @ref="_element"></div>
+    <div class="repository-terminal" @ref="_element"></div>
 </MudStack>
 
 @code {
@@ -48,6 +44,7 @@
     {
         Sessions.OutputReceived += Output;
         Sessions.StateChanged += State;
+        Sessions.ProviderFailed += ProviderFailure;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -136,12 +133,17 @@
     {
         if (id == RepositoryId && !_disposed) _ = InvokeAsync(() => { _started = Sessions.IsRunning(id); StateHasChanged(); });
     }
+    private void ProviderFailure(Guid id, string message)
+    {
+        if (id == RepositoryId && !_disposed) _ = InvokeAsync(() => { _error = message; StateHasChanged(); });
+    }
 
     public async ValueTask DisposeAsync()
     {
         _disposed = true;
         Sessions.OutputReceived -= Output;
         Sessions.StateChanged -= State;
+        Sessions.ProviderFailed -= ProviderFailure;
         try { await Sessions.StopAsync(RepositoryId); }
         finally
         {

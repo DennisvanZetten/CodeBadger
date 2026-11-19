@@ -51,7 +51,7 @@ public static class BrokerTests
             await broker.GetAsync(id, "C:\\repository", new Uri("https://example.com/path?token=test-only"),
                 (origin, token) => { seen = origin; return Task.FromResult(false); });
         }
-        catch (UnauthorizedAccessException) { rejected = true; }
+        catch (CodeBadger.Services.SandboxBrokerException) { rejected = true; }
         if (!rejected || seen.AbsoluteUri != "https://example.com/" || permissions.Grants != 0)
             throw new Exception("Rejected access was granted or prompt leaked a query.");
         rejected = false;
@@ -60,7 +60,7 @@ public static class BrokerTests
             await broker.CompleteAsync(id, "C:\\repository", new Uri("https://example.com/v1/chat/completions"), "test-host-key",
                 "{\"model\":\"test-model\",\"messages\":[],\"stream\":false}", (origin, token) => Task.FromResult(false));
         }
-        catch (UnauthorizedAccessException) { rejected = true; }
+        catch (CodeBadger.Services.SandboxBrokerException) { rejected = true; }
         if (!rejected || permissions.Grants != 0) throw new Exception("Completion bypassed approval.");
         foreach (string body in new[] { "{}", "{\"model\":\"test\",\"messages\":[],\"stream\":true}" })
         {
@@ -79,7 +79,7 @@ public static class BrokerTests
         await entered.Task;
         permissions.Revoke(id);
         bool canceled = false;
-        try { await pending; } catch (OperationCanceledException) { canceled = true; }
+        try { await pending; } catch (CodeBadger.Services.SandboxBrokerException) { canceled = true; }
         if (!canceled || permissions.Grants != 0) throw new Exception("Revocation did not cancel pending approval.");
         foreach (string ip in new[] { "0.0.0.0", "127.1.2.3", "10.0.0.1", "172.16.1.2", "192.168.1.1", "100.64.0.1", "169.254.1.2", "198.18.0.1", "224.0.0.1", "::1", "fc00::1", "fe80::1", "::ffff:127.0.0.1", "2001:db8::1", "2002::1" })
             if (CodeBadger.Services.SandboxNetworkBroker.IsPublicAddress(System.Net.IPAddress.Parse(ip)))
@@ -96,5 +96,6 @@ $source = $source.Replace('namespace CodeBadger.Services;', 'namespace CodeBadge
 $usings = "#nullable enable annotations`nusing System; using System.IO; using System.Linq; using System.Collections.Generic; using System.Net.Http; using System.Threading; using System.Threading.Tasks;"
 $approval = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\SandboxApprovalService.cs')
 $approval = $approval.Replace('namespace CodeBadger.Services;', 'namespace CodeBadger.Services {') + '}'
-Add-Type -TypeDefinition ($usings + $source + $approval + $support)
+$errorSource = (Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\SandboxBrokerException.cs')).Replace('namespace CodeBadger.Services;', 'namespace CodeBadger.Services {') + '}'
+Add-Type -TypeDefinition ($usings + $source + $approval + $errorSource + $support)
 $null = [BrokerTests]::Run().GetAwaiter().GetResult()

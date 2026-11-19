@@ -20,6 +20,8 @@ public sealed class LocalizationService
         ["Path"] = ["Path", "Pad", "Pfad", "Chemin"],
         ["Browse for repository folder"] = ["Browse for repository folder", "Repositorymap zoeken", "Repository-Ordner auswählen", "Parcourir les dossiers de dépôt"],
         ["Remove repository"] = ["Remove repository", "Repository verwijderen", "Repository entfernen", "Supprimer le dépôt"],
+        ["Move up"] = ["Move up", "Omhoog verplaatsen", "Nach oben verschieben", "Déplacer vers le haut"],
+        ["Move down"] = ["Move down", "Omlaag verplaatsen", "Nach unten verschieben", "Déplacer vers le bas"],
         ["Agent tool"] = ["Agent tool", "Agenttool", "Agent-Tool", "Outil agent"],
         ["Agent management"] = ["Agent management", "Agentbeheer", "Agent-Verwaltung", "Gestion des agents"],
         ["Claude Code config"] = ["Claude Code config", "Claude Code-configuratie", "Claude-Code-Konfiguration", "Configuration Claude Code"],

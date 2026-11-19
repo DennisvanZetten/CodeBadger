@@ -77,8 +77,20 @@
                                                    OnClick="@(() => OpenCodexRepositoryConfigAsync(repository))" />
                                 }
                             </div>
-                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" aria-label="@L.T("Remove repository")"
-                                            OnClick="@(() => Settings.Repositories.Remove(repository))" />
+                            <div class="repository-order-controls">
+                                <MudTooltip Text="@L.T("Move up")">
+                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.KeyboardArrowUp" aria-label="@L.T("Move up")"
+                                                   Disabled="@(Settings.Repositories.IndexOf(repository) == 0)"
+                                                   OnClick="@(() => MoveRepository(repository, -1))" />
+                                </MudTooltip>
+                                <MudTooltip Text="@L.T("Move down")">
+                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.KeyboardArrowDown" aria-label="@L.T("Move down")"
+                                                   Disabled="@(Settings.Repositories.IndexOf(repository) == Settings.Repositories.Count - 1)"
+                                                   OnClick="@(() => MoveRepository(repository, 1))" />
+                                </MudTooltip>
+                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" aria-label="@L.T("Remove repository")"
+                                               OnClick="@(() => Settings.Repositories.Remove(repository))" />
+                            </div>
                         </MudPaper>
                     }
                 </MudStack>
@@ -327,6 +339,17 @@
     }
 
     private void AddRepository() => Settings.Repositories.Add(new RepositoryEntry { Name = L.T("New repository") });
+
+    private void MoveRepository(RepositoryEntry repository, int offset)
+    {
+        var currentIndex = Settings.Repositories.IndexOf(repository);
+        var targetIndex = currentIndex + offset;
+        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= Settings.Repositories.Count)
+            return;
+
+        Settings.Repositories.RemoveAt(currentIndex);
+        Settings.Repositories.Insert(targetIndex, repository);
+    }
 
     private bool IsRepositoryConfigReadOnly(RepositoryEntry repository) =>
         !StartupDetection.IsAgentAvailable(repository.AgentTool);

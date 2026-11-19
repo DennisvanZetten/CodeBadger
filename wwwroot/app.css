@@ -406,12 +406,18 @@ h1:focus {
 
 .repository-setting-row {
     display: grid;
-    grid-template-columns: 58px minmax(145px, 0.8fr) minmax(220px, 1.8fr) minmax(180px, 0.8fr) 30px;
+    grid-template-columns: 58px minmax(145px, 0.8fr) minmax(220px, 1.8fr) minmax(180px, 0.8fr) 104px;
     align-items: center;
     gap: 0.5rem;
     width: 100%;
     box-sizing: border-box;
     padding: 0.55rem 0.75rem !important;
+}
+
+.repository-order-controls {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
 }
 
 .repository-path-control,
@@ -481,7 +487,7 @@ h1:focus {
 
 @media (max-width: 760px) {
     .repository-setting-row {
-        grid-template-columns: 54px minmax(0, 1fr) 30px;
+        grid-template-columns: 54px minmax(0, 1fr) 104px;
         gap: 0.45rem;
     }
 
@@ -505,7 +511,7 @@ h1:focus {
         grid-row: 3;
     }
 
-    .repository-setting-row > .mud-icon-button:last-child {
+    .repository-order-controls {
         grid-column: 3;
         grid-row: 1;
     }

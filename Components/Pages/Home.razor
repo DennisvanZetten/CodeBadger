@@ -121,12 +121,19 @@
     {
         _ = InvokeAsync(async () =>
         {
-            var oldTab = _activeTabIndex;
+            var activeRepositoryId = _activeTabIndex >= 0 && _activeTabIndex < _activeRepositories.Count
+                ? _activeRepositories[_activeTabIndex].Id
+                : (Guid?)null;
             _settings = await SettingsService.LoadAsync();
             SyncRepositories();
             _runningSessions.Clear();
             _activityNeedsBaseline = true;
-            _activeTabIndex = Math.Clamp(oldTab, 0, Math.Max(0, _activeRepositories.Count - 1));
+            var selectedIndex = activeRepositoryId is { } repositoryId
+                ? _activeRepositories.FindIndex(repository => repository.Id == repositoryId)
+                : -1;
+            _activeTabIndex = selectedIndex >= 0
+                ? selectedIndex
+                : Math.Clamp(_activeTabIndex, 0, Math.Max(0, _activeRepositories.Count - 1));
             await RefreshBranches();
             StateHasChanged();
         });

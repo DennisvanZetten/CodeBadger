@@ -50,18 +50,7 @@ public sealed class GitBranchService
         if (!statusResult.Success || !branchesResult.Success || !historyResult.Success)
             return GitRepositorySnapshot.Invalid(_localization.T("Git status unavailable."));
 
-        var upstreamResult = await RunGitAsync(path, "rev-list", "--left-right", "--count", "HEAD...@{upstream}");
-        var ahead = 0;
-        var behind = 0;
-        if (upstreamResult.Success)
-        {
-            var counts = upstreamResult.Output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            if (counts.Length == 2)
-            {
-                int.TryParse(counts[0], out ahead);
-                int.TryParse(counts[1], out behind);
-            }
-        }
+        var (ahead, behind) = await GetAheadBehindAsync(path, branchResult.Output.Trim());
 
         var statusLines = statusResult.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(line => line.TrimEnd('\r'))
@@ -110,6 +99,65 @@ public sealed class GitBranchService
     private static Task ReportProgressAsync(Func<GitSnapshotProgress, Task>? progress, string stage, int? branchCount = null) =>
         progress?.Invoke(new GitSnapshotProgress(stage, branchCount)) ?? Task.CompletedTask;
 
+    private async Task<(int Ahead, int Behind)> GetAheadBehindAsync(string path, string branch)
+    {
+        if (string.IsNullOrWhiteSpace(branch) || branch == "HEAD")
+            return (0, 0);
+
+        var upstreamResult = await RunGitAsync(path, "for-each-ref", "--format=%(upstream)", $"refs/heads/{branch}");
+        if (!upstreamResult.Success)
+            return (0, 0);
+
+        var upstream = upstreamResult.Output.Trim();
+        if (!string.IsNullOrWhiteSpace(upstream))
+        {
+            var countsResult = await RunGitAsync(path, "rev-list", "--left-right", "--count", $"refs/heads/{branch}...{upstream}");
+            if (!countsResult.Success)
+                return (0, 0);
+
+            var counts = countsResult.Output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            return counts.Length == 2 && int.TryParse(counts[0], out var ahead) && int.TryParse(counts[1], out var behind)
+                ? (ahead, behind)
+                : (0, 0);
+        }
+
+        var defaultRemoteResult = await GetDefaultPushRemoteAsync(path, branch);
+        if (!defaultRemoteResult.Success)
+            return (0, 0);
+
+        var defaultRemote = defaultRemoteResult.Output;
+        var remoteHead = await RunGitAsync(path, "symbolic-ref", "--quiet", "--short", $"refs/remotes/{defaultRemote}/HEAD");
+        string? baseRef = remoteHead.Success ? $"refs/remotes/{remoteHead.Output.Trim()}" : null;
+        if (baseRef is not null && !await RefExistsAsync(path, baseRef))
+            baseRef = null;
+
+        if (baseRef is null)
+        {
+            foreach (var candidate in new[] { "main", "master" })
+            {
+                var candidateRef = $"refs/remotes/{defaultRemote}/{candidate}";
+                if (await RefExistsAsync(path, candidateRef))
+                {
+                    baseRef = candidateRef;
+                    break;
+                }
+            }
+        }
+
+        var aheadResult = baseRef is null
+            ? await RunGitAsync(path, "rev-list", "--count", $"refs/heads/{branch}")
+            : await RunGitAsync(path, "rev-list", "--count", $"{baseRef}..refs/heads/{branch}");
+        return aheadResult.Success && int.TryParse(aheadResult.Output.Trim(), out var localAhead)
+            ? (localAhead, 0)
+            : (0, 0);
+    }
+
+    private async Task<bool> RefExistsAsync(string path, string reference)
+    {
+        var result = await RunGitAsync(path, "show-ref", "--verify", "--quiet", reference);
+        return result.Success;
+    }
+
     public async Task<IReadOnlyList<GitFileChange>> GetFileChangesAsync(string path)
     {
         var result = await RunGitAsync(path, "status", "--porcelain=v1", "-uall");
@@ -155,20 +203,8 @@ public sealed class GitBranchService
         var statusLines = statusResult.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(line => line.TrimEnd('\r'))
             .ToArray();
-        var upstreamResult = await RunGitAsync(path, "rev-list", "--left-right", "--count", "HEAD...@{upstream}");
-        var ahead = 0;
-        var behind = 0;
-        if (upstreamResult.Success)
-        {
-            var counts = upstreamResult.Output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            if (counts.Length == 2)
-            {
-                int.TryParse(counts[0], out ahead);
-                int.TryParse(counts[1], out behind);
-            }
-        }
-
         var branchName = branchResult.Output.Trim();
+        var (ahead, behind) = await GetAheadBehindAsync(path, branchName);
         var branch = branchName == "HEAD"
             ? new GitBranchInfo(null, _localization.T("Detached HEAD"))
             : new GitBranchInfo(branchName, null);

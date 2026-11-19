@@ -111,14 +111,16 @@ public sealed class GitBranchService
         var upstream = upstreamResult.Output.Trim();
         if (!string.IsNullOrWhiteSpace(upstream))
         {
-            var countsResult = await RunGitAsync(path, "rev-list", "--left-right", "--count", $"refs/heads/{branch}...{upstream}");
-            if (!countsResult.Success)
-                return (0, 0);
-
-            var counts = countsResult.Output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            return counts.Length == 2 && int.TryParse(counts[0], out var ahead) && int.TryParse(counts[1], out var behind)
-                ? (ahead, behind)
-                : (0, 0);
+            if (await RefExistsAsync(path, upstream))
+            {
+                var countsResult = await RunGitAsync(path, "rev-list", "--left-right", "--count", $"refs/heads/{branch}...{upstream}");
+                if (countsResult.Success)
+                {
+                    var counts = countsResult.Output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                    if (counts.Length == 2 && int.TryParse(counts[0], out var ahead) && int.TryParse(counts[1], out var behind))
+                        return (ahead, behind);
+                }
+            }
         }
 
         var defaultRemoteResult = await GetDefaultPushRemoteAsync(path, branch);

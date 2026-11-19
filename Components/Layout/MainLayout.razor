@@ -39,7 +39,8 @@ else
                                 aria-label="@L.T("Open settings")" OnClick="OpenSettingsAsync" />
             </MudAppBar>
         }
-        <MudMainContent Style="@(WindowTitleBar.UsesNativeTitleBar ? "padding-top: 0;" : null)">
+        <MudMainContent Class="@(WindowTitleBar.UsesNativeTitleBar ? "native-titlebar-content" : null)"
+                        Style="@(WindowTitleBar.UsesNativeTitleBar ? "padding-top: 0;" : null)">
             <CascadingValue Value="_startupSettings" IsFixed="true">
                 @Body
             </CascadingValue>

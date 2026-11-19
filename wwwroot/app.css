@@ -1161,8 +1161,12 @@ h1:focus {
 }
 
 .repository-home {
-    height: calc(100vh - 64px);
+    height: calc(100dvh - 64px);
     box-sizing: border-box;
+}
+
+.native-titlebar-content .repository-home {
+    height: 100dvh;
 }
 
 .repository-tabs {

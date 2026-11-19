@@ -42,10 +42,19 @@ namespace CodeBadger.Services
             if (!OperatingSystem.IsWindows())
                 throw new PlatformNotSupportedException("AppContainer requires Windows.");
 
-            string name = "CodeBadger.Sandbox." + Guid.NewGuid().ToString("N");
+            // Keep both moniker and display name compact. Packaged launches can
+            // have longer profile-storage paths than the standalone test host.
+            string name = "cb." + Guid.NewGuid().ToString("N");
             int result = CreateAppContainerProfile(name, name, "Temporary CodeBadger sandbox", IntPtr.Zero, 0, out IntPtr sid);
             if (result < 0)
-                Marshal.ThrowExceptionForHR(result);
+            {
+                if (sid != IntPtr.Zero) FreeSid(sid);
+                throw new InvalidOperationException(
+                    $"Windows could not create the sandbox profile (CreateAppContainerProfile, HRESULT 0x{result:X8}; name length {name.Length}). " +
+                    "OpenCode was not started. " +
+                    "Please report this error together with whether CodeBadger was launched from Visual Studio or its installed MSIX package.",
+                    Marshal.GetExceptionForHR(result));
+            }
             if (sid == IntPtr.Zero)
             {
                 DeleteAppContainerProfile(name);

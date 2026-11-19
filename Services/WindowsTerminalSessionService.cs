@@ -16,7 +16,8 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
     public event Action<Guid, string>? OutputReceived;
     public event Action<Guid, int>? SessionExited;
 
-    public async Task StartAsync(Guid id, string workingDirectory, string commandLine, int columns = 120, int rows = 30)
+    public async Task StartAsync(Guid id, string workingDirectory, string commandLine, int columns = 120, int rows = 30,
+        bool openCodeSandboxEnabled = false)
     {
         if (!OperatingSystem.IsWindows())
             throw new PlatformNotSupportedException(_localization.T("The built-in terminal is only available on Windows."));
@@ -27,6 +28,9 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
 
         if (string.IsNullOrWhiteSpace(commandLine))
             throw new InvalidOperationException(_localization.T("Configure an application or command in Settings first."));
+
+        if (openCodeSandboxEnabled)
+            throw new InvalidOperationException(_localization.T("OpenCode sandbox is enabled, but isolated execution is not available yet. OpenCode was not started."));
 
         var session = CreateSession(workingDirectory, commandLine, Math.Max(columns, 1), Math.Max(rows, 1));
         _sessions[id] = session;
@@ -54,12 +58,12 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         }
     }
 
-    public async Task StopAsync(Guid id)
+    public async Task StopAsync(Guid id, bool requireTermination = false)
     {
         if (!OperatingSystem.IsWindows())
             return;
 
-        if (!_sessions.Remove(id, out var session))
+        if (!_sessions.TryGetValue(id, out var session))
             return;
         try
         {
@@ -67,10 +71,11 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
                 session.Process.Kill(entireProcessTree: true);
         }
         catch (InvalidOperationException) { }
-        catch (System.ComponentModel.Win32Exception) { }
+        catch (System.ComponentModel.Win32Exception) when (!requireTermination) { }
 
         try { await session.Process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3)); }
-        catch (TimeoutException) { }
+        catch (TimeoutException) when (!requireTermination) { }
+        _sessions.Remove(id);
         session.Dispose();
     }
 

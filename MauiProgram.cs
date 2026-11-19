@@ -27,6 +27,11 @@ public static class MauiProgram
 		builder.Services.AddSingleton<LauncherSettingsService>();
 		builder.Services.AddSingleton<PowerShellLauncher>();
 		builder.Services.AddSingleton<WindowsTerminalSessionService>();
+		builder.Services.AddSingleton<WindowsSandboxSessionService>();
+		builder.Services.AddSingleton<SandboxPermissionService>();
+		builder.Services.AddSingleton<SandboxNetworkBroker>();
+		builder.Services.AddSingleton<SandboxApprovalService>();
+		builder.Services.AddSingleton<SandboxOpenCodeProviderService>();
 		builder.Services.AddSingleton<OpenCodeActivityService>();
 		builder.Services.AddSingleton<GitBranchService>();
 		builder.Services.AddSingleton<RepositoryFolderPicker>();

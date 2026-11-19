@@ -1,0 +1,81 @@
+@inject LocalizationService L
+@inject SandboxPermissionService Permissions
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@L.T("Sandbox permissions")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.subtitle1">@RepositoryName</MudText>
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                @L.T("Revoking permission stops the repository sandbox. Host API keys are never shown here.")
+            </MudAlert>
+            @if (_loading)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else if (_permissions.Count == 0)
+            {
+                <MudText>@L.T("No sandbox permissions recorded.")</MudText>
+            }
+            else
+            {
+                @foreach (var permission in _permissions)
+                {
+                    <MudPaper @key="permission.Id" Outlined="true" Class="pa-3">
+                        <MudStack Spacing="1">
+                            <MudText Typo="Typo.body2">@permission.Origin</MudText>
+                            <MudText Typo="Typo.caption">@permission.GrantedAt.ToLocalTime().ToString("g")</MudText>
+                            @if (permission.RevokedAt is not null)
+                            {
+                                <MudText Typo="Typo.caption">@L.T("Permission revoked") — @permission.RevokedAt.Value.ToLocalTime().ToString("g")</MudText>
+                            }
+                            else
+                            {
+                                <MudButton Size="Size.Small" Color="Color.Error" Disabled="@_revoking" OnClick="@(() => RevokeAsync(permission))">
+                                    @L.T("Revoke permission and stop session")
+                                </MudButton>
+                            }
+                        </MudStack>
+                    </MudPaper>
+                }
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close">@L.T("Close")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public string RepositoryName { get; set; } = string.Empty;
+    [Parameter] public Guid RepositoryId { get; set; }
+    [Parameter] public string RepositoryPath { get; set; } = string.Empty;
+    private IReadOnlyList<SandboxPermission> _permissions = [];
+    private bool _loading = true;
+    private bool _revoking;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _permissions = await Permissions.GetAsync(RepositoryId, RepositoryPath); }
+        catch { Snackbar.Add(L.T("Could not load sandbox permissions."), Severity.Error); }
+        finally { _loading = false; }
+    }
+
+    private async Task RevokeAsync(SandboxPermission permission)
+    {
+        _revoking = true;
+        try
+        {
+            await Permissions.RevokeAsync(RepositoryId, RepositoryPath, permission.Id);
+            _permissions = await Permissions.GetAsync(RepositoryId, RepositoryPath);
+        }
+        catch { Snackbar.Add(L.T("Could not revoke sandbox permission."), Severity.Error); }
+        finally { _revoking = false; }
+    }
+
+    private void Close() => MudDialog.Close();
+}

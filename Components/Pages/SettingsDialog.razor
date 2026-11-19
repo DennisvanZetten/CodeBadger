@@ -69,7 +69,7 @@
                                 {
                                     <MudIconButton Size="Size.Small" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.SettingsSuggest"
                                                    aria-label="@L.T("OpenCode project config & skills")"
-                                                    OnClick="@(() => OpenOpenCodeRepositoryConfigAsync(repository))" />
+                                                     OnClick="@(() => OpenOpenCodeRepositoryConfigAsync(repository))" />
                                 }
                                 else if (AgentTools.Normalize(repository.AgentTool) == AgentTools.Codex && !string.IsNullOrWhiteSpace(repository.Path))
                                 {
@@ -78,6 +78,20 @@
                                                    OnClick="@(() => OpenCodexRepositoryConfigAsync(repository))" />
                                 }
                             </div>
+                            @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
+                            {
+                                <div class="repository-sandbox-toggle">
+                                    <MudSwitch T="bool" @bind-Value="repository.OpenCodeSandboxEnabled" Color="Color.Warning"
+                                               Label="@L.T("OpenCode sandbox")" />
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Security"
+                                               OnClick="@(() => OpenSandboxPermissionsAsync(repository))">@L.T("Sandbox permissions")</MudButton>
+                                    <MudText Typo="Typo.caption" Color="Color.Warning">
+                                        @L.T(repository.OpenCodeSandboxEnabled
+                                            ? "Experimental sandbox starts manually from the repository tab. Select reviewed files and configure an API provider first."
+                                            : "Off: OpenCode runs with your normal Windows user access.")
+                                    </MudText>
+                                </div>
+                            }
                             <div class="repository-order-controls">
                                 <MudTooltip Text="@L.T("Move up")">
                                     <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.KeyboardArrowUp" aria-label="@L.T("Move up")"
@@ -382,6 +396,18 @@
         };
         var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Large, CloseButton = true, CloseOnEscapeKey = true };
         await DialogService.ShowAsync<OpenCodeRepositoryConfigDialog>(L.T("OpenCode project config & skills"), parameters, options);
+    }
+
+    private async Task OpenSandboxPermissionsAsync(RepositoryEntry repository)
+    {
+        var parameters = new DialogParameters<SandboxPermissionsDialog>
+        {
+            { dialog => dialog.RepositoryName, string.IsNullOrWhiteSpace(repository.Name) ? repository.Path : repository.Name },
+            { dialog => dialog.RepositoryId, repository.Id },
+            { dialog => dialog.RepositoryPath, repository.Path }
+        };
+        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Small, CloseButton = true, CloseOnEscapeKey = true };
+        await DialogService.ShowAsync<SandboxPermissionsDialog>(L.T("Sandbox permissions"), parameters, options);
     }
 
     private async Task OpenCodexRepositoryConfigAsync(RepositoryEntry repository)

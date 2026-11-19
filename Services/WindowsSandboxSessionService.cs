@@ -1,0 +1,192 @@
+using System.Collections.Concurrent;
+using System.Text;
+
+namespace CodeBadger.Services;
+
+/// <summary>
+/// Manages isolated, no-network terminals and host-owned review snapshots.
+/// No automatic OpenCode startup: provider transport must be prepared first.
+/// </summary>
+public sealed class WindowsSandboxSessionService : IAsyncDisposable
+{
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly ConcurrentDictionary<Guid, Session> _sessions = new();
+    private readonly ConcurrentDictionary<Guid, Review> _reviews = new();
+    private bool _disposed;
+    public event Action<Guid, string>? OutputReceived;
+    public event Action<Guid>? StateChanged;
+
+    private sealed class Session
+    {
+        public required string RepositoryPath { get; init; }
+        public required WindowsSandboxTerminal Terminal { get; init; }
+        public Task Reader { get; set; } = Task.CompletedTask;
+        public SandboxProviderBridge? Bridge { get; init; }
+    }
+    private sealed record Review(string RepositoryPath, IReadOnlyList<SandboxWorkspace.FileChange> Changes);
+
+    public bool IsRunning(Guid repositoryId) => _sessions.ContainsKey(repositoryId);
+
+    public IReadOnlyList<SandboxWorkspace.FileChange> GetChanges(Guid repositoryId, string repositoryPath)
+        => _reviews.TryGetValue(repositoryId, out var review) &&
+            string.Equals(review.RepositoryPath, CanonicalPath(repositoryPath), StringComparison.OrdinalIgnoreCase)
+            ? review.Changes : [];
+
+    /// <summary>Host-only entrypoint; executable and selections must be reviewed by the user.</summary>
+    public async Task StartAsync(Guid repositoryId, string repositoryPath, string executable, string arguments,
+        IReadOnlyList<string> selectedFiles)
+        => await StartCoreAsync(repositoryId, repositoryPath, executable, arguments, selectedFiles, null);
+
+    public async Task StartOpenCodeAsync(Guid repositoryId, string repositoryPath, string executable,
+        IReadOnlyList<string> selectedFiles, Uri endpoint, string model, string hostApiKey,
+        SandboxNetworkBroker broker, SandboxApprovalService approvals)
+    {
+        string pluginSource;
+        string transportSource;
+        using (var reader = new StreamReader(await FileSystem.OpenAppPackageFileAsync("sandbox/server.mjs")))
+            pluginSource = await reader.ReadToEndAsync();
+        using (var reader = new StreamReader(await FileSystem.OpenAppPackageFileAsync("sandbox/provider-transport.mjs")))
+            transportSource = await reader.ReadToEndAsync();
+        await StartCoreAsync(repositoryId, repositoryPath, executable, "--standalone", selectedFiles, (sid, folder) =>
+        {
+            var bridge = new SandboxProviderBridge(sid, repositoryId, repositoryPath, endpoint, model, hostApiKey, broker, approvals);
+            try
+            {
+                SandboxOpenCodeConfiguration.Stage(folder, bridge.PipeName, model, pluginSource, transportSource);
+                return bridge;
+            }
+            catch { bridge.Dispose(); throw; }
+        });
+    }
+
+    private async Task StartCoreAsync(Guid repositoryId, string repositoryPath, string executable, string arguments,
+        IReadOnlyList<string> selectedFiles, Func<string, string, SandboxProviderBridge>? prepare)
+    {
+        if (repositoryId == Guid.Empty) throw new ArgumentException("A repository ID is required.");
+        string path = CanonicalPath(repositoryPath);
+        await _gate.WaitAsync();
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_sessions.ContainsKey(repositoryId)) throw new InvalidOperationException("Stop the existing sandbox session first.");
+            if (_reviews.TryGetValue(repositoryId, out var review) && review.Changes.Count > 0)
+                throw new InvalidOperationException("Review or explicitly discard captured changes before starting another session.");
+            SandboxProviderBridge? bridge = null;
+            WindowsSandboxTerminal terminal;
+            try
+            {
+                terminal = await Task.Run(() => prepare is null
+                    ? WindowsSandboxTerminal.Start(executable, arguments, path, selectedFiles)
+                    : WindowsSandboxTerminal.StartPrepared(executable, path, selectedFiles, (sid, folder) =>
+                    {
+                        bridge = prepare(sid, folder);
+                        return arguments;
+                    }));
+            }
+            catch { bridge?.Dispose(); throw; }
+            var session = new Session { RepositoryPath = path, Terminal = terminal, Bridge = bridge };
+            _sessions[repositoryId] = session;
+            session.Reader = Task.Run(() => ReadOutput(repositoryId, session));
+        }
+        finally { _gate.Release(); }
+        StateChanged?.Invoke(repositoryId);
+    }
+
+    public async Task WriteInputAsync(Guid repositoryId, string text)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            if (!_sessions.TryGetValue(repositoryId, out var session)) return;
+            byte[] bytes = Encoding.UTF8.GetBytes(text);
+            await session.Terminal.Input.WriteAsync(bytes);
+            await session.Terminal.Input.FlushAsync();
+        }
+        finally { _gate.Release(); }
+    }
+
+    public void Resize(Guid repositoryId, int columns, int rows)
+    {
+        _gate.Wait();
+        try { if (_sessions.TryGetValue(repositoryId, out var session)) session.Terminal.Resize(columns, rows); }
+        finally { _gate.Release(); }
+    }
+
+    public async Task StopAsync(Guid repositoryId)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            if (!_sessions.TryGetValue(repositoryId, out var session)) return;
+            // Never report successful revocation while descendants are running.
+            await Task.Run(session.Terminal.Process.Stop);
+            session.Bridge?.Dispose();
+            var changes = await Task.Run(() => session.Terminal.Process.StopAndCaptureChanges());
+            _reviews[repositoryId] = new Review(session.RepositoryPath, changes);
+            // Reader remains active while ConPTY emits final output on close.
+            await Task.Run(session.Terminal.CloseConsole);
+            await session.Reader.WaitAsync(TimeSpan.FromSeconds(10));
+            await Task.Run(session.Terminal.Dispose);
+            _sessions.TryRemove(repositoryId, out _);
+        }
+        finally { _gate.Release(); }
+        StateChanged?.Invoke(repositoryId);
+    }
+
+    public async Task DiscardReviewAsync(Guid repositoryId)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            if (_sessions.ContainsKey(repositoryId)) throw new InvalidOperationException("Stop the sandbox before discarding its review.");
+            _reviews.TryRemove(repositoryId, out _);
+        }
+        finally { _gate.Release(); }
+        StateChanged?.Invoke(repositoryId);
+    }
+
+    private void ReadOutput(Guid repositoryId, Session session)
+    {
+        byte[] buffer = new byte[8192];
+        char[] characters = new char[Encoding.UTF8.GetMaxCharCount(buffer.Length)];
+        var decoder = Encoding.UTF8.GetDecoder();
+        try
+        {
+            int count;
+            while ((count = session.Terminal.Output.Read(buffer, 0, buffer.Length)) != 0)
+            {
+                int decoded = decoder.GetChars(buffer, 0, count, characters, 0, flush: false);
+                if (decoded > 0) PublishOutput(repositoryId, new string(characters, 0, decoded));
+            }
+            int remaining = decoder.GetChars([], 0, 0, characters, 0, flush: true);
+            if (remaining > 0) PublishOutput(repositoryId, new string(characters, 0, remaining));
+        }
+        catch (IOException) { }
+        catch (ObjectDisposedException) { }
+    }
+
+    private void PublishOutput(Guid repositoryId, string text)
+    {
+        // A broken UI subscriber must not terminate the output drain and
+        // deadlock ConPTY shutdown. Output is not logged or persisted here.
+        foreach (Action<Guid, string> listener in OutputReceived?.GetInvocationList() ?? [])
+        {
+            try { listener(repositoryId, text); } catch { }
+        }
+    }
+
+    private static string CanonicalPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
+            throw new ArgumentException("An absolute repository path is required.");
+        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _gate.WaitAsync();
+        try { _disposed = true; }
+        finally { _gate.Release(); }
+        foreach (Guid id in _sessions.Keys) await StopAsync(id);
+    }
+}

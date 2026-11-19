@@ -1,0 +1,36 @@
+@inject LocalizationService L
+@implements IDisposable
+
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">@L.T("Allow sandbox network access?")</MudText></TitleContent>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudText>@RepositoryName</MudText>
+            <MudText Typo="Typo.subtitle1">@Request.Origin.GetLeftPart(UriPartial.Authority)</MudText>
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                @L.T("Allowing this destination may send repository content to it. The permission is saved for this repository and can be revoked.")
+            </MudAlert>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Reject">@L.T("Reject")</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Allow" Disabled="@Request.CancellationToken.IsCancellationRequested">
+            @L.T("Allow destination")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter, EditorRequired] public SandboxApprovalRequest Request { get; set; } = null!;
+    [Parameter] public string RepositoryName { get; set; } = string.Empty;
+    private CancellationTokenRegistration _cancellation;
+
+    protected override void OnInitialized()
+    {
+        _cancellation = Request.CancellationToken.Register(() => _ = InvokeAsync(() => MudDialog.Cancel()));
+    }
+    private void Allow() { Request.Decide(true); MudDialog.Close(DialogResult.Ok(true)); }
+    private void Reject() { Request.Decide(false); MudDialog.Cancel(); }
+    public void Dispose() { _cancellation.Dispose(); Request.Decide(false); }
+}

@@ -4,6 +4,8 @@
 @inject GitBranchService GitBranchService
 @inject OpenCodeActivityService OpenCodeActivity
 @inject StartupDetectionService StartupDetection
+@inject WindowsSandboxSessionService SandboxSessions
+@inject SandboxApprovalService SandboxApprovals
 @inject IJSRuntime JS
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
@@ -55,6 +57,13 @@ else
                              <img class="repository-agent-logo" src="@AgentLogo(repository)" alt="@AgentTools.GetDisplayName(repository.AgentTool)"
                                   title="@AgentTools.GetDisplayName(repository.AgentTool)" />
                             <MudText>@RepositoryTitle(repository)</MudText>
+                            @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && repository.OpenCodeSandboxEnabled)
+                            {
+                                <MudTooltip Text="@L.T(SandboxSessions.IsRunning(repository.Id) ? "Sandbox active" : "Sandbox enabled; not running")">
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined"
+                                             Icon="@Icons.Material.Filled.Shield">@L.T(SandboxSessions.IsRunning(repository.Id) ? "Sandbox active" : "Sandbox enabled; not running")</MudChip>
+                                </MudTooltip>
+                            }
                             @if (_runningSessions.Contains(repository.Id))
                             {
                                 <span class="repository-activity-spinner @AgentSpinnerClass(repository)" role="status"
@@ -72,10 +81,23 @@ else
                         else
                         {
                             <MudPaper Outlined="true" Elevation="0" Class="repository-terminal-panel">
-                                @if (StartupDetection.IsAgentAvailable(repository.AgentTool))
+                                @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && repository.OpenCodeSandboxEnabled)
+                                {
+                                    <SandboxRepositoryTerminal @key="TerminalKey(repository)" RepositoryId="repository.Id"
+                                        RepositoryPath="@repository.Path" RepositoryName="@RepositoryTitle(repository)"
+                                        IsVisible="@(_activeRepositories.IndexOf(repository) == _activeTabIndex)" />
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined"
+                                               Disabled="@(SandboxSessions.GetChanges(repository.Id, repository.Path).Count == 0)"
+                                               OnClick="@(() => ReviewSandboxChangesAsync(repository))">
+                                        @L.T("Review sandbox changes")
+                                    </MudButton>
+                                }
+                                else if (StartupDetection.IsAgentAvailable(repository.AgentTool))
                                 {
                                     <RepositoryTerminal @key="TerminalKey(repository)" SessionId="repository.Id" RepositoryPath="@repository.Path"
-                                                        Command="@AgentTools.GetCommand(repository.AgentTool)" IsVisible="@(_activeRepositories.IndexOf(repository) == _activeTabIndex)" />
+                                                        Command="@AgentTools.GetCommand(repository.AgentTool)"
+                                                        OpenCodeSandboxEnabled="@(AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && repository.OpenCodeSandboxEnabled)"
+                                                        IsVisible="@(_activeRepositories.IndexOf(repository) == _activeTabIndex)" />
                                 }
                                 else
                                 {
@@ -139,6 +161,8 @@ else
     {
         _settings = StartupSettings ?? await SettingsService.LoadAsync();
         SettingsService.SettingsSaved += HandleSettingsSaved;
+        SandboxApprovals.Requested += HandleSandboxApproval;
+        SandboxSessions.StateChanged += HandleSandboxState;
         L.LanguageChanged += HandleLanguageChanged;
         SyncRepositories();
         if (_activeRepositories.Count > 0)
@@ -190,6 +214,47 @@ else
     }
 
     private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+    private void HandleSandboxState(Guid id) => _ = InvokeAsync(StateHasChanged);
+
+    private void HandleSandboxApproval(SandboxApprovalRequest request)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                var repository = _activeRepositories.FirstOrDefault(repository => repository.Id == request.RepositoryId &&
+                    repository.OpenCodeSandboxEnabled && AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode);
+                if (repository is null || request.CancellationToken.IsCancellationRequested)
+                {
+                    request.Decide(false);
+                    return;
+                }
+                var dialog = await DialogService.ShowAsync<SandboxNetworkApprovalDialog>(L.T("Allow sandbox network access?"),
+                    new DialogParameters<SandboxNetworkApprovalDialog>
+                    {
+                        { component => component.Request, request },
+                        { component => component.RepositoryName, RepositoryTitle(repository) }
+                    }, new DialogOptions { CloseButton = true, CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true });
+                await dialog.Result;
+            }
+            catch { request.Decide(false); }
+            finally { request.Decide(false); }
+        });
+    }
+
+    private async Task ReviewSandboxChangesAsync(RepositoryEntry repository)
+    {
+        var parameters = new DialogParameters<SandboxChangesDialog>
+        {
+            { dialog => dialog.RepositoryName, RepositoryTitle(repository) },
+            { dialog => dialog.RepositoryPath, repository.Path },
+            { dialog => dialog.Changes, SandboxSessions.GetChanges(repository.Id, repository.Path) }
+        };
+        var dialog = await DialogService.ShowAsync<SandboxChangesDialog>(L.T("Review sandbox changes"), parameters,
+            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Large, CloseButton = true });
+        await dialog.Result;
+        await RefreshBranches();
+    }
 
     private void SyncRepositories()
     {
@@ -227,7 +292,8 @@ else
         _ => "repository-activity-spinner-opencode"
     };
 
-    private static string TerminalKey(RepositoryEntry repository) => $"{repository.Id}:{AgentTools.Normalize(repository.AgentTool)}";
+    private static string TerminalKey(RepositoryEntry repository) =>
+        $"{repository.Id}:{AgentTools.Normalize(repository.AgentTool)}:{repository.OpenCodeSandboxEnabled}";
 
     private async Task RefreshBranches(bool force = false, Action<(int Loaded, string Name, double Progress)>? reportProgress = null)
     {
@@ -431,6 +497,8 @@ else
 
     public void Dispose()
     {
+        SandboxApprovals.Requested -= HandleSandboxApproval;
+        SandboxSessions.StateChanged -= HandleSandboxState;
         _statusMonitorCancellation.Cancel();
         _statusMonitorCancellation.Dispose();
         SettingsService.SettingsSaved -= HandleSettingsSaved;

@@ -1,0 +1,111 @@
+@inject LocalizationService L
+@inject ISnackbar Snackbar
+@using System.Text
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@L.T("Review sandbox changes")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.subtitle1">@RepositoryName</MudText>
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                @L.T("Selected modifications replace existing files after conflict checks and backup. Deletions and new files are not applied.")
+            </MudAlert>
+            @if (Changes.Count == 0)
+            {
+                <MudText>@L.T("No captured sandbox changes.")</MudText>
+            }
+            @foreach (var change in Changes)
+            {
+                <MudPaper @key="change.RelativePath" Outlined="true" Class="pa-3">
+                    <MudStack Spacing="1">
+                        <MudCheckBox T="bool" Value="@_selected.Contains(change.RelativePath)"
+                                     ValueChanged="@(selected => Select(change.RelativePath, selected))"
+                                     Disabled="@(change.Deleted || _applying || _applied.Contains(change.RelativePath))" Label="@change.RelativePath" />
+                        @if (_applied.Contains(change.RelativePath))
+                        {
+                            <MudText Color="Color.Success">@L.T("Modification applied; original backed up.")</MudText>
+                        }
+                        else if (change.Deleted)
+                        {
+                            <MudText Color="Color.Warning">@L.T("Deletion captured but not applied.")</MudText>
+                        }
+                        else
+                        {
+                            <MudExpansionPanels>
+                                <MudExpansionPanel Text="@L.T("Captured file content")">
+                                    <pre style="max-height: 24rem; overflow: auto; white-space: pre-wrap;">@Preview(change)</pre>
+                                </MudExpansionPanel>
+                            </MudExpansionPanels>
+                        }
+                    </MudStack>
+                </MudPaper>
+            }
+            @if (_backups.Count > 0)
+            {
+                <MudText Typo="Typo.caption">@L.T("Original backups")</MudText>
+                @foreach (var backup in _backups)
+                {
+                    <MudText Typo="Typo.caption">@backup</MudText>
+                }
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Disabled="@_applying" OnClick="Close">@L.T("Close")</MudButton>
+        <MudButton Disabled="@(_applying || _selected.Count == 0)" Color="Color.Primary" Variant="Variant.Filled" OnClick="Apply">
+            @L.T("Apply selected modifications")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public string RepositoryName { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string RepositoryPath { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public IReadOnlyList<SandboxWorkspace.FileChange> Changes { get; set; } = [];
+    private readonly HashSet<string> _selected = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _applied = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<string> _backups = [];
+    private bool _applying;
+
+    private void Select(string path, bool selected)
+    {
+        if (selected) _selected.Add(path); else _selected.Remove(path);
+    }
+
+    private string Preview(SandboxWorkspace.FileChange change)
+    {
+        byte[] bytes = change.GetContent();
+        if (bytes.Contains((byte)0)) return L.T("Binary content cannot be previewed.");
+        try
+        {
+            string text = new UTF8Encoding(false, true).GetString(bytes);
+            const int limit = 32768;
+            return text.Length > limit ? text[..limit] + "\n" + L.T("Preview shortened.") : text;
+        }
+        catch (DecoderFallbackException) { return L.T("Binary content cannot be previewed."); }
+    }
+
+    private async Task Apply()
+    {
+        _applying = true;
+        try
+        {
+            string backupParent = Path.Combine(FileSystem.AppDataDirectory, "sandbox-backups");
+            Directory.CreateDirectory(backupParent);
+            foreach (var change in Changes.Where(change => _selected.Contains(change.RelativePath)).ToList())
+            {
+                string backup = await Task.Run(() => SandboxWorkspace.ApplyModification(RepositoryPath, change, backupParent));
+                _backups.Add(backup);
+                _selected.Remove(change.RelativePath);
+                _applied.Add(change.RelativePath);
+            }
+        }
+        catch { Snackbar.Add(L.T("Could not apply sandbox modification. Review conflicts and backups before retrying."), Severity.Error); }
+        finally { _applying = false; }
+    }
+
+    private void Close() => MudDialog.Close();
+}

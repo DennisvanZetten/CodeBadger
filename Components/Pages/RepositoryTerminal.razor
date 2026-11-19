@@ -9,6 +9,7 @@
     [Parameter, EditorRequired] public Guid SessionId { get; set; }
     [Parameter, EditorRequired] public string RepositoryPath { get; set; } = string.Empty;
     [Parameter, EditorRequired] public string Command { get; set; } = "opencode";
+    [Parameter] public bool OpenCodeSandboxEnabled { get; set; }
     [Parameter] public bool IsVisible { get; set; }
 
     private ElementReference _terminalElement;
@@ -33,7 +34,7 @@
                 _selfReference = DotNetObjectReference.Create(this);
                 await _module.InvokeVoidAsync("create", SessionId.ToString(), _terminalElement, _selfReference);
                 _sessionStarted = true;
-                await TerminalService.StartAsync(SessionId, RepositoryPath, Command);
+                await TerminalService.StartAsync(SessionId, RepositoryPath, Command, openCodeSandboxEnabled: OpenCodeSandboxEnabled);
             }
             catch (Exception exception)
             {

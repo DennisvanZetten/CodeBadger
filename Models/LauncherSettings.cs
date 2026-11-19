@@ -25,6 +25,7 @@ public sealed class RepositoryEntry
     public string Path { get; set; } = string.Empty;
     public bool IsActive { get; set; } = true;
     public string AgentTool { get; set; } = AgentTools.OpenCode;
+    public bool OpenCodeSandboxEnabled { get; set; }
 }
 
 public static class AgentTools

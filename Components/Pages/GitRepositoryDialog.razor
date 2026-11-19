@@ -152,7 +152,27 @@
                                              @oncontextmenu="@(args => OpenCommitContextMenuAsync(commit, args))"
                                              @onkeydown="@(args => HandleCommitRowKeyDown(args, commit))">
                                             <div class="git-commit-branch-labels">
-                                                @if (IsSelectedCommit(commit) && GetPathBranchLabel(commit) is { } pathLabel)
+                                                @if (commit.BranchLabels is { Count: > 0 })
+                                                {
+                                                    @foreach (var label in commit.BranchLabels)
+                                                    {
+                                                        <span @key="label.Name" class="git-commit-branch-label @(label.IsLocal && !IsCurrentBranchLabel(label) ? "git-commit-branch-label-actionable" : "")"
+                                                               style="--branch-color: @GraphColor(label.Color)" title="@label.Name"
+                                                               @oncontextmenu:preventDefault="true" @oncontextmenu:stopPropagation="true"
+                                                               @oncontextmenu="@(args => OpenBranchContextMenuAsync(label, args))">
+                                                            @if (label.IsLocal)
+                                                            {
+                                                                <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" aria-label="@L.T("Local")" Class="git-branch-label-icon" />
+                                                            }
+                                                            @if (label.IsRemote)
+                                                            {
+                                                                <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small" aria-label="@L.T("Remote")" Class="git-branch-label-icon" />
+                                                            }
+                                                            <span class="git-commit-branch-name">@label.Name</span>
+                                                        </span>
+                                                    }
+                                                }
+                                                else if (IsSelectedCommit(commit) && GetPathBranchLabel(commit) is { } pathLabel)
                                                 {
                                                     <span class="git-commit-branch-label git-commit-branch-label-context"
                                                           style="--branch-color: @GraphColor(pathLabel.Color)" title="@pathLabel.Name">
@@ -166,24 +186,6 @@
                                                         }
                                                         <span class="git-commit-branch-name">@pathLabel.Name</span>
                                                     </span>
-                                                }
-                                                else if (commit.BranchLabels is { Count: > 0 })
-                                                {
-                                                    @foreach (var label in commit.BranchLabels)
-                                                    {
-                                                        <span @key="label.Name" class="git-commit-branch-label"
-                                                              style="--branch-color: @GraphColor(label.Color)" title="@label.Name">
-                                                            @if (label.IsLocal)
-                                                            {
-                                                                <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" aria-label="@L.T("Local")" Class="git-branch-label-icon" />
-                                                            }
-                                                            @if (label.IsRemote)
-                                                            {
-                                                                <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small" aria-label="@L.T("Remote")" Class="git-branch-label-icon" />
-                                                            }
-                                                            <span class="git-commit-branch-name">@label.Name</span>
-                                                        </span>
-                                                    }
                                                 }
                                             </div>
                                              <svg class="git-commit-graph" width="@GraphPixelWidth" height="52"
@@ -218,6 +220,27 @@
                                                 <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" />
                                                 <span>@L.T("Cherry-pick commit")</span>
                                             </button>
+                                        </div>
+                                    </div>
+                                }
+                                @if (_contextMenuBranch is not null)
+                                {
+                                    <div class="git-context-menu-backdrop" @onclick="CloseBranchContextMenu">
+                                        <div class="git-commit-context-menu git-branch-context-menu" @onclick:stopPropagation="true">
+                                            @if (_isCheckingMergeBranch)
+                                            {
+                                                <button class="git-commit-context-menu-item" disabled>
+                                                    <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                                                    <span>@L.T("Checking branch status...")</span>
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <button class="git-commit-context-menu-item" disabled="@(!_mergeBranchReady || _isOperating)" title="@(_mergeBranchError ?? string.Empty)" @onclick="MergeSelectedBranchAsync">
+                                                    <MudIcon Icon="@Icons.Material.Filled.Merge" Size="Size.Small" />
+                                                    <span>@L.T("Merge {0} into {1}", _contextMenuBranch ?? string.Empty, _contextMenuTargetBranch ?? string.Empty)</span>
+                                                </button>
+                                            }
                                         </div>
                                     </div>
                                 }
@@ -426,6 +449,14 @@
     private bool _contextMenuNeedsPosition;
     private bool _isCheckingCherryPick;
     private bool? _isCommitOnCurrentBranch;
+    private string? _contextMenuBranch;
+    private string? _contextMenuTargetBranch;
+    private double _branchContextMenuX;
+    private double _branchContextMenuY;
+    private bool _branchContextMenuNeedsPosition;
+    private bool _isCheckingMergeBranch;
+    private bool _mergeBranchReady;
+    private string? _mergeBranchError;
     private IJSObjectReference? _gitHistoryModule;
     private string? _selectedCommitHash;
     private readonly HashSet<string> _selectedUnstagedFilePaths = new(StringComparer.Ordinal);
@@ -451,10 +482,13 @@
         if (_view == GitView.History && _snapshot?.IsValid == true && _gitHistoryModule is not null)
             await _gitHistoryModule.InvokeVoidAsync("attachHistorySplitter");
 
-        if (_contextMenuNeedsPosition && _contextMenuCommit is not null && _gitHistoryModule is not null)
+        if ((_contextMenuNeedsPosition && _contextMenuCommit is not null || _branchContextMenuNeedsPosition && _contextMenuBranch is not null) && _gitHistoryModule is not null)
         {
-            await _gitHistoryModule.InvokeVoidAsync("positionCommitContextMenu", _contextMenuX, _contextMenuY);
+            var x = _branchContextMenuNeedsPosition ? _branchContextMenuX : _contextMenuX;
+            var y = _branchContextMenuNeedsPosition ? _branchContextMenuY : _contextMenuY;
+            await _gitHistoryModule.InvokeVoidAsync("positionCommitContextMenu", x, y);
             _contextMenuNeedsPosition = false;
+            _branchContextMenuNeedsPosition = false;
         }
 
         if (!firstRender)
@@ -875,6 +909,7 @@
 
     private async Task OpenCommitContextMenuAsync(GitCommitEntry commit, MouseEventArgs args)
     {
+        CloseBranchContextMenu();
         _contextMenuCommit = commit;
         _contextMenuX = args.ClientX;
         _contextMenuY = args.ClientY;
@@ -895,6 +930,68 @@
     {
         _contextMenuCommit = null;
         _isCommitOnCurrentBranch = null;
+    }
+
+    private bool IsCurrentBranchLabel(GitCommitBranchLabel label) =>
+        string.Equals(label.Name, _snapshot?.Branch, StringComparison.Ordinal);
+
+    private async Task OpenBranchContextMenuAsync(GitCommitBranchLabel label, MouseEventArgs args)
+    {
+        if (!label.IsLocal || IsCurrentBranchLabel(label) || _isOperating)
+            return;
+
+        _contextMenuNeedsPosition = false;
+        _contextMenuCommit = null;
+        _contextMenuBranch = label.Name;
+        _contextMenuTargetBranch = _snapshot?.Branch;
+        _branchContextMenuX = args.ClientX;
+        _branchContextMenuY = args.ClientY;
+        _branchContextMenuNeedsPosition = true;
+        _isCheckingMergeBranch = true;
+        _mergeBranchReady = false;
+        _mergeBranchError = null;
+        await InvokeAsync(StateHasChanged);
+
+        var check = await GitBranchService.CheckBranchCanMergeAsync(RepositoryPath, label.Name);
+        if (!string.Equals(_contextMenuBranch, label.Name, StringComparison.Ordinal))
+            return;
+
+        _isCheckingMergeBranch = false;
+        _mergeBranchReady = check.CanMerge && !string.IsNullOrWhiteSpace(_contextMenuTargetBranch);
+        _mergeBranchError = check.Error;
+    }
+
+    private void CloseBranchContextMenu()
+    {
+        _contextMenuBranch = null;
+        _contextMenuTargetBranch = null;
+        _isCheckingMergeBranch = false;
+        _mergeBranchReady = false;
+        _mergeBranchError = null;
+    }
+
+    private async Task MergeSelectedBranchAsync()
+    {
+        var sourceBranch = _contextMenuBranch;
+        var targetBranch = _contextMenuTargetBranch;
+        if (string.IsNullOrWhiteSpace(sourceBranch) || string.IsNullOrWhiteSpace(targetBranch) || !_mergeBranchReady || _isOperating)
+            return;
+
+        CloseBranchContextMenu();
+        _isOperating = true;
+        try
+        {
+            var result = await GitBranchService.MergeBranchIntoCurrentAsync(RepositoryPath, sourceBranch, targetBranch);
+            Snackbar.Add(result.Success
+                    ? L.T("Branch '{0}' merged into '{1}'.", sourceBranch, targetBranch)
+                    : L.T("Merge failed: {0}", result.Message),
+                result.Success ? Severity.Success : Severity.Error);
+            await RefreshAsync();
+        }
+        finally
+        {
+            _isOperating = false;
+        }
     }
 
     private async Task CherryPickSelectedCommitAsync()

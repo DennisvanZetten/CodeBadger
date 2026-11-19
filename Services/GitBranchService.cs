@@ -213,6 +213,64 @@ public sealed class GitBranchService
     public async Task<GitOperationResult> CherryPickCommitAsync(string path, string commitHash) =>
         await RunGitAsync(path, "cherry-pick", commitHash);
 
+    public async Task<GitBranchMergeCheck> CheckBranchCanMergeAsync(string path, string sourceBranch)
+    {
+        var sourceResult = await RunGitAsync(path, "show-ref", "--verify", "--quiet", $"refs/heads/{sourceBranch}");
+        if (!sourceResult.Success)
+            return new GitBranchMergeCheck(false, _localization.T("Local branch '{0}' is no longer available.", sourceBranch));
+
+        var fetchResult = await FetchAsync(path);
+        if (!fetchResult.Success)
+            return new GitBranchMergeCheck(false, _localization.T("Merge aborted: failed to fetch remote status. {0}", fetchResult.Message));
+
+        var currentResult = await RunGitAsync(path, "symbolic-ref", "--quiet", "--short", "HEAD");
+        if (!currentResult.Success)
+            return new GitBranchMergeCheck(false, _localization.T("Cannot merge while HEAD is detached."));
+
+        var currentBranch = currentResult.Output.Trim();
+        if (string.Equals(currentBranch, sourceBranch, StringComparison.Ordinal))
+            return new GitBranchMergeCheck(false, _localization.T("Cannot merge the checked-out branch into itself."));
+
+        var upstreamResult = await RunGitAsync(path, "for-each-ref", "--format=%(upstream)", $"refs/heads/{sourceBranch}");
+        if (!upstreamResult.Success)
+            return new GitBranchMergeCheck(false, upstreamResult.Message);
+
+        var upstream = upstreamResult.Output.Trim();
+        if (string.IsNullOrWhiteSpace(upstream))
+            return new GitBranchMergeCheck(false, _localization.T("Branch '{0}' has no remote tracking branch.", sourceBranch));
+
+        var countsResult = await RunGitAsync(path, "rev-list", "--left-right", "--count", $"refs/heads/{sourceBranch}...{upstream}");
+        if (!countsResult.Success)
+            return new GitBranchMergeCheck(false, _localization.T("Unable to check whether branch '{0}' is up to date: {1}", sourceBranch, countsResult.Message));
+
+        var counts = countsResult.Output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (counts.Length != 2 || !int.TryParse(counts[1], out var behind))
+            return new GitBranchMergeCheck(false, _localization.T("Unable to check whether branch '{0}' is up to date.", sourceBranch));
+
+        return behind > 0
+            ? new GitBranchMergeCheck(false, _localization.T("Branch '{0}' is {1} commit(s) behind its remote. Update it before merging.", sourceBranch, behind))
+            : new GitBranchMergeCheck(true, null);
+    }
+
+    public async Task<GitOperationResult> MergeBranchIntoCurrentAsync(string path, string sourceBranch, string expectedTargetBranch)
+    {
+        var check = await CheckBranchCanMergeAsync(path, sourceBranch);
+        if (!check.CanMerge)
+            return new GitOperationResult(false, check.Error ?? _localization.T("Branch status unavailable."), string.Empty);
+
+        var statusResult = await RunGitAsync(path, "status", "--porcelain=v1", "-uall");
+        if (!statusResult.Success)
+            return new GitOperationResult(false, _localization.T("Unable to check the working tree before merging: {0}", statusResult.Message), string.Empty);
+        if (!string.IsNullOrWhiteSpace(statusResult.Output))
+            return new GitOperationResult(false, _localization.T("Commit or stash your working-tree changes before merging."), string.Empty);
+
+        var currentResult = await RunGitAsync(path, "symbolic-ref", "--quiet", "--short", "HEAD");
+        if (!currentResult.Success || !string.Equals(currentResult.Output.Trim(), expectedTargetBranch, StringComparison.Ordinal))
+            return new GitOperationResult(false, _localization.T("The checked-out branch changed. Refresh and try again."), string.Empty);
+
+        return await RunGitAsync(path, "merge", "--no-edit", $"refs/heads/{sourceBranch}");
+    }
+
     public async Task<GitOperationResult> StageFileAsync(string path, string filePath) =>
         await RunGitAsync(path, "add", "--", filePath);
 
@@ -626,6 +684,7 @@ public sealed record GitFileChange(string Path, bool IsStaged, bool IsUnstaged, 
 }
 public sealed record GitOperationResult(bool Success, string Message, string Output, int ExitCode = 0);
 public sealed record GitCommitBranchCheck(bool? IsOnCurrentBranch, string? Error);
+public sealed record GitBranchMergeCheck(bool CanMerge, string? Error);
 public sealed record GitBranchEntry(string Name, bool IsCurrent, bool IsRemote, string TipHash);
 public sealed record GitCommitEntry(
     string Hash,

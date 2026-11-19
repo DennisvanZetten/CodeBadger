@@ -360,10 +360,18 @@
                                         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                                             <MudText Typo="Typo.subtitle1">@L.T("Commit message")</MudText>
                                             <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AutoAwesome"
-                                                       Disabled="@(_isGeneratingMessage || StagedFiles.Count == 0)" OnClick="GenerateCommitMessageAsync">
+                                                       Disabled="@(_isGeneratingMessage || _isCheckingAiConnection || !_hasAiConnection || StagedFiles.Count == 0)" OnClick="GenerateCommitMessageAsync">
                                                 @(_isGeneratingMessage ? L.T("Generating...") : L.T("Generate with AI"))
                                             </MudButton>
                                         </MudStack>
+                                        @if (_isCheckingAiConnection)
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Checking AI connection...")</MudText>
+                                        }
+                                        else if (!_hasAiConnection)
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Error">@L.T("AI connection unavailable. Check the AI provider settings.")</MudText>
+                                        }
                                         <MudTextField @bind-Value="_commitTitle" Label="@L.T("Title (required)")" Margin="Margin.Dense" Variant="Variant.Outlined"
                                                       Placeholder="@L.T("Short summary of the change")" MaxLength="72" Counter="72" Required="true" />
                                         <MudTextField @bind-Value="_commitDescription" Label="@L.T("Description (optional)")" Lines="2" Margin="Margin.Dense" Variant="Variant.Outlined"
@@ -405,6 +413,8 @@
     private bool _isLoadingDiff;
     private bool _isOperating;
     private bool _isGeneratingMessage;
+    private bool _isCheckingAiConnection = true;
+    private bool _hasAiConnection;
     private GitView _view = GitView.History;
     private bool _isBranchPanelCollapsed;
     private bool _isCommitFilesPanelCollapsed;
@@ -437,7 +447,10 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
+        {
+            _ = CheckAiConnectionAsync();
             _gitHistoryModule = await JS.InvokeAsync<IJSObjectReference>("import", "./git-history.js");
+        }
 
         if (_view == GitView.History && _snapshot?.IsValid == true && _gitHistoryModule is not null)
             await _gitHistoryModule.InvokeVoidAsync("attachHistorySplitter");
@@ -977,6 +990,25 @@
         finally
         {
             _isOperating = false;
+        }
+    }
+
+    private async Task CheckAiConnectionAsync()
+    {
+        _isCheckingAiConnection = true;
+        try
+        {
+            var result = await AiCommitMessageService.TestConnectionAsync(AiSettings);
+            _hasAiConnection = result.Success;
+        }
+        catch
+        {
+            _hasAiConnection = false;
+        }
+        finally
+        {
+            _isCheckingAiConnection = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 

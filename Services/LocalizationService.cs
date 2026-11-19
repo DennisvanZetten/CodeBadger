@@ -245,6 +245,8 @@ public sealed class LocalizationService
         ["Commit message"] = ["Commit message", "Commitbericht", "Commit-Nachricht", "Message de commit"],
         ["Generating..."] = ["Generating...", "Genereren...", "Wird erstellt...", "Génération..."],
         ["Generate with AI"] = ["Generate with AI", "Genereer met AI", "Mit KI erstellen", "Générer avec l’IA"],
+        ["Checking AI connection..."] = ["Checking AI connection...", "AI-verbinding controleren...", "KI-Verbindung wird geprüft...", "Vérification de la connexion à l’IA..."],
+        ["AI connection unavailable. Check the AI provider settings."] = ["AI connection unavailable. Check the AI provider settings.", "Geen werkende AI-verbinding. Controleer de AI-providerinstellingen.", "Keine funktionierende KI-Verbindung. Prüfen Sie die KI-Anbietereinstellungen.", "La connexion à l’IA est indisponible. Vérifiez les paramètres du fournisseur d’IA."],
         ["Title (required)"] = ["Title (required)", "Titel (verplicht)", "Titel (erforderlich)", "Titre (obligatoire)"],
         ["Short summary of the change"] = ["Short summary of the change", "Korte samenvatting van de wijziging", "Kurze Zusammenfassung der Änderung", "Résumé succinct de la modification"],
         ["Description (optional)"] = ["Description (optional)", "Beschrijving (optioneel)", "Beschreibung (optional)", "Description (facultative)"],

@@ -1,7 +1,7 @@
 using System.Text.Json;
-using RepoLauncher.Models;
+using CodeBadger.Models;
 
-namespace RepoLauncher.Services;
+namespace CodeBadger.Services;
 
 public sealed class LauncherSettingsService
 {

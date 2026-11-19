@@ -1,9 +1,9 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using RepoLauncher.Models;
+using CodeBadger.Models;
 
-namespace RepoLauncher.Services;
+namespace CodeBadger.Services;
 
 public sealed class AiCommitMessageService
 {

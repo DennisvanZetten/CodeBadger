@@ -1,4 +1,4 @@
-﻿namespace RepoLauncher;
+﻿namespace CodeBadger;
 
 public partial class App : Application
 {

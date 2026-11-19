@@ -1,8 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using RepoLauncher.Models;
+using CodeBadger.Models;
 
-namespace RepoLauncher.Services;
+namespace CodeBadger.Services;
 
 public sealed record AgentMcpServer(string Name, bool Enabled);
 

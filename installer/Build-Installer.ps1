@@ -27,7 +27,7 @@ if (@($versionParts | Where-Object { $_ -gt 65535 }).Count -gt 0) {
 }
 
 $projectDirectory = Split-Path -Parent $PSScriptRoot
-$projectFile = Join-Path $projectDirectory "RepoLauncher.csproj"
+$projectFile = Join-Path $projectDirectory "CodeBadger.csproj"
 $outputDirectory = Join-Path $projectDirectory "artifacts\installer\$Version"
 $appPackagesDirectory = Join-Path $projectDirectory "artifacts\installer\.packages\$Version"
 $appPackagesDirectoryRelative = "artifacts/installer/.packages/$Version/"
@@ -92,7 +92,7 @@ try {
         throw "MSIX build failed (exit code $LASTEXITCODE)."
     }
 
-    $packageDirectory = Join-Path $appPackagesDirectory "RepoLauncher_${Version}.0_x64_Test"
+    $packageDirectory = Join-Path $appPackagesDirectory "CodeBadger_${Version}.0_x64_Test"
 
     if (-not (Test-Path -LiteralPath $packageDirectory)) {
         throw "The generated MSIX package directory was not found under $appPackagesDirectory."

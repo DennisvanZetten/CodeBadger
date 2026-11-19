@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace RepoLauncher.Services;
+namespace CodeBadger.Services;
 
 public sealed record ClaudeProjectMcpServer(string Name, bool Enabled);
 

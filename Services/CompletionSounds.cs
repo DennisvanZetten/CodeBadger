@@ -1,4 +1,4 @@
-namespace RepoLauncher.Services;
+namespace CodeBadger.Services;
 
 public static class CompletionSounds
 {

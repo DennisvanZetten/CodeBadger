@@ -1,4 +1,4 @@
-namespace RepoLauncher.Models;
+namespace CodeBadger.Models;
 
 public sealed class LauncherSettings
 {

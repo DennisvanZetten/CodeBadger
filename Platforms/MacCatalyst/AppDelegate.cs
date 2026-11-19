@@ -1,6 +1,6 @@
 ﻿using Foundation;
 
-namespace RepoLauncher;
+namespace CodeBadger;
 
 [Register("AppDelegate")]
 public class AppDelegate : MauiUIApplicationDelegate

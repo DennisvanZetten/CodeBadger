@@ -1,8 +1,8 @@
 ﻿using Microsoft.Extensions.Logging;
 using MudBlazor.Services;
-using RepoLauncher.Services;
+using CodeBadger.Services;
 
-namespace RepoLauncher;
+namespace CodeBadger;
 
 public static class MauiProgram
 {

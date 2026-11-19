@@ -1,7 +1,7 @@
 ﻿using ObjCRuntime;
 using UIKit;
 
-namespace RepoLauncher;
+namespace CodeBadger;
 
 public class Program
 {

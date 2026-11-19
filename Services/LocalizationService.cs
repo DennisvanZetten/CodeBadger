@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace RepoLauncher.Services;
+namespace CodeBadger.Services;
 
 public sealed class LocalizationService
 {

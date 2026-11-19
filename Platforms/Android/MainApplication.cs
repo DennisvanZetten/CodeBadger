@@ -1,7 +1,7 @@
 ﻿using Android.App;
 using Android.Runtime;
 
-namespace RepoLauncher;
+namespace CodeBadger;
 
 [Application]
 public class MainApplication : MauiApplication

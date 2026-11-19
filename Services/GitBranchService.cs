@@ -2,9 +2,9 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
-using RepoLauncher.Models;
+using CodeBadger.Models;
 
-namespace RepoLauncher.Services;
+namespace CodeBadger.Services;
 
 public sealed class GitBranchService
 {

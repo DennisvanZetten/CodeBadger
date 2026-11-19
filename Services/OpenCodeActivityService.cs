@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 
-namespace RepoLauncher.Services;
+namespace CodeBadger.Services;
 
 public sealed class OpenCodeActivityService
 {

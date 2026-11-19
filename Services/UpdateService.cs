@@ -3,7 +3,7 @@ using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 
-namespace RepoLauncher.Services;
+namespace CodeBadger.Services;
 
 public sealed record AppUpdate(string Version, Uri PackageUri, Uri CertificateUri, Uri RuntimeDependencyUri);
 

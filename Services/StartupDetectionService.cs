@@ -1,7 +1,7 @@
 using System.Diagnostics;
-using RepoLauncher.Models;
+using CodeBadger.Models;
 
-namespace RepoLauncher.Services;
+namespace CodeBadger.Services;
 
 public sealed record AgentStartupState(bool Installed, bool HasGlobalConfig, string ConfigPath);
 

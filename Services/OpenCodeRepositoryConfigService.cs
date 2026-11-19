@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace RepoLauncher.Services;
+namespace CodeBadger.Services;
 
 public sealed record OpenCodeProjectMcpServer(string Name, bool Enabled);
 public sealed record OpenCodeProjectSkill(string Id, string RelativePath);

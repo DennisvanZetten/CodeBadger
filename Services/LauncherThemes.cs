@@ -1,6 +1,6 @@
 using MudBlazor;
 
-namespace RepoLauncher.Services;
+namespace CodeBadger.Services;
 
 public sealed record LauncherTheme(string Id, string Name, bool IsDark, MudTheme Theme,
     string TerminalBackground, string TerminalForeground, string TerminalCursor, string TerminalSelection);

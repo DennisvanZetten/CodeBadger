@@ -1,7 +1,7 @@
 using Tomlyn;
 using Tomlyn.Model;
 
-namespace RepoLauncher.Services;
+namespace CodeBadger.Services;
 
 public sealed record CodexMcpServer(string Name, bool Enabled);
 public sealed record CodexProjectSkill(string Id, string RelativePath);

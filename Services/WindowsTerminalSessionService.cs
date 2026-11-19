@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
 
-namespace RepoLauncher.Services;
+namespace CodeBadger.Services;
 
 public sealed class WindowsTerminalSessionService : IAsyncDisposable
 {

@@ -11,8 +11,21 @@
                     <MudSelectItem T="string" Value="@model.Reference">@model.Name (@model.Reference)</MudSelectItem>
                 }
             </MudSelect>
-            <MudTextField @bind-Value="_files" Label="@L.T("Reviewed relative file paths (one per line)")" Lines="7" />
-            <MudAlert Severity="Severity.Warning">@L.T("Saved file selections are copied automatically on startup. Review these files for secrets before saving.")</MudAlert>
+            @if (_loadingTree)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else if (_tree.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info">@L.T("No selectable files or folders were found in this repository.")</MudAlert>
+            }
+            else
+            {
+                <MudPaper Outlined="true" Class="sandbox-file-tree-container pa-2">
+                    <SandboxFileTree Entries="@_tree" Selected="@_selectedFiles" SelectionChanged="SelectionChanged" />
+                </MudPaper>
+            }
+            <MudAlert Severity="Severity.Warning">@L.T("Selected files and folders are copied automatically on startup. Review selected content for secrets; detection is not guaranteed.")</MudAlert>
             @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
         </MudStack>
     </DialogContent>
@@ -26,23 +39,58 @@
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
     [Parameter, EditorRequired] public RepositoryEntry Repository { get; set; } = null!;
     private string _model = string.Empty;
-    private string _files = string.Empty;
+    private readonly HashSet<string> _selectedFiles = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<SandboxWorkspace.BrowserEntry> _tree = [];
     private IReadOnlyList<SandboxOpenCodeProviderService.ModelChoice> _models = [];
     private bool _loading = true;
+    private bool _loadingTree = true;
     private string? _error;
 
     protected override async Task OnInitializedAsync()
     {
         _model = Repository.OpenCodeSandboxModel;
-        _files = Repository.OpenCodeSandboxFiles;
-        try { _models = await Providers.GetModelsAsync(Repository.Path); }
-        catch { _error = L.T("Could not read existing OpenCode configuration."); }
-        finally { _loading = false; }
+        foreach (string path in Repository.OpenCodeSandboxFiles.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            _selectedFiles.Add(path);
+        try
+        {
+            var models = Providers.GetModelsAsync(Repository.Path);
+            var tree = Task.Run(() => SandboxWorkspace.GetBrowserTree(Repository.Path));
+            await Task.WhenAll(models, tree);
+            _models = await models;
+            _tree = await tree;
+        }
+        catch (Exception exception) { _error = L.T("Could not read sandbox settings: {0}", exception.Message); }
+        finally { _loading = false; _loadingTree = false; }
     }
+
+    private Task SelectionChanged((string Path, bool Selected) selection)
+    {
+        var entry = Find(_tree, selection.Path);
+        if (entry is null) return Task.CompletedTask;
+        var files = Flatten(entry);
+        if (selection.Selected) _selectedFiles.UnionWith(files);
+        else _selectedFiles.ExceptWith(files);
+        return Task.CompletedTask;
+    }
+
+    private static SandboxWorkspace.BrowserEntry? Find(IEnumerable<SandboxWorkspace.BrowserEntry> entries, string path)
+    {
+        foreach (var entry in entries)
+        {
+            if (string.Equals(entry.RelativePath, path, StringComparison.OrdinalIgnoreCase)) return entry;
+            var child = Find(entry.Children, path);
+            if (child is not null) return child;
+        }
+        return null;
+    }
+
+    private static IEnumerable<string> Flatten(SandboxWorkspace.BrowserEntry entry) => entry.IsDirectory
+        ? entry.Children.SelectMany(Flatten)
+        : new[] { entry.RelativePath };
     private void Save()
     {
         Repository.OpenCodeSandboxModel = _model;
-        Repository.OpenCodeSandboxFiles = _files;
+        Repository.OpenCodeSandboxFiles = string.Join(Environment.NewLine, _selectedFiles.OrderBy(path => path, StringComparer.OrdinalIgnoreCase));
         MudDialog.Close(DialogResult.Ok(true));
     }
     private void Cancel() => MudDialog.Cancel();

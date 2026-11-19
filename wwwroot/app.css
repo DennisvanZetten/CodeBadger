@@ -1352,6 +1352,27 @@ h1:focus {
     transform: translateY(3px);
 }
 
+.sandbox-file-tree-container {
+    max-height: 22rem;
+    overflow: auto;
+}
+
+.sandbox-tree-entry {
+    padding-left: calc(var(--tree-depth) * 1rem);
+}
+
+.sandbox-tree-entry > details > summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    list-style-position: inside;
+}
+
+.sandbox-tree-entry .mud-checkbox {
+    margin: 0;
+}
+
 :root[data-theme]:not([data-theme="midnight"]) {
     --git-accent: var(--mud-palette-primary);
 }

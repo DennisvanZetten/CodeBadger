@@ -1,0 +1,45 @@
+@inject LocalizationService L
+
+<MudStack Spacing="0" Class="sandbox-file-tree">
+    @foreach (var entry in Entries)
+    {
+        <div @key="entry.RelativePath" class="sandbox-tree-entry" style="--tree-depth:@Depth">
+            @if (entry.IsDirectory)
+            {
+                <details>
+                    <summary>
+                        <MudCheckBox T="bool" Value="@IsSelected(entry)"
+                                     ValueChanged="@(selected => Toggle(entry, selected))"
+                                     Label="@entry.Name" />
+                        <MudText Typo="Typo.caption">@entry.Children.Count @L.T("items")</MudText>
+                    </summary>
+                    <SandboxFileTree Entries="@entry.Children" Selected="@Selected" Depth="@(Depth + 1)" SelectionChanged="@SelectionChanged" />
+                </details>
+            }
+            else
+            {
+                <MudCheckBox T="bool" Value="@IsSelected(entry)"
+                             ValueChanged="@(selected => Toggle(entry, selected))"
+                             Label="@entry.Name" />
+            }
+        </div>
+    }
+</MudStack>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<SandboxWorkspace.BrowserEntry> Entries { get; set; } = [];
+    [Parameter, EditorRequired] public HashSet<string> Selected { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    [Parameter] public int Depth { get; set; }
+    [Parameter, EditorRequired] public EventCallback<(string Path, bool Selected)> SelectionChanged { get; set; }
+
+    private bool IsSelected(SandboxWorkspace.BrowserEntry entry) => entry.IsDirectory
+        ? GetFiles(entry).Count > 0 && GetFiles(entry).All(Selected.Contains)
+        : Selected.Contains(entry.RelativePath);
+
+    private static IReadOnlyList<string> GetFiles(SandboxWorkspace.BrowserEntry entry) => entry.IsDirectory
+        ? entry.Children.SelectMany(GetFiles).ToArray()
+        : [entry.RelativePath];
+
+    private Task Toggle(SandboxWorkspace.BrowserEntry entry, bool selected) =>
+        SelectionChanged.InvokeAsync((entry.RelativePath, selected));
+}

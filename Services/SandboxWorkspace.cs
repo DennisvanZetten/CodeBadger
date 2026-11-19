@@ -20,6 +20,40 @@ namespace CodeBadger.Services
     {
         public sealed record PreparedFile(string RelativePath, string Sha256, long Length);
         public sealed record PreparedWorkspace(string Directory, IReadOnlyList<PreparedFile> Files);
+        public sealed record BrowserEntry(string Name, string RelativePath, bool IsDirectory, bool IsSensitive, IReadOnlyList<BrowserEntry> Children);
+
+        /// <summary>Lists a bounded tree without following links or exposing sensitive paths as selectable entries.</summary>
+        public static IReadOnlyList<BrowserEntry> GetBrowserTree(string repositoryPath)
+        {
+            if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+            if (!Path.IsPathFullyQualified(repositoryPath) || !Directory.Exists(repositoryPath))
+                throw new DirectoryNotFoundException("Repository folder is unavailable.");
+            string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(repositoryPath));
+            int visited = 0;
+            return ListDirectory(root, string.Empty, 0, ref visited);
+        }
+
+        private static IReadOnlyList<BrowserEntry> ListDirectory(string root, string relative, int depth, ref int visited)
+        {
+            if (depth > 20) return [];
+            string directory = relative.Length == 0 ? root : Path.Combine(root, relative);
+            var result = new List<BrowserEntry>();
+            foreach (string path in Directory.EnumerateFileSystemEntries(directory).OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
+            {
+                if (++visited > 10000) throw new InvalidDataException("Repository tree exceeds the 10,000 entry browser limit.");
+                string name = Path.GetFileName(path);
+                string childRelative = relative.Length == 0 ? name : Path.Combine(relative, name);
+                if (IsSensitivePath(childRelative)) continue;
+                FileAttributes attributes;
+                try { attributes = File.GetAttributes(path); }
+                catch (FileNotFoundException) { continue; }
+                if ((attributes & FileAttributes.ReparsePoint) != 0) continue;
+                bool isDirectory = (attributes & FileAttributes.Directory) != 0;
+                var children = isDirectory ? ListDirectory(root, childRelative, depth + 1, ref visited) : [];
+                result.Add(new BrowserEntry(name, childRelative, isDirectory, false, children));
+            }
+            return result;
+        }
 
         public sealed class FileChange
         {
@@ -183,7 +217,7 @@ namespace CodeBadger.Services
             if (!Directory.Exists(root) || !Directory.Exists(parent)) throw new DirectoryNotFoundException();
             if (Within(parent, root) || Within(root, parent))
                 throw new ArgumentException("Repository and destination trees must not overlap.");
-            string[] selections = selectedFiles.Select(ValidateSelection).ToArray();
+            string[] selections = ExpandSelections(root, selectedFiles.Select(ValidateSelection));
             if (selections.Length > 10000 || selections.Distinct(StringComparer.OrdinalIgnoreCase).Count() != selections.Length)
                 throw new ArgumentException("Too many files or duplicate file selections.");
 
@@ -252,13 +286,51 @@ namespace CodeBadger.Services
                 string stem = lower.Split('.')[0];
                 if (new[] { "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9" }.Contains(stem))
                     throw new ArgumentException("Windows device paths are not allowed.");
-                if (lower is ".git" or ".hg" or ".svn" or ".ssh" or ".aws" or ".azure" or ".opencode" or ".claude" or ".codex" or
-                    ".mcp.json" or ".npmrc" or ".pypirc" or ".netrc" or "opencode.json" or "opencode.jsonc" ||
-                    lower.Contains(".env") || lower.Contains("secret") || lower.Contains("credential") || lower.StartsWith("id_rsa") || lower.StartsWith("id_ed25519") ||
-                    new[] { ".pem", ".key", ".pfx", ".p12", ".kdbx" }.Contains(Path.GetExtension(lower)))
+                if (IsSensitiveSegment(lower))
                     throw new UnauthorizedAccessException("Sensitive or agent configuration paths cannot be copied.");
             }
             return string.Join(Path.DirectorySeparatorChar.ToString(), parts);
+        }
+
+        private static string[] ExpandSelections(string root, IEnumerable<string> selections)
+        {
+            var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int visited = 0;
+            foreach (string selection in selections)
+            {
+                string path = Path.GetFullPath(Path.Combine(root, selection));
+                if (!Within(path, root)) throw new UnauthorizedAccessException("Selection leaves the repository.");
+                if (File.Exists(path)) { files.Add(selection); continue; }
+                if (!Directory.Exists(path)) throw new FileNotFoundException("Selected repository entry no longer exists.", selection);
+                ExpandDirectory(path, selection, files, 0, ref visited);
+            }
+            return files.OrderBy(file => file, StringComparer.OrdinalIgnoreCase).ToArray();
+        }
+
+        private static void ExpandDirectory(string directory, string relative, HashSet<string> files, int depth, ref int visited)
+        {
+            if (depth > 20) throw new InvalidDataException("Selected directory nesting exceeds the sandbox limit.");
+            foreach (string path in Directory.EnumerateFileSystemEntries(directory))
+            {
+                if (++visited > 10000) throw new InvalidDataException("Selected directories exceed the 10,000 entry sandbox limit.");
+                string name = Path.GetFileName(path);
+                string child = Path.Combine(relative, name);
+                if (IsSensitivePath(child)) continue;
+                var attributes = File.GetAttributes(path);
+                if ((attributes & FileAttributes.ReparsePoint) != 0) continue;
+                if ((attributes & FileAttributes.Directory) != 0) ExpandDirectory(path, child, files, depth + 1, ref visited);
+                else files.Add(child);
+            }
+        }
+
+        private static bool IsSensitivePath(string relative) => relative.Replace('/', '\\').Split('\\').Any(part => IsSensitiveSegment(part.ToLowerInvariant()));
+
+        private static bool IsSensitiveSegment(string lower)
+        {
+            return lower is ".git" or ".hg" or ".svn" or ".ssh" or ".aws" or ".azure" or ".opencode" or ".claude" or ".codex" or
+                ".mcp.json" or ".npmrc" or ".pypirc" or ".netrc" or "opencode.json" or "opencode.jsonc" ||
+                lower.Contains(".env") || lower.Contains("secret") || lower.Contains("credential") || lower.StartsWith("id_rsa") || lower.StartsWith("id_ed25519") ||
+                new[] { ".pem", ".key", ".pfx", ".p12", ".kdbx" }.Contains(Path.GetExtension(lower));
         }
 
         private static bool Within(string path, string root) => path.Equals(root, StringComparison.OrdinalIgnoreCase) ||

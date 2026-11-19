@@ -9,7 +9,7 @@ public sealed record AppUpdate(string Version, Uri PackageUri, Uri CertificateUr
 
 public sealed class UpdateService
 {
-    private const string LatestReleaseApi = "https://api.github.com/repos/DennisvanZetten/RepoLauncher/releases?per_page=100";
+    private const string LatestReleaseApi = "https://api.github.com/repos/DennisvanZetten/CodeBadger/releases?per_page=100";
     private const string ExpectedPublisher = "CN=Repo Launcher Local";
     private static readonly HttpClient UpdateCheckHttp = CreateHttpClient(TimeSpan.FromSeconds(12));
     private static readonly HttpClient DownloadHttp = CreateHttpClient(TimeSpan.FromMinutes(10));

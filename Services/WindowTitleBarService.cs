@@ -69,9 +69,9 @@ public sealed class WindowTitleBarService
         if (_titleBar is null || _settingsButton is null)
             return;
 
-        var surface = theme.IsDark ? theme.Theme.PaletteDark.Surface : theme.Theme.PaletteLight.Surface;
+        var background = theme.IsDark ? theme.Theme.PaletteDark.Background : theme.Theme.PaletteLight.Background;
         var text = theme.IsDark ? theme.Theme.PaletteDark.TextPrimary : theme.Theme.PaletteLight.TextPrimary;
-        _titleBar.BackgroundColor = Color.FromArgb(surface.ToString(MudColorOutputFormats.Hex));
+        _titleBar.BackgroundColor = Color.FromArgb(background.ToString(MudColorOutputFormats.Hex));
         _titleBar.ForegroundColor = Color.FromArgb(text.ToString(MudColorOutputFormats.Hex));
         if (_titleBar.LeadingContent is HorizontalStackLayout brand && brand.Children[1] is Label label)
             label.TextColor = _titleBar.ForegroundColor;

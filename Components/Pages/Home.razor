@@ -240,6 +240,25 @@
         }
     }
 
+    private async Task RefreshRepositoryAsync(RepositoryEntry repository)
+    {
+        _isRefreshingBranches = true;
+        try
+        {
+            if (Directory.Exists(repository.Path))
+            {
+                var fetch = await GitBranchService.FetchAsync(repository.Path);
+                if (!fetch.Success)
+                    Snackbar.Add(L.T("Git fetch failed: {0}", fetch.Message), Severity.Warning);
+            }
+            await RefreshBranches(force: true);
+        }
+        finally
+        {
+            _isRefreshingBranches = false;
+        }
+    }
+
     private async Task MonitorActiveRepositoryStatusAsync(CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));

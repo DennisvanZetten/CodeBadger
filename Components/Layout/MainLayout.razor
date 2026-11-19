@@ -40,7 +40,9 @@ else
             </MudAppBar>
         }
         <MudMainContent Style="@(WindowTitleBar.UsesNativeTitleBar ? "padding-top: 0;" : null)">
-            @Body
+            <CascadingValue Value="_startupSettings" IsFixed="true">
+                @Body
+            </CascadingValue>
         </MudMainContent>
     </MudLayout>
 }
@@ -49,6 +51,7 @@ else
     private string? _appliedLanguage;
     private string? _appliedTheme;
     private LauncherTheme _theme = LauncherThemes.Get(null);
+    private LauncherSettings? _startupSettings;
     private bool _isStarting = true;
     private string _startupStage = "Detecting OpenCode...";
     private double _startupProgress;
@@ -113,9 +116,17 @@ else
         try
         {
             var settings = await SettingsService.LoadAsync();
+            _startupSettings = settings;
             _theme = LauncherThemes.Get(settings.Theme);
             WindowTitleBar.ApplyTheme(_theme);
             Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
+
+            if (!settings.Repositories.Any(repository => repository.IsActive))
+            {
+                // With nothing to load, show Home immediately while agent detection continues.
+                _isStarting = false;
+                WindowTitleBar.SetSettingsState(true, L.T("Open settings"));
+            }
 
             await InvokeAsync(StateHasChanged);
             await Task.Yield();

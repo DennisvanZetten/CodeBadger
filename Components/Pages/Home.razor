@@ -11,6 +11,25 @@
 @using Microsoft.Extensions.Logging
 @implements IDisposable
 
+@if (_isLoadingRepositories)
+{
+    <div class="startup-splash" role="status" aria-live="polite">
+        <div class="startup-logo-halo">
+            <img class="startup-logo" src="codebadger.svg" alt="CodeBadger" />
+        </div>
+        <MudText Typo="Typo.h5">CodeBadger</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Loading repositories: {0}/{1}", _loadedRepositoryCount, _activeRepositories.Count)</MudText>
+        @if (_loadingRepository is not null)
+        {
+            <MudText Typo="Typo.caption" Color="Color.Secondary">@_loadingRepository</MudText>
+        }
+        <MudProgressLinear Value="_repositoryLoadProgress" Color="Color.Primary" Rounded="true" />
+        <MudText Typo="Typo.caption" Color="Color.Secondary">@((int)_repositoryLoadProgress)%</MudText>
+    </div>
+}
+else
+{
+
 <PageTitle>CodeBadger</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.False" Class="py-5 repository-home">
@@ -96,6 +115,7 @@
         </MudTabs>
     }
 </MudContainer>
+}
 
 @code {
     private LauncherSettings _settings = new();
@@ -105,17 +125,44 @@
     private readonly HashSet<Guid> _runningSessions = [];
     private bool _activityNeedsBaseline = true;
     private bool _isRefreshingBranches;
+    private bool _isLoadingRepositories;
+    private int _loadedRepositoryCount;
+    private string? _loadingRepository;
+    private double _repositoryLoadProgress;
     private int _activeTabIndex;
     private string RepositoryTabsKey => string.Join(",", _activeRepositories.Select(repository => repository.Id));
     private readonly CancellationTokenSource _statusMonitorCancellation = new();
 
+    [CascadingParameter] public LauncherSettings? StartupSettings { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
-        _settings = await SettingsService.LoadAsync();
+        _settings = StartupSettings ?? await SettingsService.LoadAsync();
         SettingsService.SettingsSaved += HandleSettingsSaved;
         L.LanguageChanged += HandleLanguageChanged;
         SyncRepositories();
-        await RefreshBranches();
+        if (_activeRepositories.Count > 0)
+        {
+            _isLoadingRepositories = true;
+            StateHasChanged();
+            try
+            {
+                await RefreshBranches(reportProgress: progress =>
+                {
+                    _ = InvokeAsync(() =>
+                    {
+                        _loadedRepositoryCount = progress.Loaded;
+                        _loadingRepository = progress.Name;
+                        _repositoryLoadProgress = progress.Progress;
+                        StateHasChanged();
+                    });
+                });
+            }
+            finally
+            {
+                _isLoadingRepositories = false;
+            }
+        }
         _ = MonitorActiveRepositoryStatusAsync(_statusMonitorCancellation.Token);
         _ = MonitorOpenCodeActivityAsync(_statusMonitorCancellation.Token);
     }
@@ -180,7 +227,7 @@
 
     private static string TerminalKey(RepositoryEntry repository) => $"{repository.Id}:{AgentTools.Normalize(repository.AgentTool)}";
 
-    private async Task RefreshBranches(bool force = false)
+    private async Task RefreshBranches(bool force = false, Action<(int Loaded, string Name, double Progress)>? reportProgress = null)
     {
         if (_isRefreshingBranches && !force)
             return;
@@ -188,10 +235,19 @@
         _isRefreshingBranches = true;
         try
         {
-            var results = await Task.WhenAll(_activeRepositories.Select(async repository =>
-                (Repository: repository,
-                 Snapshot: await GitBranchService.GetRepositorySnapshotAsync(repository.Path),
-                 Branch: await GitBranchService.GetCurrentBranchAsync(repository.Path))));
+            var loadedCount = 0;
+            var results = new List<(RepositoryEntry Repository, GitRepositorySnapshot Snapshot, GitBranchInfo Branch)>();
+            foreach (var repository in _activeRepositories)
+            {
+                reportProgress?.Invoke((loadedCount, RepositoryTitle(repository), loadedCount * 100d / _activeRepositories.Count));
+                var result = await Task.Run(async () =>
+                    (Repository: repository,
+                     Snapshot: await GitBranchService.GetRepositorySnapshotAsync(repository.Path),
+                     Branch: await GitBranchService.GetCurrentBranchAsync(repository.Path)));
+                results.Add(result);
+                loadedCount++;
+                reportProgress?.Invoke((loadedCount, RepositoryTitle(repository), loadedCount * 100d / _activeRepositories.Count));
+            }
 
             _branches.Clear();
             _gitSnapshots.Clear();
@@ -204,6 +260,8 @@
         finally
         {
             _isRefreshingBranches = false;
+            if (reportProgress is not null)
+                _loadingRepository = null;
         }
     }
 

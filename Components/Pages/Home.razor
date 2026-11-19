@@ -74,7 +74,6 @@
                                             }
                                         </MudStack>
                                         <MudStack Row="true" Spacing="1">
-                                            <MudIconButton Icon="@Icons.Material.Filled.Refresh" aria-label="@L.T("Refresh Git status")" Disabled="@_isRefreshingBranches" OnClick="@(() => RefreshRepositoryAsync(repository))" />
                                             <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AccountTree"
                                                        Disabled="@(!_gitSnapshots.TryGetValue(repository, out var gitSnapshot) || !gitSnapshot.IsValid)"
                                                         OnClick="@(() => OpenGitDialogAsync(repository))">@L.T("Git overview")</MudButton>
@@ -233,25 +232,6 @@
             if (failures > 0)
                 Snackbar.Add(L.T("Fetch failed for {0} repositories.", failures), Severity.Warning);
 
-            await RefreshBranches(force: true);
-        }
-        finally
-        {
-            _isRefreshingBranches = false;
-        }
-    }
-
-    private async Task RefreshRepositoryAsync(RepositoryEntry repository)
-    {
-        _isRefreshingBranches = true;
-        try
-        {
-            if (Directory.Exists(repository.Path))
-            {
-                var fetch = await GitBranchService.FetchAsync(repository.Path);
-                if (!fetch.Success)
-                    Snackbar.Add(L.T("Git fetch failed: {0}", fetch.Message), Severity.Warning);
-            }
             await RefreshBranches(force: true);
         }
         finally

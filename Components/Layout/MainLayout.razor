@@ -7,6 +7,7 @@
 @inject ISnackbar Snackbar
 @inject StartupDetectionService StartupDetection
 @inject UpdateService UpdateService
+@inject WindowTitleBarService WindowTitleBar
 @using CodeBadger.Components.Pages
 
 <MudThemeProvider Theme="@_theme.Theme" IsDarkMode="@_theme.IsDark" />
@@ -28,14 +29,17 @@
 else
 {
     <MudLayout>
-        <MudAppBar Elevation="0" Color="Color.Surface" Dense="true">
-            <img class="appbar-logo mr-3" src="codebadger.svg" alt="CodeBadger" />
-            <MudText Typo="Typo.h6">CodeBadger</MudText>
-            <MudSpacer />
-            <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Default" Size="Size.Small"
-                            aria-label="@L.T("Open settings")" OnClick="OpenSettingsAsync" />
-        </MudAppBar>
-        <MudMainContent>
+        @if (!WindowTitleBar.UsesNativeTitleBar)
+        {
+            <MudAppBar Elevation="0" Color="Color.Surface" Dense="true">
+                <img class="appbar-logo mr-3" src="codebadger.svg" alt="CodeBadger" />
+                <MudText Typo="Typo.h6">CodeBadger</MudText>
+                <MudSpacer />
+                <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Default" Size="Size.Small"
+                                aria-label="@L.T("Open settings")" OnClick="OpenSettingsAsync" />
+            </MudAppBar>
+        }
+        <MudMainContent Style="@(WindowTitleBar.UsesNativeTitleBar ? "padding-top: 0;" : null)">
             @Body
         </MudMainContent>
     </MudLayout>
@@ -53,14 +57,23 @@ else
     {
         L.LanguageChanged += HandleLanguageChanged;
         SettingsService.SettingsSaved += HandleSettingsSaved;
+        WindowTitleBar.SettingsRequested += HandleSettingsRequested;
+        WindowTitleBar.SetSettingsState(false, L.T("Open settings"));
     }
 
-    private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+    private void HandleSettingsRequested() => _ = InvokeAsync(OpenSettingsAsync);
+
+    private void HandleLanguageChanged() => _ = InvokeAsync(() =>
+    {
+        WindowTitleBar.SetSettingsState(!_isStarting, L.T("Open settings"));
+        StateHasChanged();
+    });
 
     private void HandleSettingsSaved() => _ = InvokeAsync(async () =>
     {
         var settings = await SettingsService.LoadAsync();
         _theme = LauncherThemes.Get(settings.Theme);
+        WindowTitleBar.ApplyTheme(_theme);
         Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
         StateHasChanged();
     });
@@ -101,6 +114,7 @@ else
         {
             var settings = await SettingsService.LoadAsync();
             _theme = LauncherThemes.Get(settings.Theme);
+            WindowTitleBar.ApplyTheme(_theme);
             Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
 
             await InvokeAsync(StateHasChanged);
@@ -116,6 +130,7 @@ else
         finally
         {
             _isStarting = false;
+            WindowTitleBar.SetSettingsState(true, L.T("Open settings"));
             await InvokeAsync(StateHasChanged);
         }
     }
@@ -200,5 +215,6 @@ else
     {
         L.LanguageChanged -= HandleLanguageChanged;
         SettingsService.SettingsSaved -= HandleSettingsSaved;
+        WindowTitleBar.SettingsRequested -= HandleSettingsRequested;
     }
 }

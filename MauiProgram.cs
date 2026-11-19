@@ -23,6 +23,7 @@ public static class MauiProgram
 			configuration.SnackbarConfiguration.HideTransitionDuration = 150;
 		});
 		builder.Services.AddSingleton<LocalizationService>();
+		builder.Services.AddSingleton<WindowTitleBarService>();
 		builder.Services.AddSingleton<LauncherSettingsService>();
 		builder.Services.AddSingleton<PowerShellLauncher>();
 		builder.Services.AddSingleton<WindowsTerminalSessionService>();

@@ -20,6 +20,8 @@ public static class ProviderConfigurationTests
         };
         var service = new CodeBadger.Services.SandboxOpenCodeProviderService(source);
         if (await service.GetDefaultModelAsync(repository) != "bonzai/test-model") throw new Exception("Default model was lost.");
+        var choices = await service.GetModelsAsync(repository);
+        if (choices.Count != 1 || choices[0].Reference != "bonzai/test-model") throw new Exception("Model choices were not loaded.");
         var provider = await service.ResolveAsync(repository, "");
         if (provider.Endpoint.AbsoluteUri != "https://example.com/ai/v1/chat/completions" || provider.Model != "remote-test-model")
             throw new Exception("Host provider mapping differs.");

@@ -532,6 +532,19 @@ h1:focus {
     }
 }
 
+.repository-sandbox-indicator,
+.repository-sandbox-indicator > .mud-tooltip-root {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    vertical-align: middle;
+}
+
+.repository-sandbox-indicator .mud-icon-root {
+    display: block;
+}
+
 .repository-agent-logo {
     width: 17px;
     height: 17px;

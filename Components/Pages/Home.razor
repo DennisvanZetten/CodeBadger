@@ -54,16 +54,17 @@ else
                 <MudTabPanel @key="repository.Id" Tag="@(_gitSnapshots.TryGetValue(repository, out var panelSnapshot) ? panelSnapshot : null)">
                     <TabContent>
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                             <img class="repository-agent-logo" src="@AgentLogo(repository)" alt="@AgentTools.GetDisplayName(repository.AgentTool)"
-                                  title="@AgentTools.GetDisplayName(repository.AgentTool)" />
-                            <MudText>@RepositoryTitle(repository)</MudText>
                             @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && repository.OpenCodeSandboxEnabled)
                             {
-                                <MudTooltip Text="@L.T(SandboxSessions.IsRunning(repository.Id) ? "Sandbox active" : "Sandbox enabled; not running")">
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined"
-                                             Icon="@Icons.Material.Filled.Shield">@L.T(SandboxSessions.IsRunning(repository.Id) ? "Sandbox active" : "Sandbox enabled; not running")</MudChip>
+                                <MudTooltip Class="repository-sandbox-indicator" Text="@L.T(SandboxSessions.IsRunning(repository.Id) ? "Sandbox active" : "Sandbox enabled; not running")">
+                                    <MudIcon Icon="@Icons.Material.Filled.Shield" Size="Size.Small"
+                                             Color="@(SandboxSessions.IsRunning(repository.Id) ? Color.Success : Color.Warning)"
+                                             aria-label="@L.T(SandboxSessions.IsRunning(repository.Id) ? "Sandbox active" : "Sandbox enabled; not running")" />
                                 </MudTooltip>
                             }
+                            <img class="repository-agent-logo" src="@AgentLogo(repository)" alt="@AgentTools.GetDisplayName(repository.AgentTool)"
+                                 title="@AgentTools.GetDisplayName(repository.AgentTool)" />
+                            <MudText>@RepositoryTitle(repository)</MudText>
                             @if (_runningSessions.Contains(repository.Id))
                             {
                                 <span class="repository-activity-spinner @AgentSpinnerClass(repository)" role="status"
@@ -85,6 +86,7 @@ else
                                 {
                                     <SandboxRepositoryTerminal @key="TerminalKey(repository)" RepositoryId="repository.Id"
                                         RepositoryPath="@repository.Path" RepositoryName="@RepositoryTitle(repository)"
+                                        ModelReference="@repository.OpenCodeSandboxModel" ReviewedFiles="@repository.OpenCodeSandboxFiles"
                                         IsVisible="@(_activeRepositories.IndexOf(repository) == _activeTabIndex)" />
                                     <MudButton Size="Size.Small" Variant="Variant.Outlined"
                                                Disabled="@(SandboxSessions.GetChanges(repository.Id, repository.Path).Count == 0)"
@@ -293,7 +295,7 @@ else
     };
 
     private static string TerminalKey(RepositoryEntry repository) =>
-        $"{repository.Id}:{AgentTools.Normalize(repository.AgentTool)}:{repository.OpenCodeSandboxEnabled}";
+        $"{repository.Id}:{repository.Path}:{AgentTools.Normalize(repository.AgentTool)}:{repository.OpenCodeSandboxEnabled}:{repository.OpenCodeSandboxModel}:{repository.OpenCodeSandboxFiles}";
 
     private async Task RefreshBranches(bool force = false, Action<(int Loaded, string Name, double Progress)>? reportProgress = null)
     {

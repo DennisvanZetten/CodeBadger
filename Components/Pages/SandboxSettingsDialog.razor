@@ -1,0 +1,49 @@
+@inject SandboxOpenCodeProviderService Providers
+@inject LocalizationService L
+
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">@L.T("Sandbox settings") — @Repository.Name</MudText></TitleContent>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudSelect T="string" @bind-Value="_model" Label="@L.T("Sandbox startup model")" Disabled="@_loading">
+                @foreach (var model in _models)
+                {
+                    <MudSelectItem T="string" Value="@model.Reference">@model.Name (@model.Reference)</MudSelectItem>
+                }
+            </MudSelect>
+            <MudTextField @bind-Value="_files" Label="@L.T("Reviewed relative file paths (one per line)")" Lines="7" />
+            <MudAlert Severity="Severity.Warning">@L.T("Saved file selections are copied automatically on startup. Review these files for secrets before saving.")</MudAlert>
+            @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">@L.T("Cancel")</MudButton>
+        <MudButton Color="Color.Primary" Disabled="@(_loading || !_models.Any(model => model.Reference == _model))" OnClick="Save">@L.T("Save")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter, EditorRequired] public RepositoryEntry Repository { get; set; } = null!;
+    private string _model = string.Empty;
+    private string _files = string.Empty;
+    private IReadOnlyList<SandboxOpenCodeProviderService.ModelChoice> _models = [];
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _model = Repository.OpenCodeSandboxModel;
+        _files = Repository.OpenCodeSandboxFiles;
+        try { _models = await Providers.GetModelsAsync(Repository.Path); }
+        catch { _error = L.T("Could not read existing OpenCode configuration."); }
+        finally { _loading = false; }
+    }
+    private void Save()
+    {
+        Repository.OpenCodeSandboxModel = _model;
+        Repository.OpenCodeSandboxFiles = _files;
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+    private void Cancel() => MudDialog.Cancel();
+}

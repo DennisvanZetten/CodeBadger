@@ -13,6 +13,28 @@ public sealed class SandboxOpenCodeProviderService(AgentConfigService configs)
 {
     private static readonly JsonDocumentOptions JsonOptions = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
 
+    public sealed record ModelChoice(string Reference, string Name);
+
+    public async Task<IReadOnlyList<ModelChoice>> GetModelsAsync(string repositoryPath)
+    {
+        var config = await LoadMergedAsync(repositoryPath);
+        var choices = new List<ModelChoice>();
+        if (config["providers"] is not JsonObject providers) return choices;
+        foreach (var pair in providers)
+        {
+            if (pair.Value is not JsonObject provider || provider["models"] is not JsonObject models) continue;
+            string package = provider["package"]?.GetValue<string>() ?? string.Empty;
+            if (package is not ("aisdk:@ai-sdk/openai-compatible" or "@opencode/ai/providers/openai-compatible" or "@opencode/ai/providers/openai/chat")) continue;
+            foreach (var model in models)
+            {
+                if (model.Value is not JsonObject definition) continue;
+                choices.Add(new ModelChoice(pair.Key + "/" + model.Key,
+                    definition["name"]?.GetValue<string>() ?? model.Key));
+            }
+        }
+        return choices.OrderBy(choice => choice.Reference, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
     public async Task<string> GetDefaultModelAsync(string repositoryPath)
     {
         var config = await LoadMergedAsync(repositoryPath);

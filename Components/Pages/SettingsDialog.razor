@@ -85,9 +85,11 @@
                                                Label="@L.T("OpenCode sandbox")" />
                                     <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Security"
                                                OnClick="@(() => OpenSandboxPermissionsAsync(repository))">@L.T("Sandbox permissions")</MudButton>
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Tune"
+                                               OnClick="@(() => OpenSandboxSettingsAsync(repository))">@L.T("Sandbox settings")</MudButton>
                                     <MudText Typo="Typo.caption" Color="Color.Warning">
                                         @L.T(repository.OpenCodeSandboxEnabled
-                                            ? "Experimental sandbox starts manually from the repository tab. Select reviewed files and configure an API provider first."
+                                             ? "Sandbox starts automatically using the model and reviewed files configured in Sandbox settings."
                                             : "Off: OpenCode runs with your normal Windows user access.")
                                     </MudText>
                                 </div>
@@ -408,6 +410,13 @@
         };
         var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Small, CloseButton = true, CloseOnEscapeKey = true };
         await DialogService.ShowAsync<SandboxPermissionsDialog>(L.T("Sandbox permissions"), parameters, options);
+    }
+
+    private async Task OpenSandboxSettingsAsync(RepositoryEntry repository)
+    {
+        await DialogService.ShowAsync<SandboxSettingsDialog>(L.T("Sandbox settings"),
+            new DialogParameters<SandboxSettingsDialog> { { dialog => dialog.Repository, repository } },
+            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Medium, CloseButton = true });
     }
 
     private async Task OpenCodexRepositoryConfigAsync(RepositoryEntry repository)

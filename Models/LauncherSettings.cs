@@ -26,6 +26,8 @@ public sealed class RepositoryEntry
     public bool IsActive { get; set; } = true;
     public string AgentTool { get; set; } = AgentTools.OpenCode;
     public bool OpenCodeSandboxEnabled { get; set; }
+    public string OpenCodeSandboxModel { get; set; } = "bonzai/gpt-6-luna";
+    public string OpenCodeSandboxFiles { get; set; } = string.Empty;
 }
 
 public static class AgentTools

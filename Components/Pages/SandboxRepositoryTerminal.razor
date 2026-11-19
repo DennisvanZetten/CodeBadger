@@ -8,18 +8,15 @@
 @inject LocalizationService L
 
 <MudStack Spacing="2" Class="pa-3">
-    <MudAlert Severity="Severity.Warning" Dense="true">
-        @L.T("Sandbox uses a supported provider from your existing OpenCode configuration. MCP integration is not available yet; direct network remains blocked.")
-    </MudAlert>
-    @if (!_started)
+    @if (_busy)
     {
-        <MudTextField @bind-Value="_executable" Label="@L.T("OpenCode executable path")" Disabled="@_busy" />
-        <MudTextField @bind-Value="_modelReference" Label="@L.T("Existing OpenCode provider/model")" Disabled="@_busy" />
-        <MudTextField @bind-Value="_files" Label="@L.T("Reviewed relative file paths (one per line)")" Lines="5" Disabled="@_busy" />
-        <MudText Typo="Typo.caption">@L.T("Review files for secrets before selection. Unknown secrets cannot be detected automatically.")</MudText>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@_busy" OnClick="StartAsync">@L.T("Start isolated OpenCode")</MudButton>
+        <MudStack Row="true" AlignItems="AlignItems.Center" role="status" aria-live="polite">
+            <MudIcon Icon="@Icons.Material.Filled.HourglassTop" Color="Color.Warning" />
+            <MudText>@L.T(_stage)</MudText>
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+        </MudStack>
     }
-    else
+    else if (_started)
     {
         <MudButton Color="Color.Warning" Variant="Variant.Outlined" Disabled="@_busy" OnClick="StopAndReviewAsync">@L.T("Stop sandbox and review changes")</MudButton>
     }
@@ -36,10 +33,10 @@
     [Parameter] public string RepositoryPath { get; set; } = string.Empty;
     [Parameter] public string RepositoryName { get; set; } = string.Empty;
     [Parameter] public bool IsVisible { get; set; }
-    private string _executable = string.Empty;
-    private string _files = string.Empty;
-    private string _modelReference = string.Empty;
-    private bool _busy;
+    [Parameter] public string ModelReference { get; set; } = "bonzai/gpt-6-luna";
+    [Parameter] public string ReviewedFiles { get; set; } = string.Empty;
+    private bool _busy = true;
+    private string _stage = "Preparing sandbox terminal...";
     private bool _started;
     private bool _disposed;
     private string? _error;
@@ -53,19 +50,20 @@
         Sessions.StateChanged += State;
     }
 
-    protected override async Task OnInitializedAsync()
-    {
-        try { _modelReference = await Providers.GetDefaultModelAsync(RepositoryPath); }
-        catch { _error = L.T("Could not read existing OpenCode configuration."); }
-    }
-
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./terminal.js");
-            _reference = DotNetObjectReference.Create(this);
-            await _module.InvokeVoidAsync("create", RepositoryId.ToString(), _element, _reference);
+            try
+            {
+                _module = await JS.InvokeAsync<IJSObjectReference>("import", "./terminal.js");
+                _reference = DotNetObjectReference.Create(this);
+                await _module.InvokeVoidAsync("create", RepositoryId.ToString(), _element, _reference);
+                await _module.InvokeVoidAsync("setVisible", RepositoryId.ToString(), IsVisible);
+                if (!_disposed) await StartAsync();
+            }
+            catch (Exception exception) { _error = exception.Message; _busy = false; }
+            if (!_disposed) await InvokeAsync(StateHasChanged);
         }
         if (_module is not null) await _module.InvokeVoidAsync("setVisible", RepositoryId.ToString(), IsVisible);
     }
@@ -76,14 +74,19 @@
         _error = null;
         try
         {
-            var provider = await Providers.ResolveAsync(RepositoryPath, _modelReference);
-            var files = _files.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            bool? confirmed = await Dialogs.ShowMessageBoxAsync(L.T("Start isolated OpenCode"),
-                L.T("Only the selected files will be copied. Confirm you have reviewed them for secrets."),
-                yesText: L.T("Start"), cancelText: L.T("Cancel"));
-            if (confirmed != true) return;
-            await Sessions.StartOpenCodeAsync(RepositoryId, RepositoryPath, _executable, files, provider.Endpoint,
+            _stage = "Detecting OpenCode...";
+            await InvokeAsync(StateHasChanged);
+            string executable = OpenCodeExecutableLocator.Find();
+            _stage = "Loading sandbox startup model...";
+            await InvokeAsync(StateHasChanged);
+            var provider = await Providers.ResolveAsync(RepositoryPath, ModelReference);
+            if (_disposed) return;
+            var files = ReviewedFiles.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            _stage = "Copying reviewed files and starting isolated OpenCode...";
+            await InvokeAsync(StateHasChanged);
+            await Sessions.StartOpenCodeAsync(RepositoryId, RepositoryPath, executable, files, provider.Endpoint,
                 provider.Model, provider.ApiKey, Broker, Approvals);
+            if (_disposed) { await Sessions.StopAsync(RepositoryId); return; }
             _started = true;
         }
         catch (Exception exception) { _error = exception.Message; }
@@ -93,6 +96,7 @@
     private async Task StopAndReviewAsync()
     {
         _busy = true;
+        _stage = "Stopping sandbox and capturing changes...";
         try
         {
             await Sessions.StopAsync(RepositoryId);

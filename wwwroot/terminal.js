@@ -22,7 +22,7 @@ export function create(id, element, dotnet) {
         fontFamily: 'Consolas, "Cascadia Mono", monospace',
         fontSize: 14,
         convertEol: false,
-        theme: terminalTheme(window.repoLauncherTerminalTheme)
+        theme: terminalTheme(window.codeBadgerTerminalTheme)
     });
     const fitAddon = new FitAddon.FitAddon();
     terminal.loadAddon(fitAddon);

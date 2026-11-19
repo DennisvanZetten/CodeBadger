@@ -326,7 +326,7 @@
                         StateHasChanged();
                     if (finished && _settings.CompletionSoundEnabled)
                     {
-                        try { await JS.InvokeVoidAsync("repoLauncherSounds.play", CompletionSounds.Normalize(_settings.CompletionSound)); }
+                        try { await JS.InvokeVoidAsync("codeBadgerSounds.play", CompletionSounds.Normalize(_settings.CompletionSound)); }
                         catch (JSException) { }
                     }
                 });

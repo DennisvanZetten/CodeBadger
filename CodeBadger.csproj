@@ -32,8 +32,7 @@
         <ApplicationTitle>CodeBadger</ApplicationTitle>
 
         <!-- App Identifier -->
-        <!-- Keep the package ID so existing installations upgrade in place. -->
-        <ApplicationId>com.local.repolauncher</ApplicationId>
+        <ApplicationId>com.local.codebadger</ApplicationId>
 
         <!-- Versions -->
         <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>

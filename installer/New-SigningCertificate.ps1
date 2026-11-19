@@ -12,7 +12,7 @@ if ((Test-Path -LiteralPath $pfxPath) -or (Test-Path -LiteralPath $cerPath) -or 
 
 $certificate = New-SelfSignedCertificate `
     -Type Custom `
-    -Subject "CN=Repo Launcher Local" `
+    -Subject "CN=CodeBadger Local" `
     -KeyAlgorithm RSA `
     -KeyLength 3072 `
     -KeyExportPolicy Exportable `

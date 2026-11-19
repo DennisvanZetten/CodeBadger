@@ -501,7 +501,7 @@ public sealed class GitBranchService
             if (!baseContent.Success || !oursContent.Success || !theirsContent.Success)
                 return new GitOperationResult(false, _localization.T("Conflict versions could not be read from Git (possibly a new file)."), string.Empty);
 
-            var gitDirectoryResult = await RunGitAsync(repositoryPath, "rev-parse", "--git-path", "repolauncher-conflicts");
+            var gitDirectoryResult = await RunGitAsync(repositoryPath, "rev-parse", "--git-path", "codebadger-conflicts");
             if (!gitDirectoryResult.Success)
                 return new GitOperationResult(false, _localization.T("Unable to determine the Git directory."), string.Empty);
 

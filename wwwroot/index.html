@@ -11,13 +11,13 @@
     <link rel="stylesheet" href="CodeBadger.styles.css" />
     <link rel="icon" type="image/svg+xml" href="codebadger.svg">
     <script>
-        window.repoLauncher = {
+        window.codeBadger = {
             setTheme: function (id, isDark, background, foreground, cursor, selectionBackground) {
                 document.documentElement.dataset.theme = id;
                 document.documentElement.dataset.themeMode = isDark ? "dark" : "light";
                 document.documentElement.style.setProperty("--terminal-background", background);
-                window.repoLauncherTerminalTheme = { isDark, background, foreground, cursor, selectionBackground };
-                window.dispatchEvent(new CustomEvent("repo-launcher-theme-changed", { detail: window.repoLauncherTerminalTheme }));
+                window.codeBadgerTerminalTheme = { isDark, background, foreground, cursor, selectionBackground };
+                window.dispatchEvent(new CustomEvent("codebadger-theme-changed", { detail: window.codeBadgerTerminalTheme }));
             },
             setLanguage: function (language, translations) {
                 document.documentElement.lang = language;

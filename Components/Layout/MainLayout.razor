@@ -84,7 +84,7 @@ else
         {
             try
             {
-                await JS.InvokeVoidAsync("repoLauncher.setTheme", _theme.Id, _theme.IsDark,
+                await JS.InvokeVoidAsync("codeBadger.setTheme", _theme.Id, _theme.IsDark,
                     _theme.TerminalBackground, _theme.TerminalForeground, _theme.TerminalCursor, _theme.TerminalSelection);
                 _appliedTheme = _theme.Id;
             }
@@ -170,7 +170,7 @@ else
     {
         try
         {
-            await JS.InvokeVoidAsync("repoLauncher.setLanguage", L.CurrentLanguage, L.GetBootstrapTranslations());
+            await JS.InvokeVoidAsync("codeBadger.setLanguage", L.CurrentLanguage, L.GetBootstrapTranslations());
         }
         catch (JSException)
         {

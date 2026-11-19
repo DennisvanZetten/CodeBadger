@@ -1,5 +1,5 @@
 // Short, quiet synthesized tones keep previews and notifications self-contained.
-window.repoLauncherSounds = (() => {
+window.codeBadgerSounds = (() => {
     let context;
     const sounds = {
         bell:    { notes: [784, 1047], duration: 0.16, gap: 0.07, wave: 'sine' },

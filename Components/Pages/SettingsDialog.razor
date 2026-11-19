@@ -228,7 +228,7 @@
 
     private async Task PreviewSoundAsync()
     {
-        try { await JS.InvokeVoidAsync("repoLauncherSounds.play", CompletionSounds.Normalize(Settings.CompletionSound)); }
+        try { await JS.InvokeVoidAsync("codeBadgerSounds.play", CompletionSounds.Normalize(Settings.CompletionSound)); }
         catch (JSException) { }
     }
 

@@ -44,7 +44,7 @@ jobs:
           $certificatePath = Join-Path $env:RUNNER_TEMP "CodeBadger.pfx"
           $pfxBytes = [Convert]::FromBase64String(($env:SIGNING_PFX_BASE64 -replace '\s', ''))
           $certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($pfxBytes, $env:SIGNING_PFX_PASSWORD, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)
-          if ($certificate.Subject -ne 'CN=Repo Launcher Local' -or -not $certificate.HasPrivateKey) {
+          if ($certificate.Subject -ne 'CN=CodeBadger Local' -or -not $certificate.HasPrivateKey) {
             throw 'The PFX must contain the CodeBadger code-signing certificate and its private key.'
           }
           [IO.File]::WriteAllBytes($certificatePath, $pfxBytes)

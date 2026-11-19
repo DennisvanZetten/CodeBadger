@@ -12,7 +12,7 @@ $package = (Resolve-Path -LiteralPath $PackagePath).Path
 $certificateFile = (Resolve-Path -LiteralPath $CertificatePath).Path
 $certificate = [System.Security.Cryptography.X509Certificates.X509CertificateLoader]::LoadCertificateFromFile($certificateFile)
 
-if ($certificate.Subject -ne "CN=Repo Launcher Local") {
+if ($certificate.Subject -ne "CN=CodeBadger Local") {
     throw "Het certificaat heeft een onverwachte uitgever: $($certificate.Subject)"
 }
 

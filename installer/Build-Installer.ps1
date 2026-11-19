@@ -40,8 +40,8 @@ try {
         $CertificatePassword,
         [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)
 
-    if ($signingCertificate.Subject -ne "CN=Repo Launcher Local") {
-        throw "The signing certificate subject must be CN=Repo Launcher Local."
+    if ($signingCertificate.Subject -ne "CN=CodeBadger Local") {
+        throw "The signing certificate subject must be CN=CodeBadger Local."
     }
 
     if (-not $signingCertificate.HasPrivateKey) {

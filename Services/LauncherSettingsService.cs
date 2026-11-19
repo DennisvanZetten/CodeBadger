@@ -9,7 +9,7 @@ public sealed class LauncherSettingsService
     private readonly string _settingsPath = Path.Combine(FileSystem.AppDataDirectory, "settings.json");
     private readonly LocalizationService _localization;
     private readonly SemaphoreSlim _settingsLock = new(1, 1);
-    private const string AiApiKeyStorageKey = "repolauncher-ai-api-key";
+    private const string AiApiKeyStorageKey = "codebadger-ai-api-key";
     public event Action? SettingsSaved;
 
     public LauncherSettingsService(LocalizationService localization) => _localization = localization;

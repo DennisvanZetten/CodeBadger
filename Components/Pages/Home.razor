@@ -7,6 +7,8 @@
 @inject IJSRuntime JS
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@inject Microsoft.Extensions.Logging.ILogger<Home> Logger
+@using Microsoft.Extensions.Logging
 @implements IDisposable
 
 <PageTitle>CodeBadger</PageTitle>
@@ -27,7 +29,8 @@
         <MudTabs @bind-ActivePanelIndex="_activeTabIndex" KeepPanelsAlive="true" Rounded="true" Border="true" ApplyEffectsToContainer="true" Class="repository-tabs">
             @foreach (var repository in _activeRepositories)
             {
-                <MudTabPanel @key="repository.Id">
+                @* Changing the tag ensures the kept-alive tab panel renders updated Git status. *@
+                <MudTabPanel @key="repository.Id" Tag="@(_gitSnapshots.TryGetValue(repository, out var panelSnapshot) ? panelSnapshot : null)">
                     <TabContent>
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                             <img class="repository-agent-logo" src="@AgentLogo(repository)" alt="@AgentTools.Normalize(repository.AgentTool)"
@@ -266,31 +269,41 @@
         {
             while (await timer.WaitForNextTickAsync(cancellationToken))
             {
-                if (_isRefreshingBranches || _activeTabIndex < 0 || _activeTabIndex >= _activeRepositories.Count)
-                    continue;
-
-                var repository = _activeRepositories[_activeTabIndex];
-                if (!Directory.Exists(repository.Path))
-                    continue;
-
-                var status = await GitBranchService.GetRepositoryStatusAsync(repository.Path);
-                if (!status.IsValid || !_gitSnapshots.TryGetValue(repository, out var snapshot) || !snapshot.IsValid)
-                    continue;
-
-                await InvokeAsync(() =>
+                try
                 {
-                    _branches[repository] = status.Branch;
-                    _gitSnapshots[repository] = snapshot with
+                    if (_isRefreshingBranches || _activeTabIndex < 0 || _activeTabIndex >= _activeRepositories.Count)
+                        continue;
+
+                    var repository = _activeRepositories[_activeTabIndex];
+                    if (!Directory.Exists(repository.Path))
+                        continue;
+
+                    var status = await GitBranchService.GetRepositoryStatusAsync(repository.Path);
+                    if (!status.IsValid)
+                        continue;
+
+                    await InvokeAsync(() =>
                     {
-                        Branch = status.Branch.Branch ?? snapshot.Branch,
-                        ChangedFiles = status.ChangedFiles,
-                        StagedFiles = status.StagedFiles,
-                        UnstagedFiles = status.UnstagedFiles,
-                        Ahead = status.Ahead,
-                        Behind = status.Behind
-                    };
-                    StateHasChanged();
-                });
+                        if (_isRefreshingBranches || !_gitSnapshots.TryGetValue(repository, out var snapshot) || !snapshot.IsValid)
+                            return;
+
+                        _branches[repository] = status.Branch;
+                        _gitSnapshots[repository] = snapshot with
+                        {
+                            Branch = status.Branch.Branch ?? snapshot.Branch,
+                            ChangedFiles = status.ChangedFiles,
+                            StagedFiles = status.StagedFiles,
+                            UnstagedFiles = status.UnstagedFiles,
+                            Ahead = status.Ahead,
+                            Behind = status.Behind
+                        };
+                        StateHasChanged();
+                    });
+                }
+                catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    Logger.LogWarning(exception, "Unable to refresh Git status; the next check will retry.");
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }

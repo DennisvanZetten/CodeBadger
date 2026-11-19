@@ -25,6 +25,8 @@ public sealed class LocalizationService
         ["Agent tool"] = ["Agent tool", "Agenttool", "Agent-Tool", "Outil agent"],
         ["OpenCode sandbox"] = ["OpenCode sandbox", "OpenCode-sandbox", "OpenCode-Sandbox", "Sandbox OpenCode"],
         ["Sandbox permissions"] = ["Sandbox permissions", "Sandbox-toestemmingen", "Sandbox-Berechtigungen", "Autorisations du bac à sable"],
+        ["Enabled"] = ["Enabled", "Ingeschakeld", "Aktiviert", "Activé"],
+        ["Permissions"] = ["Permissions", "Toestemmingen", "Berechtigungen", "Autorisations"],
         ["Sandbox settings"] = ["Sandbox settings", "Sandboxinstellingen", "Sandbox-Einstellungen", "Paramètres du bac à sable"],
         ["Sandbox startup model"] = ["Sandbox startup model", "Sandbox-startmodel", "Sandbox-Startmodell", "Modèle de démarrage du bac à sable"],
         ["Saved file selections are copied automatically on startup. Review these files for secrets before saving."] = ["Saved file selections are copied automatically on startup. Review these files for secrets before saving.", "Opgeslagen bestandsselecties worden bij het starten automatisch gekopieerd. Controleer deze bestanden vóór opslaan op secrets.", "Gespeicherte Dateiauswahlen werden beim Start automatisch kopiert. Prüfen Sie sie vor dem Speichern auf Geheimnisse.", "Les fichiers sélectionnés sont copiés automatiquement au démarrage. Vérifiez leurs secrets avant d’enregistrer."],

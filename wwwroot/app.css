@@ -430,6 +430,32 @@ h1:focus {
     margin: 0;
 }
 
+.repository-sandbox-toggle {
+    margin: 0;
+    padding: 0.2rem 0.75rem 0.5rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: var(--mud-default-borderradius);
+}
+
+.repository-sandbox-toggle legend {
+    width: auto;
+    padding: 0 0.35rem;
+    font-size: 0.8rem;
+    color: var(--mud-palette-text-secondary);
+}
+
+.repository-sandbox-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    white-space: nowrap;
+    overflow-x: auto;
+}
+
+.repository-sandbox-controls > * {
+    flex-shrink: 0;
+}
+
 .repository-path-control,
 .repository-agent-control {
     display: flex;

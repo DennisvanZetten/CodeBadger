@@ -80,19 +80,17 @@
                             </div>
                             @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
                             {
-                                <div class="repository-sandbox-toggle">
+                                <fieldset class="repository-sandbox-toggle">
+                                    <legend>Sandbox</legend>
+                                    <div class="repository-sandbox-controls">
                                     <MudSwitch T="bool" @bind-Value="repository.OpenCodeSandboxEnabled" Color="Color.Warning"
-                                               Label="@L.T("OpenCode sandbox")" />
+                                               Label="@L.T("Enabled")" />
                                     <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Security"
-                                               OnClick="@(() => OpenSandboxPermissionsAsync(repository))">@L.T("Sandbox permissions")</MudButton>
+                                               OnClick="@(() => OpenSandboxPermissionsAsync(repository))">@L.T("Permissions")</MudButton>
                                     <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Tune"
-                                               OnClick="@(() => OpenSandboxSettingsAsync(repository))">@L.T("Sandbox settings")</MudButton>
-                                    <MudText Typo="Typo.caption" Color="Color.Warning">
-                                        @L.T(repository.OpenCodeSandboxEnabled
-                                             ? "Sandbox starts automatically using the model and reviewed files configured in Sandbox settings."
-                                            : "Off: OpenCode runs with your normal Windows user access.")
-                                    </MudText>
-                                </div>
+                                               OnClick="@(() => OpenSandboxSettingsAsync(repository))">@L.T("Settings")</MudButton>
+                                    </div>
+                                </fieldset>
                             }
                             <div class="repository-order-controls">
                                 <MudTooltip Text="@L.T("Move up")">

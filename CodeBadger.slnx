@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="CodeBadger.csproj">
+    <Deploy />
+  </Project>
+</Solution>

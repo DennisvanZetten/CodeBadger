@@ -1203,6 +1203,16 @@ h1:focus {
     animation-duration: 1s;
 }
 
+.repository-activity-spinner-hermes {
+    color: #8B6CF6;
+}
+
+.repository-activity-spinner-hermes::before {
+    content: "⠋\A⠙\A⠹\A⠸\A⠼\A⠴\A⠦\A⠧\A⠇\A⠏\A⠋";
+    animation-name: repository-hermes-spinner;
+    animation-duration: 900ms;
+}
+
 @keyframes repository-opencode-spinner {
     to { transform: translateY(-10em); }
 }
@@ -1212,6 +1222,10 @@ h1:focus {
 }
 
 @keyframes repository-codex-spinner {
+    to { transform: translateY(-10em); }
+}
+
+@keyframes repository-hermes-spinner {
     to { transform: translateY(-10em); }
 }
 

@@ -52,14 +52,14 @@ else
                 <MudTabPanel @key="repository.Id" Tag="@(_gitSnapshots.TryGetValue(repository, out var panelSnapshot) ? panelSnapshot : null)">
                     <TabContent>
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                            <img class="repository-agent-logo" src="@AgentLogo(repository)" alt="@AgentTools.Normalize(repository.AgentTool)"
-                                 title="@AgentTools.Normalize(repository.AgentTool)" />
+                             <img class="repository-agent-logo" src="@AgentLogo(repository)" alt="@AgentTools.GetDisplayName(repository.AgentTool)"
+                                  title="@AgentTools.GetDisplayName(repository.AgentTool)" />
                             <MudText>@RepositoryTitle(repository)</MudText>
                             @if (_runningSessions.Contains(repository.Id))
                             {
                                 <span class="repository-activity-spinner @AgentSpinnerClass(repository)" role="status"
-                                      aria-label="@L.T("Agent session is working", AgentTools.Normalize(repository.AgentTool))"
-                                      title="@L.T("Agent session is working", AgentTools.Normalize(repository.AgentTool))"></span>
+                                       aria-label="@L.T("Agent session is working", AgentTools.GetDisplayName(repository.AgentTool))"
+                                       title="@L.T("Agent session is working", AgentTools.GetDisplayName(repository.AgentTool))"></span>
                             }
                         </MudStack>
                     </TabContent>
@@ -215,6 +215,7 @@ else
     {
         AgentTools.ClaudeCode => "claude-code.svg",
         AgentTools.Codex => "codex.svg",
+        AgentTools.Hermes => "hermes.svg",
         _ => "opencode.svg"
     };
 
@@ -222,6 +223,7 @@ else
     {
         AgentTools.ClaudeCode => "repository-activity-spinner-claude",
         AgentTools.Codex => "repository-activity-spinner-codex",
+        AgentTools.Hermes => "repository-activity-spinner-hermes",
         _ => "repository-activity-spinner-opencode"
     };
 

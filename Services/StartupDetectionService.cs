@@ -11,6 +11,7 @@ public sealed record StartupDetectionResult(
     AgentStartupState OpenCode,
     AgentStartupState ClaudeCode,
     AgentStartupState Codex,
+    AgentStartupState Hermes,
     IReadOnlyDictionary<Guid, RepositoryStartupState> Repositories);
 
 public sealed class StartupDetectionService(
@@ -28,7 +29,7 @@ public sealed class StartupDetectionService(
         Func<string, double, Task> reportProgress)
     {
         var repositories = settings.Repositories;
-        var totalSteps = 3 + repositories.Count * 2;
+        var totalSteps = 4 + repositories.Count * 2;
         var completedSteps = 0;
 
         async Task Report(string stage)
@@ -48,6 +49,10 @@ public sealed class StartupDetectionService(
 
         var codexPath = GetExistingGlobalConfigPath(AgentTools.Codex);
         var codex = new AgentStartupState(await IsCommandAvailableAsync("codex"), File.Exists(codexPath), codexPath);
+        await Report(localization.T("Detecting Hermes..."));
+
+        var hermesPath = GetExistingGlobalConfigPath(AgentTools.Hermes);
+        var hermes = new AgentStartupState(await IsCommandAvailableAsync("hermes"), File.Exists(hermesPath), hermesPath);
         await Report(localization.T("Checking global agent settings..."));
 
         var repositoryStates = new Dictionary<Guid, RepositoryStartupState>();
@@ -66,7 +71,7 @@ public sealed class StartupDetectionService(
             await Report(localization.T("Checking repository Git status..."));
         }
 
-        Result = new StartupDetectionResult(openCode, claude, codex, repositoryStates);
+        Result = new StartupDetectionResult(openCode, claude, codex, hermes, repositoryStates);
         await reportProgress(localization.T("Startup checks complete."), 100);
         return Result;
     }
@@ -76,6 +81,7 @@ public sealed class StartupDetectionService(
         {
             AgentTools.ClaudeCode => Result.ClaudeCode,
             AgentTools.Codex => Result.Codex,
+            AgentTools.Hermes => Result.Hermes,
             _ => Result.OpenCode
         };
 
@@ -129,6 +135,11 @@ public sealed class StartupDetectionService(
             };
             return candidates.FirstOrDefault(File.Exists) ?? configPath;
         }
+
+        if (AgentTools.Normalize(agentTool) == AgentTools.Hermes)
+            return Path.Combine(Environment.GetEnvironmentVariable("HERMES_HOME") is { Length: > 0 } hermesHome
+                ? hermesHome
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".hermes"), "config.yaml");
 
         return configPath;
     }

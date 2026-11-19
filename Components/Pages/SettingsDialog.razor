@@ -51,6 +51,7 @@
                                     <MudSelectItem T="string" Value="@AgentTools.OpenCode">OpenCode</MudSelectItem>
                                     <MudSelectItem T="string" Value="@AgentTools.ClaudeCode">Claude Code</MudSelectItem>
                                     <MudSelectItem T="string" Value="@AgentTools.Codex">Codex</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@AgentTools.Hermes">Hermes</MudSelectItem>
                                 </MudSelect>
                                 @if (!StartupDetection.IsAgentAvailable(repository.AgentTool))
                                 {
@@ -101,7 +102,8 @@
                      <MudSelect T="string" Value="_selectedAgent" ValueChanged="LoadAgentConfigAsync" Label="@L.T("Agent tool")" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(_isLoadingAgentConfig || _isSavingAgentConfig)">
                          <MudSelectItem T="string" Value="@AgentTools.OpenCode">OpenCode</MudSelectItem>
                          <MudSelectItem T="string" Value="@AgentTools.ClaudeCode">Claude Code</MudSelectItem>
-                         <MudSelectItem T="string" Value="@AgentTools.Codex">Codex</MudSelectItem>
+                          <MudSelectItem T="string" Value="@AgentTools.Codex">Codex</MudSelectItem>
+                          <MudSelectItem T="string" Value="@AgentTools.Hermes">Hermes</MudSelectItem>
                      </MudSelect>
                      <MudText Typo="Typo.subtitle1">@_selectedAgent</MudText>
                      @if (GetAgentStartupState(_selectedAgent) is { } agentState)
@@ -121,7 +123,9 @@
                          <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("{0} was not detected. Its settings are read-only until it is available.", _selectedAgent)</MudAlert>
                      }
                     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                          @L.T(_selectedAgent == AgentTools.OpenCode
+                           @L.T(_selectedAgent == AgentTools.Hermes
+                               ? "Hermes uses YAML config files. MCP switches update mcp_servers.<name>.enabled."
+                               : AgentTools.GetDisplayName(_selectedAgent) == "OpenCode"
                               ? "OpenCode MCP switches update the disabled value in this config file."
                               : _selectedAgent == AgentTools.ClaudeCode
                                   ? "Claude Code project config is managed from each repository."
@@ -144,9 +148,9 @@
                         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@L.T("No MCP servers found in this config.")</MudAlert>
                     }
                     <MudExpansionPanels Elevation="0" Outlined="true">
-                          <MudExpansionPanel Text="@L.T(_selectedAgent == AgentTools.Codex ? "Agent configuration (TOML)" : "Agent configuration (JSON)")">
+                          <MudExpansionPanel Text="@L.T(_selectedAgent == AgentTools.Hermes ? "Agent configuration (YAML)" : _selectedAgent == AgentTools.Codex ? "Agent configuration (TOML)" : "Agent configuration (JSON)")">
                               <MudStack Spacing="2">
-                                 <MudTextField @bind-Value="_agentConfigJson" Label="@L.T(_selectedAgent == AgentTools.Codex ? "Agent configuration (TOML)" : "Agent configuration (JSON)")"
+                                 <MudTextField @bind-Value="_agentConfigJson" Label="@L.T(_selectedAgent == AgentTools.Hermes ? "Agent configuration (YAML)" : _selectedAgent == AgentTools.Codex ? "Agent configuration (TOML)" : "Agent configuration (JSON)")"
                                               Lines="18" Sizing="InputSizing.Fixed" Margin="Margin.Dense" Variant="Variant.Outlined"
                                                 ReadOnly="@(!StartupDetection.IsAgentAvailable(_selectedAgent))" Disabled="@(_isLoadingAgentConfig || _agentConfigLoadFailed)" />
                                 <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Save"

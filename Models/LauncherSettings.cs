@@ -32,11 +32,13 @@ public static class AgentTools
     public const string OpenCode = "OpenCode";
     public const string ClaudeCode = "Claude Code";
     public const string Codex = "Codex";
+    public const string Hermes = "Hermes";
 
     public static string Normalize(string? agentTool) => agentTool switch
     {
         ClaudeCode => ClaudeCode,
         Codex => Codex,
+        Hermes => Hermes,
         _ => OpenCode
     };
 
@@ -44,6 +46,15 @@ public static class AgentTools
     {
         ClaudeCode => "claude",
         Codex => "codex",
+        Hermes => "hermes",
         _ => "opencode"
+    };
+
+    public static string GetDisplayName(string? agentTool) => Normalize(agentTool) switch
+    {
+        ClaudeCode => "Claude Code",
+        Codex => "Codex",
+        Hermes => "Hermes",
+        _ => "OpenCode"
     };
 }

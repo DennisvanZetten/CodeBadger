@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using CodeBadger.Models;
+using YamlDotNet.Core;
+using YamlDotNet.RepresentationModel;
 
 namespace CodeBadger.Services;
 
@@ -17,6 +19,10 @@ public sealed class AgentConfigService(CodexConfigService codexConfigService)
             return codexConfigService.GetGlobalConfigPath();
         if (AgentTools.Normalize(agentTool) == AgentTools.ClaudeCode)
             return Path.Combine(home, ".claude.json");
+        if (AgentTools.Normalize(agentTool) == AgentTools.Hermes)
+            return Path.Combine(Environment.GetEnvironmentVariable("HERMES_HOME") is { Length: > 0 } hermesHome
+                ? hermesHome
+                : Path.Combine(home, ".hermes"), "config.yaml");
 
         var configDirectory = Path.Combine(Environment.GetEnvironmentVariable("XDG_CONFIG_HOME") is { Length: > 0 } configHome
             ? configHome
@@ -29,7 +35,12 @@ public sealed class AgentConfigService(CodexConfigService codexConfigService)
     {
         var path = GetConfigPath(agentTool);
         if (!File.Exists(path))
-            return AgentTools.Normalize(agentTool) == AgentTools.Codex ? string.Empty : "{}";
+            return AgentTools.Normalize(agentTool) switch
+            {
+                AgentTools.Codex => string.Empty,
+                AgentTools.Hermes => "# Hermes Agent configuration\n\nmcp_servers: {}\n",
+                _ => "{}"
+            };
 
         return await File.ReadAllTextAsync(path);
     }
@@ -41,6 +52,9 @@ public sealed class AgentConfigService(CodexConfigService codexConfigService)
             return (await codexConfigService.GetMcpServersAsync(json))
                 .Select(server => new AgentMcpServer(server.Name, server.Enabled))
                 .ToArray();
+
+        if (AgentTools.Normalize(agentTool) == AgentTools.Hermes)
+            return GetHermesMcpServers(json);
 
         var root = ParseObject(json);
         var isClaude = AgentTools.Normalize(agentTool) == AgentTools.ClaudeCode;
@@ -84,6 +98,22 @@ public sealed class AgentConfigService(CodexConfigService codexConfigService)
     {
         if (AgentTools.Normalize(agentTool) == AgentTools.Codex)
             return await codexConfigService.SetMcpServerEnabledAsync(GetConfigPath(agentTool), json, serverName, enabled);
+
+        if (AgentTools.Normalize(agentTool) == AgentTools.Hermes)
+        {
+            var stream = ParseYaml(json);
+            var yamlRoot = stream.Documents[0].RootNode as YamlMappingNode
+                ?? throw new InvalidOperationException("The Hermes config must contain a YAML mapping at its root.");
+            var yamlServers = GetHermesServersNode(yamlRoot);
+            if (!yamlServers.Children.TryGetValue(new YamlScalarNode(serverName), out var serverNode))
+                throw new InvalidOperationException("The MCP server was not found in the configuration.");
+            if (serverNode is not YamlMappingNode server)
+                throw new InvalidOperationException("The Hermes MCP server configuration must be a YAML mapping.");
+            SetYamlValue(server, "enabled", enabled ? "true" : "false");
+            var updatedYaml = SerializeYaml(stream);
+            await SaveAsync(agentTool, updatedYaml);
+            return updatedYaml;
+        }
 
         var root = ParseObject(json);
         var isClaude = AgentTools.Normalize(agentTool) == AgentTools.ClaudeCode;
@@ -156,7 +186,19 @@ public sealed class AgentConfigService(CodexConfigService codexConfigService)
             return;
         }
 
+        if (AgentTools.Normalize(agentTool) == AgentTools.Hermes)
+        {
+            _ = ParseYaml(json);
+            await SaveTextAsync(agentTool, json);
+            return;
+        }
+
         _ = ParseObject(json);
+        await SaveTextAsync(agentTool, json);
+    }
+
+    private async Task SaveTextAsync(string agentTool, string content)
+    {
         var path = GetConfigPath(agentTool);
         var directory = Path.GetDirectoryName(path)!;
         Directory.CreateDirectory(directory);
@@ -168,7 +210,7 @@ public sealed class AgentConfigService(CodexConfigService codexConfigService)
         var temporaryPath = $"{path}.tmp-{Guid.NewGuid():N}";
         try
         {
-            await File.WriteAllTextAsync(temporaryPath, json);
+            await File.WriteAllTextAsync(temporaryPath, content);
             File.Move(temporaryPath, path, overwrite: true);
         }
         finally
@@ -176,6 +218,79 @@ public sealed class AgentConfigService(CodexConfigService codexConfigService)
             if (File.Exists(temporaryPath))
                 File.Delete(temporaryPath);
         }
+    }
+
+    private static IReadOnlyList<AgentMcpServer> GetHermesMcpServers(string yaml)
+    {
+        var stream = ParseYaml(yaml);
+        if (stream.Documents[0].RootNode is not YamlMappingNode root || !root.Children.TryGetValue(new YamlScalarNode("mcp_servers"), out var serversNode))
+            return [];
+        if (serversNode is not YamlMappingNode servers)
+            throw new InvalidOperationException("Hermes mcp_servers must be a YAML mapping.");
+
+        return servers.Children
+            .Select(pair =>
+            {
+                var name = (pair.Key as YamlScalarNode)?.Value
+                    ?? throw new InvalidOperationException("Hermes MCP server names must be YAML strings.");
+                if (pair.Value is not YamlMappingNode server)
+                    throw new InvalidOperationException($"Hermes MCP server '{name}' must be a YAML mapping.");
+                var enabledNode = GetYamlValue(server, "enabled");
+                var enabled = !string.Equals(enabledNode?.Value, "false", StringComparison.OrdinalIgnoreCase);
+                return new AgentMcpServer(name, enabled);
+            })
+            .OrderBy(server => server.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static YamlMappingNode GetHermesServersNode(YamlMappingNode root)
+    {
+        if (!root.Children.TryGetValue(new YamlScalarNode("mcp_servers"), out var node))
+        {
+            var servers = new YamlMappingNode();
+            root.Add("mcp_servers", servers);
+            return servers;
+        }
+        return node as YamlMappingNode
+            ?? throw new InvalidOperationException("Hermes mcp_servers must be a YAML mapping.");
+    }
+
+    private static YamlScalarNode? GetYamlValue(YamlMappingNode mapping, string key) =>
+        mapping.Children.TryGetValue(new YamlScalarNode(key), out var value) ? value as YamlScalarNode : null;
+
+    private static void SetYamlValue(YamlMappingNode mapping, string key, string value)
+    {
+        var yamlKey = new YamlScalarNode(key);
+        if (mapping.Children.ContainsKey(yamlKey))
+            mapping.Children[yamlKey] = new YamlScalarNode(value);
+        else
+            mapping.Add(yamlKey, new YamlScalarNode(value));
+    }
+
+    private static YamlStream ParseYaml(string yaml)
+    {
+        var stream = new YamlStream();
+        try
+        {
+            using var reader = new StringReader(yaml);
+            stream.Load(reader);
+        }
+        catch (YamlException exception)
+        {
+            throw new InvalidOperationException($"The Hermes config is not valid YAML: {exception.Message}", exception);
+        }
+        if (stream.Documents.Count != 1)
+            throw new InvalidOperationException("The Hermes config must contain exactly one YAML document.");
+        if (stream.Documents[0].RootNode is null)
+            throw new InvalidOperationException("The Hermes config cannot be empty.");
+        return stream;
+    }
+
+    private static string SerializeYaml(YamlStream stream)
+    {
+        using var writer = new StringWriter();
+        stream.Save(writer, assignAnchors: false);
+        return writer.ToString();
     }
 
     private static JsonObject ParseObject(string json) =>

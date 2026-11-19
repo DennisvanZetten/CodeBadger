@@ -535,16 +535,98 @@ public sealed class GitBranchService
         if (!fetchResult.Success)
             return new GitOperationResult(false, _localization.T("Push aborted: failed to fetch remote status. {0}", fetchResult.Message), string.Empty);
 
-        var snapshot = await GetRepositorySnapshotAsync(path);
-        if (!snapshot.IsValid)
-            return new GitOperationResult(false, _localization.T("Push aborted: failed to check remote status. {0}", snapshot.Error ?? string.Empty), string.Empty);
+        var currentResult = await RunGitAsync(path, "symbolic-ref", "--quiet", "--short", "HEAD");
+        if (!currentResult.Success)
+            return new GitOperationResult(false, _localization.T("Push aborted: cannot push while HEAD is detached."), string.Empty);
 
-        if (snapshot.Behind > 0)
-            return new GitOperationResult(false,
-                _localization.T("Push blocked: this branch is {0} commit(s) behind. Pull the remote changes first and try again.", snapshot.Behind),
-                string.Empty);
+        var branch = currentResult.Output.Trim();
+        var upstreamResult = await RunGitAsync(path, "for-each-ref", "--format=%(upstream)", $"refs/heads/{branch}");
+        if (!upstreamResult.Success)
+            return new GitOperationResult(false, _localization.T("Push aborted: failed to check remote status. {0}", upstreamResult.Message), string.Empty);
 
-        return await PushAsync(path);
+        var upstream = upstreamResult.Output.Trim();
+        var hasUpstream = !string.IsNullOrWhiteSpace(upstream);
+        string? remote = null;
+        string? remoteBranch = null;
+
+        if (hasUpstream)
+        {
+            var split = upstream.Split('/', 3);
+            if (split.Length < 3 || !split[0].Equals("refs", StringComparison.Ordinal) || !split[1].Equals("remotes", StringComparison.Ordinal))
+                return new GitOperationResult(false, _localization.T("Push aborted: unsupported upstream '{0}'.", upstream), string.Empty);
+            remote = split[2].Split('/', 2)[0];
+            remoteBranch = split[2][(remote.Length + 1)..];
+        }
+        else
+        {
+            var remoteResult = await GetDefaultPushRemoteAsync(path, branch);
+            if (!remoteResult.Success)
+                return remoteResult;
+            remote = remoteResult.Output;
+            remoteBranch = branch;
+        }
+
+        var remoteRef = $"refs/remotes/{remote}/{remoteBranch}";
+        var remoteBranchExistsResult = await RunGitAsync(path, "show-ref", "--verify", "--quiet", remoteRef);
+        var remoteBranchExists = remoteBranchExistsResult.Success;
+        if (!remoteBranchExists && remoteBranchExistsResult.ExitCode != 1)
+            return new GitOperationResult(false, _localization.T("Push aborted: failed to check remote branch. {0}", remoteBranchExistsResult.Message), string.Empty);
+
+        if (remoteBranchExists)
+        {
+            var countsResult = await RunGitAsync(path, "rev-list", "--left-right", "--count", $"refs/heads/{branch}...{remoteRef}");
+            if (!countsResult.Success)
+                return new GitOperationResult(false, _localization.T("Push aborted: failed to check remote status. {0}", countsResult.Message), string.Empty);
+
+            var counts = countsResult.Output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (counts.Length != 2 || !int.TryParse(counts[1], out var behind))
+                return new GitOperationResult(false, _localization.T("Push aborted: failed to parse remote status."), string.Empty);
+
+            if (behind > 0)
+            {
+                var statusResult = await RunGitAsync(path, "status", "--porcelain=v1", "-uall");
+                if (!statusResult.Success)
+                    return new GitOperationResult(false, _localization.T("Push aborted: unable to check working tree. {0}", statusResult.Message), string.Empty);
+                if (!string.IsNullOrWhiteSpace(statusResult.Output))
+                    return new GitOperationResult(false, _localization.T("Push aborted: commit or stash your changes before pulling remote updates."), string.Empty);
+
+                var pullResult = hasUpstream
+                    ? await PullAsync(path)
+                    : await RunGitAsync(path, "pull", "--no-rebase", remote!, remoteBranch!);
+                if (!pullResult.Success)
+                    return new GitOperationResult(false, _localization.T("Push aborted: pull failed. {0}", pullResult.Message), pullResult.Output, pullResult.ExitCode);
+            }
+        }
+
+        return hasUpstream
+            ? await PushAsync(path)
+            : await RunGitAsync(path, "push", "--set-upstream", remote!, branch);
+    }
+
+    private async Task<GitOperationResult> GetDefaultPushRemoteAsync(string path, string branch)
+    {
+        var configuredRemote = await RunGitAllowExitOneAsync(path, "config", "--get", "remote.pushDefault");
+        if (configuredRemote.Success && !string.IsNullOrWhiteSpace(configuredRemote.Output))
+            return new GitOperationResult(true, string.Empty, configuredRemote.Output.Trim());
+
+        var branchRemote = await RunGitAllowExitOneAsync(path, "config", "--get", $"branch.{branch}.remote");
+        if (branchRemote.Success && !string.IsNullOrWhiteSpace(branchRemote.Output) && branchRemote.Output.Trim() != ".")
+            return new GitOperationResult(true, string.Empty, branchRemote.Output.Trim());
+
+        var remotesResult = await RunGitAsync(path, "remote");
+        if (!remotesResult.Success)
+            return new GitOperationResult(false, _localization.T("Push aborted: unable to list remotes. {0}", remotesResult.Message), string.Empty);
+
+        var remotes = remotesResult.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(remoteName => remoteName.Trim())
+            .Where(remoteName => remoteName.Length > 0)
+            .ToArray();
+        if (remotes.Contains("origin", StringComparer.Ordinal))
+            return new GitOperationResult(true, string.Empty, "origin");
+        if (remotes.Length == 1)
+            return new GitOperationResult(true, string.Empty, remotes[0]);
+
+        return new GitOperationResult(false, _localization.T("Push aborted: no unambiguous default remote is configured."), string.Empty);
     }
 
     public async Task<GitOperationResult> CheckoutBranchAsync(string path, string branch)

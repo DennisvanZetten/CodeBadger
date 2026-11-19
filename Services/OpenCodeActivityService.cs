@@ -63,6 +63,9 @@ public sealed class OpenCodeActivityService
 
     private static async Task<JsonDocument?> RequestAsync(string path, CancellationToken cancellationToken)
     {
+        if (!OperatingSystem.IsWindows())
+            return null;
+
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(5));
         using var process = new Process

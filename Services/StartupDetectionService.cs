@@ -135,6 +135,9 @@ public sealed class StartupDetectionService(
 
     private static async Task<bool> IsCommandAvailableAsync(string command)
     {
+        if (OperatingSystem.IsIOS())
+            return false;
+
         try
         {
             var startInfo = new ProcessStartInfo

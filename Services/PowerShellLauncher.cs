@@ -7,6 +7,9 @@ public sealed class PowerShellLauncher
 {
     public int LaunchAll(LauncherSettings settings, IReadOnlyCollection<RepositoryEntry> repositories)
     {
+        if (!OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException("Windows Terminal is only available on Windows.");
+
         var startInfo = new ProcessStartInfo
         {
             FileName = "wt.exe",

@@ -488,6 +488,9 @@ public sealed class GitBranchService
 
     public async Task<GitOperationResult> OpenConflictInVsCodeAsync(string repositoryPath, string relativePath)
     {
+        if (OperatingSystem.IsIOS())
+            return new GitOperationResult(false, _localization.T("VS Code could not be started."), string.Empty);
+
         try
         {
             var fullPath = Path.GetFullPath(Path.Combine(repositoryPath, relativePath));
@@ -559,6 +562,9 @@ public sealed class GitBranchService
 
     private async Task<GitOperationResult> RunGitCoreAsync(string path, bool allowExitCodeOne, params string[] arguments)
     {
+        if (OperatingSystem.IsIOS())
+            return new GitOperationResult(false, _localization.T("Git is not available in PATH."), string.Empty);
+
         var startInfo = new ProcessStartInfo
         {
             FileName = "git",

@@ -56,6 +56,9 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
 
     public async Task StopAsync(Guid id)
     {
+        if (!OperatingSystem.IsWindows())
+            return;
+
         if (!_sessions.Remove(id, out var session))
             return;
         try

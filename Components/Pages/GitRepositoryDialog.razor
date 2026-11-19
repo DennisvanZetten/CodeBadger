@@ -368,12 +368,8 @@
                                         {
                                             <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Checking AI connection...")</MudText>
                                         }
-                                        else if (!_hasAiConnection)
-                                        {
-                                            <MudText Typo="Typo.caption" Color="Color.Error">@L.T("AI connection unavailable. Check the AI provider settings.")</MudText>
-                                        }
                                         <MudTextField @bind-Value="_commitTitle" Label="@L.T("Title (required)")" Margin="Margin.Dense" Variant="Variant.Outlined"
-                                                      Placeholder="@L.T("Short summary of the change")" MaxLength="72" Counter="72" Required="true" />
+                                                      Placeholder="@L.T("Short summary of the change")" MaxLength="72" Counter="72" Immediate="true" />
                                         <MudTextField @bind-Value="_commitDescription" Label="@L.T("Description (optional)")" Lines="2" Margin="Margin.Dense" Variant="Variant.Outlined"
                                                       Placeholder="@L.T("More context about the change...")" />
                                         <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Check"

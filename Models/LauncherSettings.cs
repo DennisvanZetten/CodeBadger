@@ -40,6 +40,7 @@ public sealed class RepositoryEntry
     public bool OpenCodeSandboxEnabled { get; set; }
     public string OpenCodeSandboxModel { get; set; } = "bonzai/gpt-6-luna";
     public string OpenCodeSandboxFiles { get; set; } = string.Empty;
+    public bool SlackNotificationsMuted { get; set; }
 }
 
 public static class AgentTools

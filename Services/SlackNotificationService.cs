@@ -10,9 +10,11 @@ namespace CodeBadger.Services;
 public sealed class SlackNotificationService : IAsyncDisposable
 {
     private const string ThreadLinksStorageKey = "codebadger-slack-session-threads";
+    private const string MutedSessionsStorageKey = "codebadger-slack-muted-sessions";
     private static readonly HttpClient Http = new() { BaseAddress = new Uri("https://slack.com/api/") };
     private readonly ConcurrentDictionary<string, ThreadLink> _sessionThreads = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _seenReplies = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, byte> _mutedSessions = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _configurationGate = new(1, 1);
     private CancellationTokenSource? _connectionCancellation;
     private Task? _connectionTask;
@@ -23,10 +25,12 @@ public sealed class SlackNotificationService : IAsyncDisposable
 
     public event Action<OpenCodeActivityService.ActiveSession, string>? ReplyReceived;
     public event Action<bool, string>? ConnectionChanged;
+    public event Action? SessionNotificationsChanged;
     public bool IsConnected { get; private set; }
     public string ConnectionStatus { get; private set; } = "Slack notifications are not connected.";
 
     public sealed record SlackChannel(string Id, string Name, bool IsMember, bool IsPrivate);
+    public sealed record SessionNotification(string Id, string Title, string Agent, string Directory, bool IsMuted);
     private sealed record ThreadLink(string ThreadTs, string ChannelId, string Directory, string Agent, string Title, DateTime CreatedAt);
 
     public async Task<IReadOnlyList<SlackChannel>> GetChannelsAsync(string botToken, CancellationToken cancellationToken = default)
@@ -86,6 +90,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
             _channelId = channelId;
             _allowedUserId = allowedUserId;
             await LoadThreadLinksAsync(channelId);
+            await LoadMutedSessionsAsync();
             if (!settings.SlackNotificationsEnabled)
             {
                 SetConnectionState(false, "Slack notifications are disabled.");
@@ -109,9 +114,11 @@ public sealed class SlackNotificationService : IAsyncDisposable
     public async Task PublishCompletionAsync(OpenCodeActivityService.ActiveSession session, string answer,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(_botToken) || string.IsNullOrWhiteSpace(_channelId))
+        if (!CanSendNotifications || IsSessionMuted(session.Id))
             return;
         var title = string.IsNullOrWhiteSpace(session.Title) ? "OpenCode session" : session.Title;
+        if (_sessionThreads.TryGetValue(session.Id, out var existingThread))
+            title = string.IsNullOrWhiteSpace(existingThread.Title) ? title : existingThread.Title;
         var safeAnswer = answer.Replace("```", "'''");
         safeAnswer = safeAnswer.Length > 3500 ? safeAnswer[..3500] + "\n…" : safeAnswer;
         var message = $"✅ *OpenCode klaar: {EscapeSlack(title)}*\n" +
@@ -125,7 +132,66 @@ public sealed class SlackNotificationService : IAsyncDisposable
         {
             _sessionThreads[session.Id] = new ThreadLink(result, _channelId, session.Directory, session.Agent, title, DateTime.UtcNow);
             await SaveThreadLinksAsync();
+            SessionNotificationsChanged?.Invoke();
         }
+    }
+
+    public bool CanSendNotifications => IsConnected && !string.IsNullOrWhiteSpace(_botToken) &&
+        !string.IsNullOrWhiteSpace(_channelId) && !string.IsNullOrWhiteSpace(_allowedUserId);
+
+    public IReadOnlyList<SessionNotification> GetSessionNotifications(string directory)
+    {
+        var normalized = OpenCodeActivityService.NormalizePath(directory);
+        if (normalized is null)
+            return [];
+        return _sessionThreads
+            .Where(pair => string.Equals(OpenCodeActivityService.NormalizePath(pair.Value.Directory), normalized,
+                StringComparison.OrdinalIgnoreCase))
+            .Select(pair => new SessionNotification(pair.Key, pair.Value.Title, pair.Value.Agent, pair.Value.Directory,
+                IsSessionMuted(pair.Key)))
+            .OrderByDescending(session => session.Id)
+            .ToArray();
+    }
+
+    public bool IsSessionMuted(string sessionId) => _mutedSessions.ContainsKey(sessionId);
+
+    public async Task SetSessionMutedAsync(string sessionId, bool muted)
+    {
+        if (!sessionId.StartsWith("ses_", StringComparison.Ordinal) ||
+            !sessionId.All(character => char.IsAsciiLetterOrDigit(character) || character == '_'))
+            return;
+        if (muted)
+            _mutedSessions[sessionId] = 0;
+        else
+            _mutedSessions.TryRemove(sessionId, out _);
+        await SaveMutedSessionsAsync();
+        SessionNotificationsChanged?.Invoke();
+    }
+
+    private async Task LoadMutedSessionsAsync()
+    {
+        _mutedSessions.Clear();
+        var json = await SecureStorage.Default.GetAsync(MutedSessionsStorageKey);
+        if (string.IsNullOrWhiteSpace(json))
+            return;
+        try
+        {
+            var ids = JsonSerializer.Deserialize<string[]>(json) ?? [];
+            foreach (var id in ids.Where(id => id.StartsWith("ses_", StringComparison.Ordinal) &&
+                         id.All(character => char.IsAsciiLetterOrDigit(character) || character == '_')))
+                _mutedSessions[id] = 0;
+        }
+        catch (JsonException) { }
+    }
+
+    private Task SaveMutedSessionsAsync() => _mutedSessions.IsEmpty
+        ? RemoveMutedSessionsAsync()
+        : SecureStorage.Default.SetAsync(MutedSessionsStorageKey, JsonSerializer.Serialize(_mutedSessions.Keys.Order().ToArray()));
+
+    private static Task RemoveMutedSessionsAsync()
+    {
+        SecureStorage.Default.Remove(MutedSessionsStorageKey);
+        return Task.CompletedTask;
     }
 
     public async Task PublishReplyStatusAsync(string sessionId, string text, CancellationToken cancellationToken = default)
@@ -133,6 +199,15 @@ public sealed class SlackNotificationService : IAsyncDisposable
         if (!_sessionThreads.TryGetValue(sessionId, out var link))
             return;
         await PostMessageAsync(_botToken, link.ChannelId, text, link.ThreadTs, cancellationToken);
+    }
+
+    public async Task UpdateSessionAgentAsync(string sessionId, string agent)
+    {
+        if (agent is not ("build" or "plan") || !_sessionThreads.TryGetValue(sessionId, out var link))
+            return;
+        _sessionThreads[sessionId] = link with { Agent = agent };
+        await SaveThreadLinksAsync();
+        SessionNotificationsChanged?.Invoke();
     }
 
     private async Task RunSocketLoopAsync(CancellationToken cancellationToken)
@@ -216,8 +291,11 @@ public sealed class SlackNotificationService : IAsyncDisposable
             return;
         var text = textValue.GetString()!.Trim();
         if (!string.IsNullOrWhiteSpace(text))
-            ReplyReceived?.Invoke(new OpenCodeActivityService.ActiveSession(linkedSession.Key,
-                linkedSession.Value.Directory, linkedSession.Value.Agent, linkedSession.Value.Title), text);
+        {
+            var session = new OpenCodeActivityService.ActiveSession(linkedSession.Key,
+                linkedSession.Value.Directory, linkedSession.Value.Agent, linkedSession.Value.Title);
+            ReplyReceived?.Invoke(session, text);
+        }
         await Task.CompletedTask;
     }
 

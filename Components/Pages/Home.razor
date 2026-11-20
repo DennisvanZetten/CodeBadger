@@ -83,14 +83,19 @@
                         </MudStack>
                     </TabContent>
                     <ChildContent>
-                        <RepositoryWorkspace Repository="repository"
-                                             RepositoryTitle="@RepositoryTitle(repository)"
-                                             RepositoryExists="@Directory.Exists(repository.Path)"
-                                             AgentAvailable="@StartupDetection.IsAgentAvailable(repository.AgentTool)"
-                                             IsVisible="@(DockedRepositories.IndexOf(repository) == _activeTabIndex)"
-                                             GitBranchLabel="@BranchLabel(repository)"
-                                             GitSnapshot="@(_gitSnapshots.TryGetValue(repository, out var workspaceSnapshot) ? workspaceSnapshot : null)"
-                                             OnOpenGitOverview="@(() => OpenGitDialogAsync(repository))" />
+                         <RepositoryWorkspace Repository="repository"
+                                              RepositoryTitle="@RepositoryTitle(repository)"
+                                              RepositoryExists="@Directory.Exists(repository.Path)"
+                                              AgentAvailable="@StartupDetection.IsAgentAvailable(repository.AgentTool)"
+                                              IsVisible="@(DockedRepositories.IndexOf(repository) == _activeTabIndex)"
+                                              GitBranchLabel="@BranchLabel(repository)"
+                                              GitSnapshot="@(_gitSnapshots.TryGetValue(repository, out var workspaceSnapshot) ? workspaceSnapshot : null)"
+                                              SlackNotificationsAvailable="@SlackNotifications.CanSendNotifications"
+                                              SlackRepositoryMuted="@repository.SlackNotificationsMuted"
+                                              SlackSessions="@SlackNotifications.GetSessionNotifications(repository.Path)"
+                                              OnToggleSlackRepositoryMute="@(() => ToggleSlackRepositoryMuteAsync(repository))"
+                                              OnToggleSlackSessionMute="@(change => ToggleSlackSessionMuteAsync(change.SessionId, change.Muted))"
+                                              OnOpenGitOverview="@(() => OpenGitDialogAsync(repository))" />
                     </ChildContent>
                 </MudTabPanel>
             }
@@ -131,6 +136,7 @@
         catch (Exception error) { Snackbar.Add("Repository access recovery failed: " + error.Message, Severity.Error); }
         SettingsService.SettingsSaved += HandleSettingsSaved;
         SlackNotifications.ReplyReceived += HandleSlackReplyReceived;
+        SlackNotifications.SessionNotificationsChanged += HandleSlackSessionNotificationsChanged;
         SandboxApprovals.Requested += HandleSandboxApproval;
         SandboxSessions.StateChanged += HandleSandboxState;
         DetachedWindows.StateChanged += HandleDetachedWindowsChanged;
@@ -583,6 +589,17 @@
                         {
                             try
                             {
+                                var repository = _activeRepositories.FirstOrDefault(candidate =>
+                                    AgentTools.Normalize(candidate.AgentTool) == AgentTools.OpenCode &&
+                                    string.Equals(OpenCodeActivityService.NormalizePath(candidate.Path), session.Directory,
+                                        StringComparison.OrdinalIgnoreCase));
+                                if (repository?.SlackNotificationsMuted == true || SlackNotifications.IsSessionMuted(session.Id))
+                                {
+                                    _runningOpenCodeSessions.Remove(session.Id);
+                                    continue;
+                                }
+                                if (repository is null || !SlackNotifications.CanSendNotifications)
+                                    continue;
                                 if (await OpenCodeActivity.HasPendingInteractionAsync(session.Id, session.Directory, cancellationToken))
                                     continue;
                                 var answer = await OpenCodeActivity.GetLatestCompletedAnswerAsync(session.Id, session.Directory, cancellationToken);
@@ -615,7 +632,19 @@
     {
         try
         {
-            await OpenCodeActivity.SendPromptAsync(session.Id, session.Directory, text, _statusMonitorCancellation.Token);
+            var command = System.Text.RegularExpressions.Regex.Match(text, "^!(build|plan)(?:\\s+(.*))?$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+            var prompt = text;
+            if (command.Success)
+            {
+                var agent = command.Groups[1].Value.ToLowerInvariant();
+                prompt = command.Groups[2].Value.Trim();
+                if (string.IsNullOrWhiteSpace(prompt))
+                    throw new InvalidOperationException("Add a message after !build or !plan.");
+                await OpenCodeActivity.SwitchAgentAsync(session.Id, session.Directory, agent, _statusMonitorCancellation.Token);
+                await SlackNotifications.UpdateSessionAgentAsync(session.Id, agent);
+            }
+            await OpenCodeActivity.SendPromptAsync(session.Id, session.Directory, prompt, _statusMonitorCancellation.Token);
         }
         catch (Exception exception) when (!_statusMonitorCancellation.IsCancellationRequested)
         {
@@ -632,6 +661,20 @@
             }
         }
     });
+
+    private async Task ToggleSlackRepositoryMuteAsync(RepositoryEntry repository)
+    {
+        repository.SlackNotificationsMuted = !repository.SlackNotificationsMuted;
+        await SettingsService.SaveAsync(_settings);
+    }
+
+    private async Task ToggleSlackSessionMuteAsync(string sessionId, bool muted)
+    {
+        await SlackNotifications.SetSessionMutedAsync(sessionId, muted);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleSlackSessionNotificationsChanged() => _ = InvokeAsync(StateHasChanged);
 
     private string BranchLabel(RepositoryEntry repository)
     {
@@ -657,6 +700,7 @@
         _statusMonitorCancellation.Dispose();
         SettingsService.SettingsSaved -= HandleSettingsSaved;
         SlackNotifications.ReplyReceived -= HandleSlackReplyReceived;
+        SlackNotifications.SessionNotificationsChanged -= HandleSlackSessionNotificationsChanged;
         L.LanguageChanged -= HandleLanguageChanged;
         _selfReference?.Dispose();
         if (_tabsModule is not null)

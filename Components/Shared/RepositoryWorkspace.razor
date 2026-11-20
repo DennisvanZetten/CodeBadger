@@ -58,6 +58,50 @@
                 </MudAlert>
             }
         </div>
+
+        @if (SlackNotificationsAvailable && AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode)
+        {
+            <div class="repository-git-panel">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap" Spacing="1">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="flex-wrap">
+                        <MudText Typo="Typo.subtitle1">@L.T("Slack notifications")</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("OpenCode sessions only")</MudText>
+                    </MudStack>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined"
+                               Color="@(SlackRepositoryMuted ? Color.Warning : Color.Primary)"
+                               StartIcon="@(SlackRepositoryMuted ? Icons.Material.Filled.NotificationsOff : Icons.Material.Filled.NotificationsActive)"
+                               OnClick="OnToggleSlackRepositoryMute">
+                        @L.T(SlackRepositoryMuted ? "Unmute repository" : "Mute repository")
+                    </MudButton>
+                </MudStack>
+                @if (SlackSessions.Count == 0)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No Slack-linked sessions for this repository yet.")</MudText>
+                }
+                else
+                {
+                    <MudStack Spacing="1" Class="mt-2">
+                        @foreach (var session in SlackSessions)
+                        {
+                            <MudPaper @key="session.Id" Outlined="true" Elevation="0" Class="pa-2">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap" Spacing="1">
+                                    <MudStack Spacing="0">
+                                        <MudText Typo="Typo.body2">@session.Title</MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@session.Agent · @session.Id</MudText>
+                                    </MudStack>
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="@SlackRepositoryMuted"
+                                               Color="@(session.IsMuted ? Color.Warning : Color.Default)"
+                                               StartIcon="@(session.IsMuted ? Icons.Material.Filled.NotificationsOff : Icons.Material.Filled.NotificationsActive)"
+                                               OnClick="@(() => OnToggleSlackSessionMute.InvokeAsync((session.Id, !session.IsMuted)))">
+                                        @L.T(session.IsMuted ? "Unmute session" : "Mute session")
+                                    </MudButton>
+                                </MudStack>
+                            </MudPaper>
+                        }
+                    </MudStack>
+                }
+            </div>
+        }
     }
 </MudPaper>
 
@@ -69,6 +113,11 @@
     [Parameter] public bool IsVisible { get; set; }
     [Parameter] public string GitBranchLabel { get; set; } = string.Empty;
     [Parameter] public GitRepositorySnapshot? GitSnapshot { get; set; }
+    [Parameter] public bool SlackNotificationsAvailable { get; set; }
+    [Parameter] public bool SlackRepositoryMuted { get; set; }
+    [Parameter] public IReadOnlyList<SlackNotificationService.SessionNotification> SlackSessions { get; set; } = [];
+    [Parameter] public EventCallback OnToggleSlackRepositoryMute { get; set; }
+    [Parameter] public EventCallback<(string SessionId, bool Muted)> OnToggleSlackSessionMute { get; set; }
     [Parameter, EditorRequired] public EventCallback OnOpenGitOverview { get; set; }
 
     private string TerminalKey =>

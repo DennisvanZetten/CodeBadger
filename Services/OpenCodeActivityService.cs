@@ -166,6 +166,18 @@ public sealed class OpenCodeActivityService
             throw new InvalidOperationException("Could not submit the reply to the OpenCode session.");
     }
 
+    public async Task SwitchAgentAsync(string sessionId, string directory, string agent, CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId))
+            throw new ArgumentException("Invalid OpenCode session ID.", nameof(sessionId));
+        if (agent is not ("build" or "plan"))
+            throw new ArgumentException("Only the build and plan agents can be selected from Slack.", nameof(agent));
+        using var response = await RequestAsync($"/api/session/{sessionId}/agent", cancellationToken,
+            HttpMethod.Post, JsonSerializer.Serialize(new { agent }), directory);
+        if (response is null)
+            throw new InvalidOperationException($"Could not switch the OpenCode session to {agent}.");
+    }
+
     private static bool IsValidSessionId(string sessionId) =>
         sessionId.StartsWith("ses_", StringComparison.Ordinal) &&
         sessionId.All(character => char.IsAsciiLetterOrDigit(character) || character == '_');
@@ -219,7 +231,10 @@ public sealed class OpenCodeActivityService
             var error = process.StandardError.ReadToEndAsync(timeout.Token);
             await process.WaitForExitAsync(timeout.Token);
             await error;
-            return process.ExitCode == 0 ? JsonDocument.Parse(await output) : null;
+            if (process.ExitCode != 0)
+                return null;
+            var json = await output;
+            return JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { return null; }
         catch (System.ComponentModel.Win32Exception) { return null; }

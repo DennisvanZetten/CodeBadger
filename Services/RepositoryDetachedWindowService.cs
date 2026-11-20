@@ -1,4 +1,5 @@
 using CodeBadger.Models;
+using System.Runtime.InteropServices;
 
 namespace CodeBadger.Services;
 
@@ -9,15 +10,86 @@ public sealed class RepositoryDetachedWindowService(
     private readonly Dictionary<Guid, Window> _windows = [];
     private readonly HashSet<Guid> _docking = [];
     private readonly HashSet<Guid> _preservingSessions = [];
+    private readonly Dictionary<Guid, (int PointerX, int PointerY, int WindowX, int WindowY)> _windowDrags = [];
+    private readonly Dictionary<Guid, (int PointerX, int PointerY)> _pendingWindowDrags = [];
 
     public event Action? StateChanged;
     public event Action<Guid>? DockRequested;
+    public event Action<bool>? DockDragChanged;
 
     public bool IsDetached(Guid repositoryId) => _windows.ContainsKey(repositoryId) && !_docking.Contains(repositoryId);
 
     public bool ShouldPreserveSession(Guid repositoryId) => _preservingSessions.Contains(repositoryId);
 
     public bool IsDocking(Guid repositoryId) => _docking.Contains(repositoryId);
+
+    public void SetDockDragActive(bool active) => DockDragChanged?.Invoke(active);
+
+    public void BeginDetachedWindowDrag(Guid repositoryId, int pointerX, int pointerY)
+    {
+#if WINDOWS
+        if (_windows.TryGetValue(repositoryId, out var window) &&
+            window.Handler?.PlatformView is Microsoft.UI.Xaml.Window nativeWindow)
+        {
+            var position = nativeWindow.AppWindow.Position;
+            var start = _pendingWindowDrags.Remove(repositoryId, out var pending) ? pending : (pointerX, pointerY);
+            _windowDrags[repositoryId] = (start.Item1, start.Item2, position.X, position.Y);
+            MoveDetachedWindow(repositoryId, pointerX, pointerY);
+        }
+#endif
+    }
+
+    public bool MoveDetachedWindow(Guid repositoryId, int pointerX, int pointerY)
+    {
+#if WINDOWS
+        if (!_windowDrags.ContainsKey(repositoryId))
+            BeginDetachedWindowDrag(repositoryId, pointerX, pointerY);
+        if (_windowDrags.TryGetValue(repositoryId, out var drag) && _windows.TryGetValue(repositoryId, out var window) &&
+            window.Handler?.PlatformView is Microsoft.UI.Xaml.Window nativeWindow)
+        {
+            nativeWindow.AppWindow.Move(new Windows.Graphics.PointInt32(
+                drag.WindowX + pointerX - drag.PointerX,
+                drag.WindowY + pointerY - drag.PointerY));
+            return true;
+        }
+#endif
+        return false;
+    }
+
+    public void EndDetachedWindowDrag(Guid repositoryId) => _windowDrags.Remove(repositoryId);
+
+    public bool TryDockAtCursor(Guid repositoryId)
+    {
+        EndDetachedWindowDrag(repositoryId);
+        var overMainWindow = false;
+#if WINDOWS
+        if (GetCursorPos(out var cursor))
+        {
+            var mainWindow = Application.Current?.Windows.FirstOrDefault(window =>
+                window.Page is MainPage page && page.DetachedRepositoryId is null);
+            if (mainWindow?.Handler?.PlatformView is Microsoft.UI.Xaml.Window nativeWindow)
+            {
+                var position = nativeWindow.AppWindow.Position;
+                var size = nativeWindow.AppWindow.Size;
+                overMainWindow = cursor.X >= position.X && cursor.X < position.X + size.Width &&
+                                 cursor.Y >= position.Y && cursor.Y < position.Y + size.Height;
+            }
+        }
+#endif
+        DockDragChanged?.Invoke(false);
+        if (!overMainWindow)
+            return false;
+        Dock(repositoryId);
+        return true;
+    }
+
+#if WINDOWS
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorPos(out NativePoint point);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint { public int X; public int Y; }
+#endif
 
     public void BeginTransfer(Guid repositoryId) => _preservingSessions.Add(repositoryId);
 
@@ -78,11 +150,13 @@ public sealed class RepositoryDetachedWindowService(
         Application.Current?.OpenWindow(window);
     }
 
-    public void Undock(RepositoryEntry repository)
+    public void Undock(RepositoryEntry repository, int? pointerX = null, int? pointerY = null)
     {
         if (!IsDetached(repository.Id))
         {
             BeginTransfer(repository.Id);
+            if (pointerX is { } x && pointerY is { } y)
+                _pendingWindowDrags[repository.Id] = (x, y);
             Toggle(repository);
         }
     }

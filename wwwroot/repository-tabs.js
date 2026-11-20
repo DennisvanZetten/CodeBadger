@@ -24,10 +24,8 @@ function syncTabIds() {
 
 function startDrag(event) {
     if (event.button !== 0) return;
-    if (event.target.closest('.repository-undock-button, .repository-dock-button')) return;
     const detachedIndicator = event.target.closest('.repository-detached-tab-indicator');
     if (detachedIndicator) {
-        if (event.target.closest('.repository-dock-button')) return;
         dragState = {
             repositoryId: detachedIndicator.dataset.repositoryId,
             tab: detachedIndicator,
@@ -57,7 +55,12 @@ function moveDrag(event) {
     if (!dragState) return;
     const dx = event.clientX - dragState.startX;
     const dy = event.clientY - dragState.startY;
-    if (dragState.detached) return;
+    if (dragState.detached) {
+        if (dragState.undocked)
+            dotnet?.invokeMethodAsync('MoveDetachedWindow', dragState.repositoryId,
+                Math.round(event.screenX * devicePixelRatio), Math.round(event.screenY * devicePixelRatio));
+        return;
+    }
     const outsideSourceTab = event.clientX < dragState.bounds.left - 6 || event.clientX > dragState.bounds.right + 6 ||
         event.clientY < dragState.bounds.top - 6 || event.clientY > dragState.bounds.bottom + 6;
     if (!dragState.undocked && Math.hypot(dx, dy) > 18 && outsideSourceTab) {
@@ -66,7 +69,8 @@ function moveDrag(event) {
         dragState.detached = true;
         dragState.tab = null;
         event.preventDefault();
-        dotnet?.invokeMethodAsync('UndockRepository', id);
+        dotnet?.invokeMethodAsync('UndockRepository', id,
+            Math.round(event.screenX * devicePixelRatio), Math.round(event.screenY * devicePixelRatio));
     }
 }
 
@@ -74,7 +78,10 @@ function endDrag(event) {
     if (!dragState) return;
     const state = dragState;
     dragState = null;
-    if (state.undocked) return;
+    if (state.undocked) {
+        dotnet?.invokeMethodAsync('DockAtCursor', state.repositoryId);
+        return;
+    }
     const moved = Math.hypot(event.clientX - state.startX, event.clientY - state.startY) > 30;
     const target = document.elementFromPoint(event.clientX, event.clientY);
     const dockedTab = target?.closest('.repository-tabs .mud-tab');
@@ -110,4 +117,61 @@ export function detach() {
     detachedIndicatorsObserver = null;
     dotnet = null;
     dragState = null;
+}
+
+export function attachDetached(header, reference) {
+    let pointerId = null;
+    let startX = 0;
+    let startY = 0;
+    let moved = false;
+    const down = event => {
+        if (event.button !== 0) return;
+        pointerId = event.pointerId;
+        startX = event.screenX;
+        startY = event.screenY;
+        moved = false;
+        try { header.setPointerCapture(pointerId); } catch { }
+    };
+    const move = event => {
+        if (event.pointerId !== pointerId || moved) return;
+        if (Math.hypot(event.screenX - startX, event.screenY - startY) < 10) return;
+        moved = true;
+        reference.invokeMethodAsync('DockDragStarted');
+        reference.invokeMethodAsync('BeginDetachedWindowDrag', startX * devicePixelRatio, startY * devicePixelRatio);
+    };
+    const dragMove = event => {
+        if (event.pointerId === pointerId && moved)
+            reference.invokeMethodAsync('MoveDetachedWindow', event.screenX * devicePixelRatio, event.screenY * devicePixelRatio);
+    };
+    const up = async event => {
+        if (event.pointerId !== pointerId) return;
+        pointerId = null;
+        if (moved)
+            await reference.invokeMethodAsync('DockAtCursor');
+        else
+            await reference.invokeMethodAsync('DockDragEnded');
+        moved = false;
+    };
+    const cancel = () => {
+        pointerId = null;
+        if (moved) reference.invokeMethodAsync('DockDragEnded');
+        moved = false;
+    };
+    header.addEventListener('pointerdown', down);
+    header.addEventListener('pointermove', move);
+    header.addEventListener('pointermove', dragMove);
+    header.addEventListener('pointerup', up);
+    header.addEventListener('pointercancel', cancel);
+    const stopWindowDrag = () => reference.invokeMethodAsync('DockDragEnded');
+    window.addEventListener('blur', stopWindowDrag);
+    return {
+        dispose() {
+            header.removeEventListener('pointerdown', down);
+            header.removeEventListener('pointermove', move);
+            header.removeEventListener('pointermove', dragMove);
+            header.removeEventListener('pointerup', up);
+            header.removeEventListener('pointercancel', cancel);
+            window.removeEventListener('blur', stopWindowDrag);
+        }
+    };
 }

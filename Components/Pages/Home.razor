@@ -14,25 +14,6 @@
 @using Microsoft.Extensions.Logging
 @implements IAsyncDisposable
 
-@if (_isLoadingRepositories)
-{
-    <div class="startup-splash" role="status" aria-live="polite">
-        <div class="startup-logo-halo">
-            <img class="startup-logo" src="codebadger.svg" alt="CodeBadger" />
-        </div>
-        <MudText Typo="Typo.h5">CodeBadger</MudText>
-        <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Loading repositories: {0}/{1}", _loadedRepositoryCount, _activeRepositories.Count)</MudText>
-        @if (_loadingRepository is not null)
-        {
-            <MudText Typo="Typo.caption" Color="Color.Secondary">@_loadingRepository</MudText>
-        }
-        <MudProgressLinear Value="_repositoryLoadProgress" Color="Color.Primary" Rounded="true" />
-        <MudText Typo="Typo.caption" Color="Color.Secondary">@((int)_repositoryLoadProgress)%</MudText>
-    </div>
-}
-else
-{
-
 <PageTitle>CodeBadger</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.False" Class="pt-4 pb-2 repository-home">
@@ -48,15 +29,13 @@ else
     }
     else
     {
-        <MudTabs @bind-ActivePanelIndex="_activeTabIndex" KeepPanelsAlive="true" Rounded="true" Border="true" ApplyEffectsToContainer="true" Class="repository-tabs">
+        <MudTabs ActivePanelIndex="_activeTabIndex" ActivePanelIndexChanged="HandleActiveTabChanged" KeepPanelsAlive="true" Rounded="true" Border="true" ApplyEffectsToContainer="true" Class="repository-tabs">
             <Header>
                 @foreach (var repository in _activeRepositories.Where(repository => DetachedWindows.IsDetached(repository.Id)))
                 {
                     <div class="repository-detached-tab-indicator" data-repository-id="@repository.Id" title="@RepositoryTitle(repository)">
                         <img class="repository-agent-logo" src="@AgentLogo(repository)" alt="" />
                         <span>@RepositoryTitle(repository)</span>
-                        <button type="button" class="repository-dock-button" aria-label="@L.T("Dock tab")"
-                                title="@L.T("Dock tab")" @onclick="@(() => DetachedWindows.Dock(repository.Id))">×</button>
                     </div>
                 }
             </Header>
@@ -95,12 +74,6 @@ else
                                        title="@L.T("Agent session is working", AgentTools.GetDisplayName(repository.AgentTool))"></span>
                             }
                             </span>
-                            <MudTooltip Text="@L.T("Undock tab")">
-                                <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small"
-                                               Class="repository-undock-button" aria-label="@L.T("Undock tab")"
-                                               OnClick="@(() => UndockRepository(repository))"
-                                               />
-                            </MudTooltip>
                         </MudStack>
                     </TabContent>
                     <ChildContent>
@@ -117,11 +90,15 @@ else
             }
             </ChildContent>
         </MudTabs>
+        @if (_isDockDragActive)
+        {
+            <div class="repository-dock-drop-hint" role="status">@L.T("Drop tab here to dock")</div>
+        }
     }
 </MudContainer>
-}
 
 @code {
+    private const string LastRepositoryPreferenceKey = "last-active-repository-id";
     private LauncherSettings _settings = new();
     private List<RepositoryEntry> _activeRepositories = [];
     private readonly Dictionary<RepositoryEntry, GitBranchInfo> _branches = [];
@@ -130,10 +107,8 @@ else
     private readonly HashSet<Guid> _questionSessions = [];
     private bool _activityNeedsBaseline = true;
     private bool _isRefreshingBranches;
-    private bool _isLoadingRepositories;
-    private int _loadedRepositoryCount;
-    private string? _loadingRepository;
-    private double _repositoryLoadProgress;
+    private bool _isDockDragActive;
+    private readonly HashSet<Guid> _repositoriesLoading = [];
     private int _activeTabIndex;
     private List<RepositoryEntry> DockedRepositories => _activeRepositories.Where(repository => !DetachedWindows.IsDetached(repository.Id)).ToList();
     private readonly CancellationTokenSource _statusMonitorCancellation = new();
@@ -152,28 +127,23 @@ else
         SandboxSessions.StateChanged += HandleSandboxState;
         DetachedWindows.StateChanged += HandleDetachedWindowsChanged;
         DetachedWindows.DockRequested += HandleDockRequested;
+        DetachedWindows.DockDragChanged += HandleDockDragChanged;
         L.LanguageChanged += HandleLanguageChanged;
         SyncRepositories();
         if (_activeRepositories.Count > 0)
         {
-            _isLoadingRepositories = true;
-            StateHasChanged();
-            try
+            var lastRepositoryId = Preferences.Default.Get(LastRepositoryPreferenceKey, string.Empty);
+            var lastIndex = Guid.TryParse(lastRepositoryId, out var parsedRepositoryId)
+                ? DockedRepositories.FindIndex(repository => repository.Id == parsedRepositoryId)
+                : -1;
+            _activeTabIndex = lastIndex >= 0 ? lastIndex : 0;
+
+            var selectedRepository = DockedRepositories.ElementAtOrDefault(_activeTabIndex);
+            if (selectedRepository is not null)
             {
-                await RefreshBranches(reportProgress: progress =>
-                {
-                    _ = InvokeAsync(() =>
-                    {
-                        _loadedRepositoryCount = progress.Loaded;
-                        _loadingRepository = progress.Name;
-                        _repositoryLoadProgress = progress.Progress;
-                        StateHasChanged();
-                    });
-                });
-            }
-            finally
-            {
-                _isLoadingRepositories = false;
+                Preferences.Default.Set(LastRepositoryPreferenceKey, selectedRepository.Id.ToString());
+                var selectedLoad = LoadRepositoryStatusAsync(selectedRepository, _statusMonitorCancellation.Token);
+                _ = LoadRemainingRepositoryStatusesAsync(selectedRepository.Id, selectedLoad, _statusMonitorCancellation.Token);
             }
         }
         _ = MonitorActiveRepositoryStatusAsync(_statusMonitorCancellation.Token);
@@ -197,26 +167,22 @@ else
     }
 
     [JSInvokable]
-    public Task UndockRepository(string repositoryId)
+    public Task UndockRepository(string repositoryId, int pointerX, int pointerY)
     {
-        return UndockRepositoryAsync(repositoryId);
+        return UndockRepositoryAsync(repositoryId, pointerX, pointerY);
     }
 
-    private Task UndockRepositoryAsync(string repositoryId)
+    private Task UndockRepositoryAsync(string repositoryId, int pointerX, int pointerY)
     {
         if (!Guid.TryParse(repositoryId, out var id) || DockedRepositories.FirstOrDefault(repository => repository.Id == id) is not { } repository)
             return Task.CompletedTask;
-        DetachedWindows.Undock(repository);
+        DetachedWindows.Undock(repository, pointerX, pointerY);
         return Task.CompletedTask;
     }
 
-    private void UndockRepository(RepositoryEntry repository)
-    {
-        var index = DockedRepositories.FindIndex(candidate => candidate.Id == repository.Id);
-        if (index >= 0)
-            _activeTabIndex = index;
-        DetachedWindows.Undock(repository);
-    }
+    [JSInvokable]
+    public bool DockAtCursor(string repositoryId) =>
+        Guid.TryParse(repositoryId, out var id) && DetachedWindows.TryDockAtCursor(id);
 
     [JSInvokable]
     public Task DockRepository(string repositoryId)
@@ -245,9 +211,21 @@ else
             _activeTabIndex = selectedIndex >= 0
                 ? selectedIndex
                 : Math.Clamp(_activeTabIndex, 0, Math.Max(0, DockedRepositories.Count - 1));
-            await RefreshBranches();
+            await ReloadRepositoryStatusesAsync();
             StateHasChanged();
         });
+    }
+
+    private void HandleActiveTabChanged(int index)
+    {
+        _activeTabIndex = index;
+        if (index < 0 || index >= DockedRepositories.Count)
+            return;
+
+        var repository = DockedRepositories[index];
+        Preferences.Default.Set(LastRepositoryPreferenceKey, repository.Id.ToString());
+        if (!_gitSnapshots.ContainsKey(repository))
+            _ = LoadRepositoryStatusAsync(repository, _statusMonitorCancellation.Token);
     }
 
     private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);
@@ -256,9 +234,17 @@ else
         _activeTabIndex = Math.Clamp(_activeTabIndex, 0, Math.Max(0, DockedRepositories.Count - 1));
         StateHasChanged();
     });
+
+    private void HandleDockDragChanged(bool active) => _ = InvokeAsync(() =>
+    {
+        _isDockDragActive = active;
+        StateHasChanged();
+    });
     private void HandleDockRequested(Guid repositoryId) => _ = InvokeAsync(() =>
     {
         _activeTabIndex = Math.Max(0, DockedRepositories.FindIndex(repository => repository.Id == repositoryId));
+        if (_activeTabIndex < DockedRepositories.Count)
+            Preferences.Default.Set(LastRepositoryPreferenceKey, repositoryId.ToString());
         StateHasChanged();
     });
     private void HandleSandboxState(Guid id) => _ = InvokeAsync(StateHasChanged);
@@ -325,6 +311,8 @@ else
             _branches.Remove(repository);
         foreach (var repository in _gitSnapshots.Keys.Where(repository => !_settings.Repositories.Contains(repository)).ToList())
             _gitSnapshots.Remove(repository);
+        var validRepositoryIds = _activeRepositories.Select(repository => repository.Id).ToHashSet();
+        _repositoriesLoading.RemoveWhere(repositoryId => !validRepositoryIds.Contains(repositoryId));
     }
 
     private static string RepositoryTitle(RepositoryEntry repository) => string.IsNullOrWhiteSpace(repository.Name)
@@ -347,41 +335,52 @@ else
         _ => "repository-activity-spinner-opencode"
     };
 
-    private async Task RefreshBranches(bool force = false, Action<(int Loaded, string Name, double Progress)>? reportProgress = null)
+    private async Task LoadRemainingRepositoryStatusesAsync(Guid? excludedRepositoryId, Task? initialLoad, CancellationToken cancellationToken)
     {
-        if (_isRefreshingBranches && !force)
+        if (initialLoad is not null)
+            await initialLoad;
+
+        foreach (var repository in _activeRepositories.Where(repository => repository.Id != excludedRepositoryId))
+        {
+            if (cancellationToken.IsCancellationRequested)
+                return;
+            await LoadRepositoryStatusAsync(repository, cancellationToken);
+        }
+    }
+
+    private async Task LoadRepositoryStatusAsync(RepositoryEntry repository, CancellationToken cancellationToken = default)
+    {
+        if (!_repositoriesLoading.Add(repository.Id))
             return;
 
-        _isRefreshingBranches = true;
+        await InvokeAsync(StateHasChanged);
         try
         {
-            var loadedCount = 0;
-            var results = new List<(RepositoryEntry Repository, GitRepositorySnapshot Snapshot, GitBranchInfo Branch)>();
-            foreach (var repository in _activeRepositories)
+            var result = await Task.Run(async () =>
+                (Snapshot: await GitBranchService.GetRepositorySnapshotAsync(repository.Path),
+                 Branch: await GitBranchService.GetCurrentBranchAsync(repository.Path)), cancellationToken);
+            await InvokeAsync(() =>
             {
-                reportProgress?.Invoke((loadedCount, RepositoryTitle(repository), loadedCount * 100d / _activeRepositories.Count));
-                var result = await Task.Run(async () =>
-                    (Repository: repository,
-                     Snapshot: await GitBranchService.GetRepositorySnapshotAsync(repository.Path),
-                     Branch: await GitBranchService.GetCurrentBranchAsync(repository.Path)));
-                results.Add(result);
-                loadedCount++;
-                reportProgress?.Invoke((loadedCount, RepositoryTitle(repository), loadedCount * 100d / _activeRepositories.Count));
-            }
-
-            _branches.Clear();
-            _gitSnapshots.Clear();
-            foreach (var result in results)
+                _branches[repository] = result.Branch;
+                _gitSnapshots[repository] = result.Snapshot;
+                StateHasChanged();
+            });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            Logger.LogWarning(exception, "Unable to load Git status for repository {RepositoryPath}.", repository.Path);
+            await InvokeAsync(() =>
             {
-                _branches[result.Repository] = result.Branch;
-                _gitSnapshots[result.Repository] = result.Snapshot;
-            }
+                _branches[repository] = new GitBranchInfo(null, L.T("Git status unavailable."));
+                _gitSnapshots[repository] = GitRepositorySnapshot.Invalid(L.T("Git status unavailable."));
+                StateHasChanged();
+            });
         }
         finally
         {
-            _isRefreshingBranches = false;
-            if (reportProgress is not null)
-                _loadingRepository = null;
+            _repositoriesLoading.Remove(repository.Id);
+            await InvokeAsync(StateHasChanged);
         }
     }
 
@@ -551,7 +550,7 @@ else
 
     private string BranchLabel(RepositoryEntry repository)
     {
-        if (_isRefreshingBranches)
+        if (_repositoriesLoading.Contains(repository.Id))
             return L.T("Branch: loading...");
 
         if (!_branches.TryGetValue(repository, out var branchInfo))
@@ -568,6 +567,7 @@ else
         SandboxSessions.StateChanged -= HandleSandboxState;
         DetachedWindows.StateChanged -= HandleDetachedWindowsChanged;
         DetachedWindows.DockRequested -= HandleDockRequested;
+        DetachedWindows.DockDragChanged -= HandleDockDragChanged;
         _statusMonitorCancellation.Cancel();
         _statusMonitorCancellation.Dispose();
         SettingsService.SettingsSaved -= HandleSettingsSaved;
@@ -577,6 +577,36 @@ else
         {
             try { await _tabsModule.InvokeVoidAsync("detach"); await _tabsModule.DisposeAsync(); }
             catch (JSDisconnectedException) { }
+        }
+    }
+
+    private async Task ReloadRepositoryStatusesAsync()
+    {
+        _branches.Clear();
+        _gitSnapshots.Clear();
+        var selectedRepository = DockedRepositories.ElementAtOrDefault(_activeTabIndex);
+        var selectedLoad = selectedRepository is null
+            ? null
+            : LoadRepositoryStatusAsync(selectedRepository, _statusMonitorCancellation.Token);
+        var remainingLoad = LoadRemainingRepositoryStatusesAsync(selectedRepository?.Id, selectedLoad, _statusMonitorCancellation.Token);
+        if (selectedLoad is not null)
+            await selectedLoad;
+        await remainingLoad;
+    }
+
+    private async Task RefreshBranches(bool force = false)
+    {
+        if (_isRefreshingBranches && !force)
+            return;
+
+        _isRefreshingBranches = true;
+        try
+        {
+            await ReloadRepositoryStatusesAsync();
+        }
+        finally
+        {
+            _isRefreshingBranches = false;
         }
     }
 }

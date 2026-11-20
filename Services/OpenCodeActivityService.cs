@@ -161,27 +161,24 @@ public sealed class OpenCodeActivityService
         if (string.IsNullOrWhiteSpace(text) || text.Length > 32000)
             throw new ArgumentException("Reply must contain 1–32,000 characters.", nameof(text));
         using var response = await RequestAsync($"/api/session/{sessionId}/prompt", cancellationToken,
-            HttpMethod.Post, JsonSerializer.Serialize(new { text }), directory);
+            HttpMethod.Post, JsonSerializer.Serialize(new { text, delivery = "steer" }), directory);
         if (response is null)
             throw new InvalidOperationException("Could not submit the reply to the OpenCode session.");
     }
 
-    public async Task<ActiveSession> CreateSessionAsync(string directory, string prompt, CancellationToken cancellationToken)
+    public async Task<ActiveSession> CreateSessionAsync(string directory, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
             throw new ArgumentException("Repository directory does not exist.", nameof(directory));
-        if (string.IsNullOrWhiteSpace(prompt) || prompt.Length > 32000)
-            throw new ArgumentException("Prompt must contain 1–32,000 characters.", nameof(prompt));
 
         using var response = await RequestAsync("/api/session", cancellationToken,
-            HttpMethod.Post, JsonSerializer.Serialize(new { title = prompt.Length > 80 ? prompt[..80] : prompt }), directory);
+            HttpMethod.Post, JsonSerializer.Serialize(new { location = new { directory } }), directory);
         if (response is null || !response.RootElement.TryGetProperty("data", out var data) ||
             !data.TryGetProperty("id", out var idValue) || idValue.ValueKind != JsonValueKind.String ||
             string.IsNullOrWhiteSpace(idValue.GetString()))
             throw new InvalidOperationException("Could not create a new OpenCode session.");
 
         var id = idValue.GetString()!;
-        await SendPromptAsync(id, directory, prompt, cancellationToken);
         return new ActiveSession(id, NormalizePath(directory) ?? directory, "build",
             data.TryGetProperty("title", out var titleValue) && titleValue.ValueKind == JsonValueKind.String
                 ? titleValue.GetString() ?? string.Empty : string.Empty);

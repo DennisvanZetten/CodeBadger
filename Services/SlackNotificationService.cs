@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Net.WebSockets;
 using System.Text.Json;
 using CodeBadger.Models;
+using Microsoft.Extensions.Logging;
 
 namespace CodeBadger.Services;
 
@@ -15,6 +16,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
     private readonly OpenCodeActivityService _openCodeActivity;
     private readonly GitBranchService _gitBranchService;
     private readonly AiCommitMessageService _aiCommitMessageService;
+    private readonly ILogger<SlackNotificationService> _logger;
     private static readonly HttpClient Http = new() { BaseAddress = new Uri("https://slack.com/api/") };
     private readonly ConcurrentDictionary<string, ThreadLink> _sessionThreads = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, PendingNewSession> _pendingNewSessions = new(StringComparer.Ordinal);
@@ -30,12 +32,14 @@ public sealed class SlackNotificationService : IAsyncDisposable
     private string _allowedUserId = string.Empty;
 
     public SlackNotificationService(LauncherSettingsService settingsService, OpenCodeActivityService openCodeActivity,
-        GitBranchService gitBranchService, AiCommitMessageService aiCommitMessageService)
+        GitBranchService gitBranchService, AiCommitMessageService aiCommitMessageService,
+        ILogger<SlackNotificationService> logger)
     {
         _settingsService = settingsService;
         _openCodeActivity = openCodeActivity;
         _gitBranchService = gitBranchService;
         _aiCommitMessageService = aiCommitMessageService;
+        _logger = logger;
     }
 
     public event Action<OpenCodeActivityService.ActiveSession, string>? ReplyReceived;
@@ -286,7 +290,33 @@ public sealed class SlackNotificationService : IAsyncDisposable
                 !payload.TryGetProperty("event", out var slackEvent) ||
                 !slackEvent.TryGetProperty("type", out var type) || type.GetString() != "message")
                 continue;
+            _ = HandleMessageEventSafelyAsync(payload.Clone(), slackEvent.Clone(), cancellationToken);
+        }
+    }
+
+    private async Task HandleMessageEventSafelyAsync(JsonElement payload, JsonElement slackEvent,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
             await HandleMessageEventAsync(payload, slackEvent, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "Could not process Slack message event.");
+            if (slackEvent.TryGetProperty("thread_ts", out var threadValue) && threadValue.GetString() is { Length: > 0 } threadTs)
+            {
+                try
+                {
+                    await PostMessageAsync(_botToken, _channelId,
+                        "Could not process this request: " + EscapeSlack(exception.Message), threadTs, cancellationToken);
+                }
+                catch (Exception postException)
+                {
+                    _logger.LogWarning(postException, "Could not report Slack message processing failure.");
+                }
+            }
         }
     }
 
@@ -516,10 +546,14 @@ public sealed class SlackNotificationService : IAsyncDisposable
         }
 
         var repository = pending.SelectedRepository;
+        _pendingNewSessions.TryRemove(threadTs, out _);
+        await PostMessageAsync(_botToken, _channelId,
+            "Starting a new OpenCode session and sending your task…", threadTs, cancellationToken);
+
         OpenCodeActivityService.ActiveSession session;
         try
         {
-            session = await _openCodeActivity.CreateSessionAsync(repository.Path, text, cancellationToken);
+            session = await _openCodeActivity.CreateSessionAsync(repository.Path, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -537,13 +571,26 @@ public sealed class SlackNotificationService : IAsyncDisposable
         var title = string.IsNullOrWhiteSpace(session.Title) ? text : session.Title;
         _sessionThreads[session.Id] = new ThreadLink(threadTs, _channelId, session.Directory, session.Agent, title, DateTime.UtcNow);
         await SaveThreadLinksAsync();
-        _pendingNewSessions.TryRemove(threadTs, out _);
         SessionNotificationsChanged?.Invoke();
         var selectedName = string.IsNullOrWhiteSpace(repository.Name)
             ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path)) : repository.Name;
         await PostMessageAsync(_botToken, _channelId,
             $"✅ Started a new OpenCode session in *{EscapeSlack(selectedName)}*. Session: `{EscapeSlack(session.Id)}`",
             threadTs, cancellationToken);
+
+        try
+        {
+            await _openCodeActivity.SendPromptAsync(session.Id, session.Directory, text, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            await PostMessageAsync(_botToken, _channelId,
+                "Could not send the task to the new session: " + EscapeSlack(exception.Message), threadTs, cancellationToken);
+        }
     }
 
     private async Task LoadThreadLinksAsync(string channelId)

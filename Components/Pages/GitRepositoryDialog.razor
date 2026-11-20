@@ -340,6 +340,7 @@
                                     }
                                 </MudStack>
                             </MudPaper>
+                            <div class="git-commit-splitter" role="separator" aria-orientation="vertical" aria-label="@L.T("Resize diff and staging panels")" tabindex="0"></div>
                             <div class="git-commit-side-panel">
                                 <MudPaper Class="pa-3 git-dialog-panel git-file-panel" Outlined="true" Elevation="0">
                                     <MudStack Spacing="1" Class="git-file-list-section">
@@ -504,10 +505,10 @@
             _gitHistoryModule = await JS.InvokeAsync<IJSObjectReference>("import", "./git-history.js");
         }
 
-        if (_view == GitView.History && _snapshot?.IsValid == true && _gitHistoryModule is not null)
+        if (_snapshot?.IsValid == true && _gitHistoryModule is not null)
         {
             await _gitHistoryModule.InvokeVoidAsync("attachHistorySplitter");
-            if (_shouldScrollToCurrentBranch)
+            if (_view == GitView.History && _shouldScrollToCurrentBranch)
             {
                 _shouldScrollToCurrentBranch = false;
                 await _gitHistoryModule.InvokeVoidAsync("scrollToCurrentBranch");

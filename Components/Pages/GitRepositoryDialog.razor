@@ -158,10 +158,9 @@
                                                 {
                                                     @foreach (var label in commit.BranchLabels)
                                                     {
-                                                        <span @key="label.Name" class="git-commit-branch-label @(label.IsLocal && !IsCurrentBranchLabel(label) ? "git-commit-branch-label-actionable" : "")"
+                                                        <span @key="label.Name" class="git-commit-branch-label"
                                                                style="--branch-color: @GraphColor(label.Color)" title="@label.Name"
-                                                               @oncontextmenu:preventDefault="@(label.IsLocal && !IsCurrentBranchLabel(label))" @oncontextmenu:stopPropagation="@(label.IsLocal && !IsCurrentBranchLabel(label))"
-                                                               @oncontextmenu="@(args => OpenBranchContextMenuAsync(label, args))">
+                                                               @oncontextmenu:preventDefault="true" @oncontextmenu:stopPropagation="true">
                                                             @if (label.IsLocal)
                                                             {
                                                                 <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" aria-label="@L.T("Local")" Class="git-branch-label-icon" />
@@ -226,25 +225,19 @@
                                                 <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
                                                 <span>@L.T("Create branch here")</span>
                                             </button>
-                                        </div>
-                                    </div>
-                                }
-                                @if (_contextMenuBranch is not null)
-                                {
-                                    <div class="git-context-menu-backdrop" @onclick="CloseBranchContextMenu">
-                                        <div class="git-commit-context-menu git-branch-context-menu" @onclick:stopPropagation="true">
-                                            @if (_isCheckingMergeBranch)
+                                            @if (_contextMenuMergeBranch is not null && !string.IsNullOrWhiteSpace(_contextMenuTargetBranch))
                                             {
-                                                <button class="git-commit-context-menu-item" disabled>
-                                                    <MudProgressCircular Indeterminate="true" Size="Size.Small" />
-                                                    <span>@L.T("Checking branch status...")</span>
-                                                </button>
-                                            }
-                                            else
-                                            {
-                                                <button class="git-commit-context-menu-item" disabled="@(!_mergeBranchReady || _isOperating)" title="@(_mergeBranchError ?? string.Empty)" @onclick="MergeSelectedBranchAsync">
-                                                    <MudIcon Icon="@Icons.Material.Filled.Merge" Size="Size.Small" />
-                                                    <span>@L.T("Merge {0} into {1}", _contextMenuBranch ?? string.Empty, _contextMenuTargetBranch ?? string.Empty)</span>
+                                                <button class="git-commit-context-menu-item" disabled="@(_isCheckingMergeBranch || !_mergeBranchReady || _isOperating)"
+                                                        title="@(_mergeBranchError ?? string.Empty)" @onclick="MergeSelectedBranchAsync">
+                                                    @if (_isCheckingMergeBranch)
+                                                    {
+                                                        <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                                                    }
+                                                    else
+                                                    {
+                                                        <MudIcon Icon="@Icons.Material.Filled.Merge" Size="Size.Small" />
+                                                    }
+                                                    <span>@L.T("Merge {0} into {1}", _contextMenuMergeBranch, _contextMenuTargetBranch)</span>
                                                 </button>
                                             }
                                         </div>
@@ -473,11 +466,8 @@
     private bool _contextMenuNeedsPosition;
     private bool _isCheckingCherryPick;
     private bool? _isCommitOnCurrentBranch;
-    private string? _contextMenuBranch;
+    private string? _contextMenuMergeBranch;
     private string? _contextMenuTargetBranch;
-    private double _branchContextMenuX;
-    private double _branchContextMenuY;
-    private bool _branchContextMenuNeedsPosition;
     private bool _isCheckingMergeBranch;
     private bool _mergeBranchReady;
     private string? _mergeBranchError;
@@ -519,13 +509,10 @@
             }
         }
 
-        if ((_contextMenuNeedsPosition && _contextMenuCommit is not null || _branchContextMenuNeedsPosition && _contextMenuBranch is not null) && _gitHistoryModule is not null)
+        if (_contextMenuNeedsPosition && _contextMenuCommit is not null && _gitHistoryModule is not null)
         {
-            var x = _branchContextMenuNeedsPosition ? _branchContextMenuX : _contextMenuX;
-            var y = _branchContextMenuNeedsPosition ? _branchContextMenuY : _contextMenuY;
-            await _gitHistoryModule.InvokeVoidAsync("positionCommitContextMenu", x, y);
+            await _gitHistoryModule.InvokeVoidAsync("positionCommitContextMenu", _contextMenuX, _contextMenuY);
             _contextMenuNeedsPosition = false;
-            _branchContextMenuNeedsPosition = false;
         }
 
         if (!firstRender)
@@ -987,13 +974,18 @@
 
     private async Task OpenCommitContextMenuAsync(GitCommitEntry commit, MouseEventArgs args)
     {
-        CloseBranchContextMenu();
         _contextMenuCommit = commit;
         _contextMenuX = args.ClientX;
         _contextMenuY = args.ClientY;
         _contextMenuNeedsPosition = true;
         _isCommitOnCurrentBranch = null;
         _isCheckingCherryPick = true;
+        _contextMenuTargetBranch = _snapshot?.Branch;
+        _contextMenuMergeBranch = ResolveMergeBranch(commit);
+        _isCheckingMergeBranch = _contextMenuMergeBranch is not null && !string.IsNullOrWhiteSpace(_contextMenuTargetBranch);
+        _mergeBranchReady = false;
+        _mergeBranchError = null;
+        await InvokeAsync(StateHasChanged);
 
         var check = await GitBranchService.IsCommitOnCurrentBranchAsync(RepositoryPath, commit.Hash);
         if (_contextMenuCommit?.Hash != commit.Hash)
@@ -1002,46 +994,35 @@
         _isCheckingCherryPick = false;
         if (check.Error is not null)
             Snackbar.Add(check.Error, Severity.Error);
+        var sourceBranch = _contextMenuMergeBranch;
+        if (sourceBranch is not null && _isCheckingMergeBranch)
+        {
+            var mergeCheck = await GitBranchService.CheckBranchCanMergeAsync(RepositoryPath, sourceBranch);
+            if (_contextMenuCommit?.Hash != commit.Hash || !string.Equals(_contextMenuMergeBranch, sourceBranch, StringComparison.Ordinal))
+                return;
+
+            _isCheckingMergeBranch = false;
+            _mergeBranchReady = mergeCheck.CanMerge && !string.IsNullOrWhiteSpace(_contextMenuTargetBranch);
+            _mergeBranchError = mergeCheck.Error;
+        }
+    }
+
+    private string? ResolveMergeBranch(GitCommitEntry commit)
+    {
+        var labels = commit.BranchLabels ?? [];
+        var candidates = labels.Where(label => label.IsLocal && !string.Equals(label.Name, _snapshot?.Branch, StringComparison.Ordinal));
+        var label = candidates.FirstOrDefault() ?? GetPathBranchLabel(commit);
+        return label is { IsLocal: true } && !string.Equals(label.Name, _snapshot?.Branch, StringComparison.Ordinal) &&
+               LocalBranches.Any(branch => string.Equals(branch.Name, label.Name, StringComparison.Ordinal))
+            ? label.Name
+            : null;
     }
 
     private void CloseCommitContextMenu()
     {
         _contextMenuCommit = null;
         _isCommitOnCurrentBranch = null;
-    }
-
-    private bool IsCurrentBranchLabel(GitCommitBranchLabel label) =>
-        string.Equals(label.Name, _snapshot?.Branch, StringComparison.Ordinal);
-
-    private async Task OpenBranchContextMenuAsync(GitCommitBranchLabel label, MouseEventArgs args)
-    {
-        if (!label.IsLocal || IsCurrentBranchLabel(label) || _isOperating)
-            return;
-
-        _contextMenuNeedsPosition = false;
-        _contextMenuCommit = null;
-        _contextMenuBranch = label.Name;
-        _contextMenuTargetBranch = _snapshot?.Branch;
-        _branchContextMenuX = args.ClientX;
-        _branchContextMenuY = args.ClientY;
-        _branchContextMenuNeedsPosition = true;
-        _isCheckingMergeBranch = true;
-        _mergeBranchReady = false;
-        _mergeBranchError = null;
-        await InvokeAsync(StateHasChanged);
-
-        var check = await GitBranchService.CheckBranchCanMergeAsync(RepositoryPath, label.Name);
-        if (!string.Equals(_contextMenuBranch, label.Name, StringComparison.Ordinal))
-            return;
-
-        _isCheckingMergeBranch = false;
-        _mergeBranchReady = check.CanMerge && !string.IsNullOrWhiteSpace(_contextMenuTargetBranch);
-        _mergeBranchError = check.Error;
-    }
-
-    private void CloseBranchContextMenu()
-    {
-        _contextMenuBranch = null;
+        _contextMenuMergeBranch = null;
         _contextMenuTargetBranch = null;
         _isCheckingMergeBranch = false;
         _mergeBranchReady = false;
@@ -1056,9 +1037,8 @@
             ? _snapshot?.Branch ?? "HEAD"
             : $"{commit.ShortHash} · {commit.Subject}";
         _newBranchName = string.Empty;
-        _contextMenuCommit = null;
+        CloseCommitContextMenu();
         _contextMenuNeedsPosition = false;
-        CloseBranchContextMenu();
         _isCreateBranchDialogOpen = true;
     }
 
@@ -1104,12 +1084,12 @@
 
     private async Task MergeSelectedBranchAsync()
     {
-        var sourceBranch = _contextMenuBranch;
+        var sourceBranch = _contextMenuMergeBranch;
         var targetBranch = _contextMenuTargetBranch;
         if (string.IsNullOrWhiteSpace(sourceBranch) || string.IsNullOrWhiteSpace(targetBranch) || !_mergeBranchReady || _isOperating)
             return;
 
-        CloseBranchContextMenu();
+        CloseCommitContextMenu();
         _isOperating = true;
         try
         {

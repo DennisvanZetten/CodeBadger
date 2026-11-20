@@ -1513,15 +1513,6 @@ h1:focus {
     background: color-mix(in srgb, var(--branch-color) 7%, transparent);
 }
 
-.git-commit-branch-label-actionable {
-    cursor: context-menu;
-}
-
-.git-commit-branch-label-actionable:hover {
-    opacity: 1;
-    background: color-mix(in srgb, var(--branch-color) 18%, transparent);
-}
-
 .git-commit-graph {
     display: block;
     flex: 0 0 auto;

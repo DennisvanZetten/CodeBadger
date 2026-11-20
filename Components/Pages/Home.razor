@@ -75,6 +75,11 @@
                                        title="@L.T("Agent session is working", AgentTools.GetDisplayName(repository.AgentTool))"></span>
                             }
                             </span>
+                            <MudTooltip Text="@L.T("Undock tab")">
+                                <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small"
+                                               Class="repository-undock-button" aria-label="@L.T("Undock tab")"
+                                               OnClick="@(() => UndockRepository(repository))" />
+                            </MudTooltip>
                         </MudStack>
                     </TabContent>
                     <ChildContent>
@@ -182,6 +187,17 @@
             return Task.CompletedTask;
         DetachedWindows.Undock(repository, pointerX, pointerY);
         return Task.CompletedTask;
+    }
+
+    private void UndockRepository(RepositoryEntry repository)
+    {
+        var index = DockedRepositories.FindIndex(candidate => candidate.Id == repository.Id);
+        if (index >= 0)
+        {
+            _activeTabIndex = index;
+            Preferences.Default.Set(LastRepositoryPreferenceKey, repository.Id.ToString());
+        }
+        DetachedWindows.Undock(repository);
     }
 
     [JSInvokable]

@@ -24,6 +24,7 @@ function syncTabIds() {
 
 function startDrag(event) {
     if (event.button !== 0) return;
+    if (event.target.closest('.repository-undock-button, .repository-dock-button')) return;
     const detachedIndicator = event.target.closest('.repository-detached-tab-indicator');
     if (detachedIndicator) {
         dragState = {
@@ -120,12 +121,14 @@ export function detach() {
 }
 
 export function attachDetached(header, reference) {
+    if (!(header instanceof Element))
+        throw new TypeError('Detached tab drag requires an HTML element reference.');
     let pointerId = null;
     let startX = 0;
     let startY = 0;
     let moved = false;
     const down = event => {
-        if (event.button !== 0) return;
+        if (event.button !== 0 || event.target.closest('.repository-dock-button')) return;
         pointerId = event.pointerId;
         startX = event.screenX;
         startY = event.screenY;

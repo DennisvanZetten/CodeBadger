@@ -21,6 +21,11 @@
         <div @ref="_tabHeader" class="px-2 pb-2 detached-repository-tab-header">
             <img class="repository-agent-logo" src="@AgentLogo(_repository)" alt="" />
             <span>@_title</span>
+            <MudTooltip Text="@L.T("Dock tab")">
+                <MudIconButton Icon="@Icons.Material.Filled.Dock" Size="Size.Small"
+                               Class="repository-dock-button" aria-label="@L.T("Dock tab")"
+                               OnClick="DockTab" />
+            </MudTooltip>
         </div>
         <RepositoryWorkspace @key="_repository.Id" Repository="_repository" RepositoryTitle="@_title"
                              RepositoryExists="@Directory.Exists(_repository.Path)"
@@ -104,6 +109,8 @@
 
     [JSInvokable]
     public bool DockAtCursor() => DetachedWindows.TryDockAtCursor(RepositoryId);
+
+    private void DockTab() => DetachedWindows.Dock(RepositoryId);
 
     private async Task MonitorGitStatusAsync(CancellationToken cancellationToken)
     {

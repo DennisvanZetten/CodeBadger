@@ -47,7 +47,7 @@
                 @* Changing the tag ensures the kept-alive tab panel renders updated Git status. *@
                 <MudTabPanel @key="repository.Id" Tag="@(_gitSnapshots.TryGetValue(repository, out var panelSnapshot) ? panelSnapshot : null)">
                     <TabContent>
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="repository-tab-header-content">
                             <span class="repository-tab-label" data-repository-id="@repository.Id"
                                   @oncontextmenu="@(args => OpenRepositoryContextMenuAsync(repository, args))"
                                   @oncontextmenu:preventDefault="true">
@@ -67,6 +67,7 @@
                             {
                                 <MudTooltip Text="@L.T("Agent is waiting for your answer")">
                                     <MudIcon Icon="@Icons.Material.Filled.HelpOutline" Size="Size.Small" Color="Color.Warning"
+                                             Class="repository-question-icon"
                                              aria-label="@L.T("Agent is waiting for your answer")"
                                              title="@L.T("Agent is waiting for your answer")" />
                                 </MudTooltip>

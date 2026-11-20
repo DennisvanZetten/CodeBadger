@@ -1,0 +1,131 @@
+@page "/repository/{RepositoryId:guid}"
+@inject LauncherSettingsService SettingsService
+@inject LocalizationService L
+@inject GitBranchService GitBranchService
+@inject StartupDetectionService StartupDetection
+@inject RepositoryDetachedWindowService DetachedWindows
+@inject NavigationManager Navigation
+@inject IDialogService DialogService
+@implements IDisposable
+
+<PageTitle>@_title</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.False" Class="pt-2 pb-2 detached-repository-home">
+    @if (_repository is null)
+    {
+        <MudAlert Severity="Severity.Error">@L.T("Repository is no longer available.")</MudAlert>
+    }
+    else
+    {
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="px-2 pb-2">
+            <MudText Typo="Typo.h6">@_title</MudText>
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Dock" OnClick="Dock">
+                @L.T("Dock tab")
+            </MudButton>
+        </MudStack>
+        <RepositoryWorkspace @key="_repository.Id" Repository="_repository" RepositoryTitle="@_title"
+                             RepositoryExists="@Directory.Exists(_repository.Path)"
+                             AgentAvailable="@StartupDetection.IsAgentAvailable(_repository.AgentTool)"
+                             IsVisible="true" GitBranchLabel="@BranchLabel" GitSnapshot="@_snapshot"
+                             OnOpenGitOverview="OpenGitOverviewAsync" />
+    }
+</MudContainer>
+
+@code {
+    [Parameter] public Guid RepositoryId { get; set; }
+
+    private LauncherSettings _settings = new();
+    private RepositoryEntry? _repository;
+    private GitRepositorySnapshot? _snapshot;
+    private string _title = string.Empty;
+    private readonly CancellationTokenSource _statusMonitorCancellation = new();
+    private string BranchLabel => _snapshot?.Branch is { } branch
+        ? L.T("Branch: {0}", branch)
+        : L.T("Branch: not loaded yet");
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Guid.TryParse(Navigation.ToBaseRelativePath(Navigation.Uri).Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault(), out var id))
+            RepositoryId = id;
+        _settings = await SettingsService.LoadAsync();
+        _repository = _settings.Repositories.FirstOrDefault(repository => repository.Id == RepositoryId && repository.IsActive);
+        if (_repository is null)
+            return;
+        _title = string.IsNullOrWhiteSpace(_repository.Name) ? Path.GetFileName(_repository.Path) : _repository.Name;
+        if (Directory.Exists(_repository.Path))
+            _snapshot = await GitBranchService.GetRepositorySnapshotAsync(_repository.Path);
+        _ = MonitorGitStatusAsync(_statusMonitorCancellation.Token);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _repository is null || Application.Current?.Windows.FirstOrDefault(window =>
+                (window.Page as MainPage)?.DetachedRepositoryId == RepositoryId) is not { } window)
+            return;
+        DetachedWindows.RegisterDetached(RepositoryId, window);
+        if (DetachedWindows.ShouldPreserveSession(RepositoryId))
+        {
+            await Task.Delay(250);
+            DetachedWindows.MarkWorkspaceAttached(RepositoryId);
+        }
+    }
+
+    private void Dock() => DetachedWindows.Dock(RepositoryId);
+
+    private async Task MonitorGitStatusAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                if (_repository is null || !Directory.Exists(_repository.Path))
+                    continue;
+                var status = await GitBranchService.GetRepositoryStatusAsync(_repository.Path);
+                if (!status.IsValid)
+                    continue;
+                await InvokeAsync(() =>
+                {
+                    if (_snapshot is null || !_snapshot.IsValid)
+                        return;
+                    _snapshot = _snapshot with
+                    {
+                        Branch = status.Branch.Branch ?? _snapshot.Branch,
+                        ChangedFiles = status.ChangedFiles,
+                        StagedFiles = status.StagedFiles,
+                        UnstagedFiles = status.UnstagedFiles,
+                        Ahead = status.Ahead,
+                        Behind = status.Behind
+                    };
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (ObjectDisposedException) { }
+    }
+
+    private async Task OpenGitOverviewAsync()
+    {
+        if (_repository is null)
+            return;
+        var dialog = await DialogService.ShowAsync<GitRepositoryDialog>(L.T("Git overview"),
+            new DialogParameters<GitRepositoryDialog>
+            {
+                { component => component.RepositoryName, _repository.Name },
+                { component => component.RepositoryPath, _repository.Path },
+                { component => component.AiSettings, _settings }
+            }, new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.ExtraExtraLarge, CloseButton = true, NoHeader = true, CloseOnEscapeKey = true });
+        await dialog.Result;
+        if (Directory.Exists(_repository.Path))
+            _snapshot = await GitBranchService.GetRepositorySnapshotAsync(_repository.Path);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        _statusMonitorCancellation.Cancel();
+        _statusMonitorCancellation.Dispose();
+    }
+
+}

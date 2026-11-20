@@ -12,11 +12,26 @@ public sealed partial class WindowsSandboxSessionService : IAsyncDisposable
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly ConcurrentDictionary<Guid, Session> _sessions = new();
     private readonly ConcurrentDictionary<Guid, Review> _reviews = new();
+    private readonly ConcurrentDictionary<Guid, List<string>> _recentOutput = new();
+    private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _startGates = new();
     private bool _disposed;
     public event Action<Guid, string>? OutputReceived;
     public event Action<Guid>? StateChanged;
     public event Action<Guid, string>? ProviderFailed;
     public event Action<Guid, string, string>? ChatUpdated;
+
+    public IReadOnlyList<string> GetRecentOutput(Guid repositoryId) =>
+        _recentOutput.TryGetValue(repositoryId, out var output)
+            ? CopyRecentOutput(output)
+            : [];
+
+    public void ClearRecentOutput(Guid repositoryId) => _recentOutput.TryRemove(repositoryId, out _);
+
+    private static string[] CopyRecentOutput(List<string> output)
+    {
+        lock (output)
+            return output.ToArray();
+    }
 
     private sealed class Session
     {
@@ -73,6 +88,20 @@ public sealed partial class WindowsSandboxSessionService : IAsyncDisposable
 
     private async Task StartCoreAsync(Guid repositoryId, string repositoryPath, string executable, string arguments,
         IReadOnlyList<string> selectedFiles, Func<string, string, SandboxProviderBridge>? prepare, SandboxWorkspace.Limits? limits = null)
+    {
+        var startGate = _startGates.GetOrAdd(repositoryId, _ => new SemaphoreSlim(1, 1));
+        await startGate.WaitAsync();
+        try
+        {
+            if (IsRunning(repositoryId))
+                return;
+            await StartCoreLockedAsync(repositoryId, repositoryPath, executable, arguments, selectedFiles, prepare, limits);
+        }
+        finally { startGate.Release(); }
+    }
+
+    private async Task StartCoreLockedAsync(Guid repositoryId, string repositoryPath, string executable, string arguments,
+        IReadOnlyList<string> selectedFiles, Func<string, string, SandboxProviderBridge>? prepare, SandboxWorkspace.Limits? limits)
     {
         if (repositoryId == Guid.Empty) throw new ArgumentException("A repository ID is required.");
         string path = CanonicalPath(repositoryPath);
@@ -145,6 +174,7 @@ public sealed partial class WindowsSandboxSessionService : IAsyncDisposable
         try
         {
             if (!_sessions.TryGetValue(repositoryId, out var session)) return;
+            _recentOutput.TryRemove(repositoryId, out _);
             // Never report successful revocation while descendants are running.
             session.Stopping = true;
             await Task.Run(session.Terminal.Process.Stop);
@@ -233,6 +263,13 @@ public sealed partial class WindowsSandboxSessionService : IAsyncDisposable
 
     private void PublishOutput(Guid repositoryId, string text)
     {
+        var output = _recentOutput.GetOrAdd(repositoryId, _ => []);
+        lock (output)
+        {
+            output.Add(text);
+            while (output.Count > 2000)
+                output.RemoveAt(0);
+        }
         // A broken UI subscriber must not terminate the output drain and
         // deadlock ConPTY shutdown. Output is not logged or persisted here.
         foreach (Action<Guid, string> listener in OutputReceived?.GetInvocationList() ?? [])

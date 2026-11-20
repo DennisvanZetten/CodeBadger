@@ -8,6 +8,7 @@
 @inject StartupDetectionService StartupDetection
 @inject UpdateService UpdateService
 @inject WindowTitleBarService WindowTitleBar
+@inject NavigationManager Navigation
 @using CodeBadger.Components.Pages
 
 <MudThemeProvider Theme="@_theme.Theme" IsDarkMode="@_theme.IsDark" />
@@ -61,11 +62,20 @@ else
     {
         L.LanguageChanged += HandleLanguageChanged;
         SettingsService.SettingsSaved += HandleSettingsSaved;
-        WindowTitleBar.SettingsRequested += HandleSettingsRequested;
         WindowTitleBar.SetSettingsState(false, L.T("Open settings"));
     }
 
     private void HandleSettingsRequested() => _ = InvokeAsync(OpenSettingsAsync);
+
+    protected override void OnParametersSet()
+    {
+        WindowTitleBar.SettingsRequested -= HandleSettingsRequested;
+        if (!IsDetachedRepositoryRoute())
+            WindowTitleBar.SettingsRequested += HandleSettingsRequested;
+    }
+
+    private bool IsDetachedRepositoryRoute() =>
+        Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("repository/", StringComparison.OrdinalIgnoreCase);
 
     private void HandleLanguageChanged() => _ = InvokeAsync(() =>
     {
@@ -84,11 +94,17 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender && !IsDetachedRepositoryRoute())
+            WindowTitleBar.SetSettingsState(true, L.T("Open settings"));
         if (firstRender && _isStarting)
         {
-            await RunStartupDetectionAsync();
+            if (IsDetachedRepositoryRoute())
+                await InitializeDetachedWindowAsync();
+            else
+                await RunStartupDetectionAsync();
 #if WINDOWS
-            _ = CheckForUpdatesAsync();
+            if (!IsDetachedRepositoryRoute())
+                _ = CheckForUpdatesAsync();
 #endif
         }
 
@@ -110,6 +126,17 @@ else
                 // Theme selection must never prevent the main page from rendering.
             }
         }
+    }
+
+    private async Task InitializeDetachedWindowAsync()
+    {
+        var settings = await SettingsService.LoadAsync();
+        _startupSettings = settings;
+        _theme = LauncherThemes.Get(settings.Theme);
+        WindowTitleBar.ApplyTheme(_theme);
+        Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
+        _isStarting = false;
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task RunStartupDetectionAsync()

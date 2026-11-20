@@ -1,0 +1,85 @@
+@using CodeBadger.Components.Pages
+@inject LocalizationService L
+@inject RepositoryDetachedWindowService DetachedWindows
+
+<MudPaper Outlined="true" Elevation="0" Class="repository-workspace" data-repository-id="@Repository.Id">
+    @if (!RepositoryExists)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
+            @L.T("Repository path does not exist: {0}. Update it in Settings.", Repository.Path)
+        </MudAlert>
+    }
+    else
+    {
+        <div class="repository-terminal-panel">
+            @if (AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode && Repository.OpenCodeSandboxEnabled)
+            {
+                <SandboxRepositoryTerminal @key="TerminalKey" RepositoryId="Repository.Id"
+                    RepositoryPath="@Repository.Path" RepositoryName="@RepositoryTitle"
+                    ModelReference="@Repository.OpenCodeSandboxModel" ReviewedFiles="@Repository.OpenCodeSandboxFiles"
+                    IsVisible="@IsVisible" />
+            }
+            else if (AgentAvailable)
+            {
+                <RepositoryTerminal @key="TerminalKey" SessionId="Repository.Id" RepositoryPath="@Repository.Path"
+                                    Command="@AgentTools.GetCommand(Repository.AgentTool)"
+                                    OpenCodeSandboxEnabled="@(AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode && Repository.OpenCodeSandboxEnabled)"
+                                    IsVisible="@IsVisible" />
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                    @L.T("{0} was not detected. The agent cannot start; install it or choose another agent in Settings, then restart CodeBadger.", AgentTools.Normalize(Repository.AgentTool))
+                </MudAlert>
+            }
+        </div>
+
+        <div class="repository-git-panel">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap" Spacing="1">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="flex-wrap">
+                    <MudText Typo="Typo.subtitle1">@L.T("Git")</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@GitBranchLabel</MudText>
+                    @if (GitSnapshot is { IsValid: true } snapshot)
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@snapshot.ChangedFiles @L.T("changed")</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">↑ @snapshot.Ahead</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">↓ @snapshot.Behind</MudChip>
+                    }
+                </MudStack>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AccountTree"
+                           Disabled="@(GitSnapshot is not { IsValid: true })" OnClick="OnOpenGitOverview">
+                    @L.T("Git overview")
+                </MudButton>
+            </MudStack>
+            @if (GitSnapshot is { IsValid: false } status)
+            {
+                <MudAlert Dense="true" Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-2">
+                    @status.Error — controleer of Git is geïnstalleerd en het pad een repository is.
+                </MudAlert>
+            }
+        </div>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public RepositoryEntry Repository { get; set; } = null!;
+    [Parameter, EditorRequired] public string RepositoryTitle { get; set; } = string.Empty;
+    [Parameter] public bool RepositoryExists { get; set; }
+    [Parameter] public bool AgentAvailable { get; set; }
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public string GitBranchLabel { get; set; } = string.Empty;
+    [Parameter] public GitRepositorySnapshot? GitSnapshot { get; set; }
+    [Parameter, EditorRequired] public EventCallback OnOpenGitOverview { get; set; }
+
+    private string TerminalKey =>
+        $"{Repository.Id}:{Repository.Path}:{AgentTools.Normalize(Repository.AgentTool)}:{Repository.OpenCodeSandboxEnabled}:{Repository.OpenCodeSandboxModel}:{Repository.OpenCodeSandboxFiles}";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        if (DetachedWindows.IsDocking(Repository.Id))
+        DetachedWindows.MarkWorkspaceAttached(Repository.Id);
+    }
+
+}

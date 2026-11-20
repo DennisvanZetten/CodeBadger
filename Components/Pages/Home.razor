@@ -9,9 +9,10 @@
 @inject IJSRuntime JS
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@inject RepositoryDetachedWindowService DetachedWindows
 @inject Microsoft.Extensions.Logging.ILogger<Home> Logger
 @using Microsoft.Extensions.Logging
-@implements IDisposable
+@implements IAsyncDisposable
 
 @if (_isLoadingRepositories)
 {
@@ -47,13 +48,26 @@ else
     }
     else
     {
-        <MudTabs @key="RepositoryTabsKey" @bind-ActivePanelIndex="_activeTabIndex" KeepPanelsAlive="true" Rounded="true" Border="true" ApplyEffectsToContainer="true" Class="repository-tabs">
-            @foreach (var repository in _activeRepositories)
+        <MudTabs @bind-ActivePanelIndex="_activeTabIndex" KeepPanelsAlive="true" Rounded="true" Border="true" ApplyEffectsToContainer="true" Class="repository-tabs">
+            <Header>
+                @foreach (var repository in _activeRepositories.Where(repository => DetachedWindows.IsDetached(repository.Id)))
+                {
+                    <div class="repository-detached-tab-indicator" data-repository-id="@repository.Id" title="@RepositoryTitle(repository)">
+                        <img class="repository-agent-logo" src="@AgentLogo(repository)" alt="" />
+                        <span>@RepositoryTitle(repository)</span>
+                        <button type="button" class="repository-dock-button" aria-label="@L.T("Dock tab")"
+                                title="@L.T("Dock tab")" @onclick="@(() => DetachedWindows.Dock(repository.Id))">×</button>
+                    </div>
+                }
+            </Header>
+            <ChildContent>
+            @foreach (var repository in DockedRepositories)
             {
                 @* Changing the tag ensures the kept-alive tab panel renders updated Git status. *@
                 <MudTabPanel @key="repository.Id" Tag="@(_gitSnapshots.TryGetValue(repository, out var panelSnapshot) ? panelSnapshot : null)">
                     <TabContent>
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                            <span class="repository-tab-label" data-repository-id="@repository.Id">
                             @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && repository.OpenCodeSandboxEnabled)
                             {
                                 <MudTooltip Class="repository-sandbox-indicator" Text="@L.T(SandboxSessions.IsRunning(repository.Id) ? "Sandbox active" : "Sandbox enabled; not running")">
@@ -80,66 +94,28 @@ else
                                        aria-label="@L.T("Agent session is working", AgentTools.GetDisplayName(repository.AgentTool))"
                                        title="@L.T("Agent session is working", AgentTools.GetDisplayName(repository.AgentTool))"></span>
                             }
+                            </span>
+                            <MudTooltip Text="@L.T("Undock tab")">
+                                <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small"
+                                               Class="repository-undock-button" aria-label="@L.T("Undock tab")"
+                                               OnClick="@(() => UndockRepository(repository))"
+                                               />
+                            </MudTooltip>
                         </MudStack>
                     </TabContent>
                     <ChildContent>
-                    <div class="repository-workspace">
-                        @if (!Directory.Exists(repository.Path))
-                        {
-                            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@L.T("Repository path does not exist: {0}. Update it in Settings.", repository.Path)</MudAlert>
-                        }
-                        else
-                        {
-                            <MudPaper Outlined="true" Elevation="0" Class="repository-terminal-panel">
-                                @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && repository.OpenCodeSandboxEnabled)
-                                {
-                                    <SandboxRepositoryTerminal @key="TerminalKey(repository)" RepositoryId="repository.Id"
-                                        RepositoryPath="@repository.Path" RepositoryName="@RepositoryTitle(repository)"
-                                        ModelReference="@repository.OpenCodeSandboxModel" ReviewedFiles="@repository.OpenCodeSandboxFiles"
-                                        IsVisible="@(_activeRepositories.IndexOf(repository) == _activeTabIndex)" />
-                                }
-                                else if (StartupDetection.IsAgentAvailable(repository.AgentTool))
-                                {
-                                    <RepositoryTerminal @key="TerminalKey(repository)" SessionId="repository.Id" RepositoryPath="@repository.Path"
-                                                        Command="@AgentTools.GetCommand(repository.AgentTool)"
-                                                        OpenCodeSandboxEnabled="@(AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && repository.OpenCodeSandboxEnabled)"
-                                                        IsVisible="@(_activeRepositories.IndexOf(repository) == _activeTabIndex)" />
-                                }
-                                else
-                                {
-                                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("{0} was not detected. The agent cannot start; install it or choose another agent in Settings, then restart CodeBadger.", AgentTools.Normalize(repository.AgentTool))</MudAlert>
-                                }
-                            </MudPaper>
-                            <MudPaper Outlined="true" Elevation="0" Class="pa-4 repository-git-panel">
-                                <MudStack Spacing="2">
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
-                                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="flex-wrap">
-                                             <MudText Typo="Typo.subtitle1">@L.T("Git")</MudText>
-                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@BranchLabel(repository)</MudText>
-                                            @if (_gitSnapshots.TryGetValue(repository, out var snapshot) && snapshot.IsValid)
-                                            {
-                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@snapshot.ChangedFiles @L.T("changed")</MudChip>
-                                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">↑ @snapshot.Ahead</MudChip>
-                                                <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">↓ @snapshot.Behind</MudChip>
-                                            }
-                                        </MudStack>
-                                        <MudStack Row="true" Spacing="1">
-                                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AccountTree"
-                                                       Disabled="@(!_gitSnapshots.TryGetValue(repository, out var gitSnapshot) || !gitSnapshot.IsValid)"
-                                                        OnClick="@(() => OpenGitDialogAsync(repository))">@L.T("Git overview")</MudButton>
-                                        </MudStack>
-                                    </MudStack>
-                                    @if (_gitSnapshots.TryGetValue(repository, out var status) && !status.IsValid)
-                                    {
-                                        <MudAlert Dense="true" Severity="Severity.Warning" Variant="Variant.Outlined">@status.Error — controleer of Git is geïnstalleerd en het pad een repository is.</MudAlert>
-                                    }
-                                </MudStack>
-                            </MudPaper>
-                        }
-                    </div>
+                        <RepositoryWorkspace Repository="repository"
+                                             RepositoryTitle="@RepositoryTitle(repository)"
+                                             RepositoryExists="@Directory.Exists(repository.Path)"
+                                             AgentAvailable="@StartupDetection.IsAgentAvailable(repository.AgentTool)"
+                                             IsVisible="@(DockedRepositories.IndexOf(repository) == _activeTabIndex)"
+                                             GitBranchLabel="@BranchLabel(repository)"
+                                             GitSnapshot="@(_gitSnapshots.TryGetValue(repository, out var workspaceSnapshot) ? workspaceSnapshot : null)"
+                                             OnOpenGitOverview="@(() => OpenGitDialogAsync(repository))" />
                     </ChildContent>
                 </MudTabPanel>
             }
+            </ChildContent>
         </MudTabs>
     }
 </MudContainer>
@@ -159,8 +135,10 @@ else
     private string? _loadingRepository;
     private double _repositoryLoadProgress;
     private int _activeTabIndex;
-    private string RepositoryTabsKey => string.Join(",", _activeRepositories.Select(repository => repository.Id));
+    private List<RepositoryEntry> DockedRepositories => _activeRepositories.Where(repository => !DetachedWindows.IsDetached(repository.Id)).ToList();
     private readonly CancellationTokenSource _statusMonitorCancellation = new();
+    private IJSObjectReference? _tabsModule;
+    private DotNetObjectReference<Home>? _selfReference;
 
     [CascadingParameter] public LauncherSettings? StartupSettings { get; set; }
 
@@ -172,6 +150,8 @@ else
         SettingsService.SettingsSaved += HandleSettingsSaved;
         SandboxApprovals.Requested += HandleSandboxApproval;
         SandboxSessions.StateChanged += HandleSandboxState;
+        DetachedWindows.StateChanged += HandleDetachedWindowsChanged;
+        DetachedWindows.DockRequested += HandleDockRequested;
         L.LanguageChanged += HandleLanguageChanged;
         SyncRepositories();
         if (_activeRepositories.Count > 0)
@@ -200,12 +180,59 @@ else
         _ = MonitorOpenCodeActivityAsync(_statusMonitorCancellation.Token);
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        try
+        {
+            _tabsModule = await JS.InvokeAsync<IJSObjectReference>("import", "./repository-tabs.js");
+            _selfReference = DotNetObjectReference.Create(this);
+            await _tabsModule.InvokeVoidAsync("attach", _selfReference);
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "Repository tab drag undocking could not be initialized.");
+        }
+    }
+
+    [JSInvokable]
+    public Task UndockRepository(string repositoryId)
+    {
+        return UndockRepositoryAsync(repositoryId);
+    }
+
+    private Task UndockRepositoryAsync(string repositoryId)
+    {
+        if (!Guid.TryParse(repositoryId, out var id) || DockedRepositories.FirstOrDefault(repository => repository.Id == id) is not { } repository)
+            return Task.CompletedTask;
+        DetachedWindows.Undock(repository);
+        return Task.CompletedTask;
+    }
+
+    private void UndockRepository(RepositoryEntry repository)
+    {
+        var index = DockedRepositories.FindIndex(candidate => candidate.Id == repository.Id);
+        if (index >= 0)
+            _activeTabIndex = index;
+        DetachedWindows.Undock(repository);
+    }
+
+    [JSInvokable]
+    public Task DockRepository(string repositoryId)
+    {
+        if (Guid.TryParse(repositoryId, out var id))
+            DetachedWindows.Dock(id);
+        return Task.CompletedTask;
+    }
+
     private void HandleSettingsSaved()
     {
         _ = InvokeAsync(async () =>
         {
-            var activeRepositoryId = _activeTabIndex >= 0 && _activeTabIndex < _activeRepositories.Count
-                ? _activeRepositories[_activeTabIndex].Id
+            var dockedRepositories = DockedRepositories;
+            var activeRepositoryId = _activeTabIndex >= 0 && _activeTabIndex < dockedRepositories.Count
+                ? dockedRepositories[_activeTabIndex].Id
                 : (Guid?)null;
             _settings = await SettingsService.LoadAsync();
             SyncRepositories();
@@ -213,17 +240,27 @@ else
             _questionSessions.Clear();
             _activityNeedsBaseline = true;
             var selectedIndex = activeRepositoryId is { } repositoryId
-                ? _activeRepositories.FindIndex(repository => repository.Id == repositoryId)
+                ? DockedRepositories.FindIndex(repository => repository.Id == repositoryId)
                 : -1;
             _activeTabIndex = selectedIndex >= 0
                 ? selectedIndex
-                : Math.Clamp(_activeTabIndex, 0, Math.Max(0, _activeRepositories.Count - 1));
+                : Math.Clamp(_activeTabIndex, 0, Math.Max(0, DockedRepositories.Count - 1));
             await RefreshBranches();
             StateHasChanged();
         });
     }
 
     private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+    private void HandleDetachedWindowsChanged() => _ = InvokeAsync(() =>
+    {
+        _activeTabIndex = Math.Clamp(_activeTabIndex, 0, Math.Max(0, DockedRepositories.Count - 1));
+        StateHasChanged();
+    });
+    private void HandleDockRequested(Guid repositoryId) => _ = InvokeAsync(() =>
+    {
+        _activeTabIndex = Math.Max(0, DockedRepositories.FindIndex(repository => repository.Id == repositoryId));
+        StateHasChanged();
+    });
     private void HandleSandboxState(Guid id) => _ = InvokeAsync(StateHasChanged);
 
     private void HandleSandboxApproval(SandboxApprovalRequest request)
@@ -283,7 +320,7 @@ else
             repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
         }
         _activeRepositories = _settings.Repositories.Where(repository => repository.IsActive).ToList();
-        _activeTabIndex = Math.Clamp(_activeTabIndex, 0, Math.Max(0, _activeRepositories.Count - 1));
+        _activeTabIndex = Math.Clamp(_activeTabIndex, 0, Math.Max(0, DockedRepositories.Count - 1));
         foreach (var repository in _branches.Keys.Where(repository => !_settings.Repositories.Contains(repository)).ToList())
             _branches.Remove(repository);
         foreach (var repository in _gitSnapshots.Keys.Where(repository => !_settings.Repositories.Contains(repository)).ToList())
@@ -309,9 +346,6 @@ else
         AgentTools.Hermes => "repository-activity-spinner-hermes",
         _ => "repository-activity-spinner-opencode"
     };
-
-    private static string TerminalKey(RepositoryEntry repository) =>
-        $"{repository.Id}:{repository.Path}:{AgentTools.Normalize(repository.AgentTool)}:{repository.OpenCodeSandboxEnabled}:{repository.OpenCodeSandboxModel}:{repository.OpenCodeSandboxFiles}";
 
     private async Task RefreshBranches(bool force = false, Action<(int Loaded, string Name, double Progress)>? reportProgress = null)
     {
@@ -416,10 +450,11 @@ else
             {
                 try
                 {
-                    if (_isRefreshingBranches || _activeTabIndex < 0 || _activeTabIndex >= _activeRepositories.Count)
+                    var dockedRepositories = DockedRepositories;
+                    if (_isRefreshingBranches || _activeTabIndex < 0 || _activeTabIndex >= dockedRepositories.Count)
                         continue;
 
-                    var repository = _activeRepositories[_activeTabIndex];
+                    var repository = dockedRepositories[_activeTabIndex];
                     if (!Directory.Exists(repository.Path))
                         continue;
 
@@ -527,13 +562,21 @@ else
             : L.T("Branch: {0}", branchInfo.Status ?? string.Empty);
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         SandboxApprovals.Requested -= HandleSandboxApproval;
         SandboxSessions.StateChanged -= HandleSandboxState;
+        DetachedWindows.StateChanged -= HandleDetachedWindowsChanged;
+        DetachedWindows.DockRequested -= HandleDockRequested;
         _statusMonitorCancellation.Cancel();
         _statusMonitorCancellation.Dispose();
         SettingsService.SettingsSaved -= HandleSettingsSaved;
         L.LanguageChanged -= HandleLanguageChanged;
+        _selfReference?.Dispose();
+        if (_tabsModule is not null)
+        {
+            try { await _tabsModule.InvokeVoidAsync("detach"); await _tabsModule.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+        }
     }
 }

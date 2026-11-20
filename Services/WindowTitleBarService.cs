@@ -7,8 +7,7 @@ public sealed class WindowTitleBarService
     public event Action? SettingsRequested;
 
 #if WINDOWS
-    private TitleBar? _titleBar;
-    private ImageButton? _settingsButton;
+    private readonly Dictionary<Window, (TitleBar TitleBar, ImageButton? SettingsButton)> _titleBars = [];
 #endif
 
     public bool UsesNativeTitleBar
@@ -23,10 +22,10 @@ public sealed class WindowTitleBarService
         }
     }
 
-    public void Configure(Window window)
+    public void Configure(Window window, bool showSettings = true, string? title = null)
     {
 #if WINDOWS
-        _settingsButton = new ImageButton
+        var settingsButton = new ImageButton
         {
             WidthRequest = 36,
             HeightRequest = 36,
@@ -35,8 +34,8 @@ public sealed class WindowTitleBarService
             BackgroundColor = Colors.Transparent,
             Source = new FontImageSource { FontFamily = "Segoe MDL2 Assets", Glyph = "\uE713", Size = 20 }
         };
-        _settingsButton.Clicked += (_, _) => SettingsRequested?.Invoke();
-        _titleBar = new TitleBar
+        settingsButton.Clicked += (_, _) => SettingsRequested?.Invoke();
+        var titleBar = new TitleBar
         {
             HeightRequest = 48,
             LeadingContent = new HorizontalStackLayout
@@ -47,12 +46,14 @@ public sealed class WindowTitleBarService
                 Children =
                 {
                     new Image { Source = "codebadger.png", WidthRequest = 32, HeightRequest = 32 },
-                    new Label { Text = "CodeBadger", FontSize = 16, VerticalOptions = LayoutOptions.Center }
+                    new Label { Text = title ?? "CodeBadger", FontSize = 16, VerticalOptions = LayoutOptions.Center }
                 }
             },
-            TrailingContent = _settingsButton
+            TrailingContent = showSettings ? settingsButton : null
         };
-        window.TitleBar = _titleBar;
+        _titleBars[window] = (titleBar, showSettings ? settingsButton : null);
+        window.Destroying += (_, _) => _titleBars.Remove(window);
+        window.TitleBar = titleBar;
         ApplyTheme(LauncherThemes.Get(null));
 #endif
     }
@@ -66,17 +67,17 @@ public sealed class WindowTitleBarService
             return;
         }
 
-        if (_titleBar is null || _settingsButton is null)
-            return;
-
         var background = theme.IsDark ? theme.Theme.PaletteDark.Background : theme.Theme.PaletteLight.Background;
         var text = theme.IsDark ? theme.Theme.PaletteDark.TextPrimary : theme.Theme.PaletteLight.TextPrimary;
-        _titleBar.BackgroundColor = Color.FromArgb(background.ToString(MudColorOutputFormats.Hex));
-        _titleBar.ForegroundColor = Color.FromArgb(text.ToString(MudColorOutputFormats.Hex));
-        if (_titleBar.LeadingContent is HorizontalStackLayout brand && brand.Children[1] is Label label)
-            label.TextColor = _titleBar.ForegroundColor;
-        if (_settingsButton.Source is FontImageSource icon)
-            icon.Color = _titleBar.ForegroundColor;
+        foreach (var (titleBar, settingsButton) in _titleBars.Values)
+        {
+            titleBar.BackgroundColor = Color.FromArgb(background.ToString(MudColorOutputFormats.Hex));
+            titleBar.ForegroundColor = Color.FromArgb(text.ToString(MudColorOutputFormats.Hex));
+            if (titleBar.LeadingContent is HorizontalStackLayout brand && brand.Children[1] is Label label)
+                label.TextColor = titleBar.ForegroundColor;
+            if (settingsButton?.Source is FontImageSource icon)
+                icon.Color = titleBar.ForegroundColor;
+        }
 #endif
     }
 
@@ -89,10 +90,13 @@ public sealed class WindowTitleBarService
             return;
         }
 
-        if (_settingsButton is null)
-            return;
-        _settingsButton.IsEnabled = enabled;
-        SemanticProperties.SetDescription(_settingsButton, description);
+        foreach (var (_, settingsButton) in _titleBars.Values)
+        {
+            if (settingsButton is null)
+                continue;
+            settingsButton.IsEnabled = enabled;
+            SemanticProperties.SetDescription(settingsButton, description);
+        }
 #endif
     }
 }

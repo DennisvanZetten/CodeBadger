@@ -9,48 +9,88 @@ namespace CodeBadger.Services;
 public sealed class WindowsTerminalSessionService : IAsyncDisposable
 {
     private readonly Dictionary<Guid, TerminalSession> _sessions = [];
+    private readonly object _sessionsLock = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, SemaphoreSlim> _startGates = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, List<string>> _recentOutput = new();
     private readonly LocalizationService _localization;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, SemaphoreSlim> _terminalWriteGates = new();
 
     public WindowsTerminalSessionService(LocalizationService localization) => _localization = localization;
 
     public event Action<Guid, string>? OutputReceived;
     public event Action<Guid, int>? SessionExited;
 
+    public bool IsRunning(Guid id)
+    {
+        lock (_sessionsLock)
+            return _sessions.ContainsKey(id);
+    }
+
+    public IReadOnlyList<string> GetRecentOutput(Guid id) =>
+        _recentOutput.TryGetValue(id, out var output)
+            ? CopyRecentOutput(output)
+            : [];
+
+    public void ClearRecentOutput(Guid id) => _recentOutput.TryRemove(id, out _);
+
+    private static string[] CopyRecentOutput(List<string> output)
+    {
+        lock (output)
+            return output.ToArray();
+    }
+
     public async Task StartAsync(Guid id, string workingDirectory, string commandLine, int columns = 120, int rows = 30,
         bool openCodeSandboxEnabled = false)
     {
-        if (!OperatingSystem.IsWindows())
-            throw new PlatformNotSupportedException(_localization.T("The built-in terminal is only available on Windows."));
-        if (!Directory.Exists(workingDirectory))
-            throw new DirectoryNotFoundException(_localization.T("Repository folder does not exist: {0}", workingDirectory));
-        if (_sessions.ContainsKey(id))
-            await StopAsync(id);
+        var gate = _startGates.GetOrAdd(id, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
+        {
+            if (IsRunning(id))
+                return;
+            if (!OperatingSystem.IsWindows())
+                throw new PlatformNotSupportedException(_localization.T("The built-in terminal is only available on Windows."));
+            if (!Directory.Exists(workingDirectory))
+                throw new DirectoryNotFoundException(_localization.T("Repository folder does not exist: {0}", workingDirectory));
+            if (string.IsNullOrWhiteSpace(commandLine))
+                throw new InvalidOperationException(_localization.T("Configure an application or command in Settings first."));
+            if (openCodeSandboxEnabled)
+                throw new InvalidOperationException(_localization.T("OpenCode sandbox is enabled, but isolated execution is not available yet. OpenCode was not started."));
 
-        if (string.IsNullOrWhiteSpace(commandLine))
-            throw new InvalidOperationException(_localization.T("Configure an application or command in Settings first."));
-
-        if (openCodeSandboxEnabled)
-            throw new InvalidOperationException(_localization.T("OpenCode sandbox is enabled, but isolated execution is not available yet. OpenCode was not started."));
-
-        var session = CreateSession(workingDirectory, commandLine, Math.Max(columns, 1), Math.Max(rows, 1));
-        _sessions[id] = session;
-        _ = Task.Run(() => ReadOutputAsync(id, session));
-        _ = WatchProcessAsync(id, session);
+            var session = CreateSession(workingDirectory, commandLine, Math.Max(columns, 1), Math.Max(rows, 1));
+            lock (_sessionsLock)
+                _sessions[id] = session;
+            _ = Task.Run(() => ReadOutputAsync(id, session));
+            _ = WatchProcessAsync(id, session);
+        }
+        finally { gate.Release(); }
     }
 
     public async Task WriteInputAsync(Guid id, string input)
     {
-        if (_sessions.TryGetValue(id, out var session))
+        TerminalSession? session;
+        lock (_sessionsLock)
+            _sessions.TryGetValue(id, out session);
+        if (session is not null)
         {
+            var gate = _terminalWriteGates.GetOrAdd(id, _ => new SemaphoreSlim(1, 1));
+            await gate.WaitAsync();
+            try
+            {
             var bytes = Encoding.UTF8.GetBytes(input);
             await session.Input.WriteAsync(bytes);
             await session.Input.FlushAsync();
+            }
+            finally { gate.Release(); }
         }
     }
 
     public void Resize(Guid id, int columns, int rows)
     {
-        if (_sessions.TryGetValue(id, out var session) && session.ConsoleHandle != IntPtr.Zero)
+        TerminalSession? session;
+        lock (_sessionsLock)
+            _sessions.TryGetValue(id, out session);
+        if (session is not null && session.ConsoleHandle != IntPtr.Zero)
         {
             var result = ResizePseudoConsole(session.ConsoleHandle, new Coord((short)Math.Clamp(columns, 1, short.MaxValue), (short)Math.Clamp(rows, 1, short.MaxValue)));
             if (result != 0)
@@ -63,8 +103,10 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         if (!OperatingSystem.IsWindows())
             return;
 
-        if (!_sessions.TryGetValue(id, out var session))
-            return;
+        TerminalSession? session;
+        lock (_sessionsLock)
+            _sessions.TryGetValue(id, out session);
+        if (session is null) return;
         try
         {
             if (!session.Process.HasExited)
@@ -75,13 +117,18 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
 
         try { await session.Process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3)); }
         catch (TimeoutException) when (!requireTermination) { }
-        _sessions.Remove(id);
+        lock (_sessionsLock)
+            _sessions.Remove(id);
+        _recentOutput.TryRemove(id, out _);
         session.Dispose();
     }
 
     public async ValueTask DisposeAsync()
     {
-        foreach (var id in _sessions.Keys.ToArray())
+        Guid[] sessionIds;
+        lock (_sessionsLock)
+            sessionIds = _sessions.Keys.ToArray();
+        foreach (var id in sessionIds)
             await StopAsync(id);
     }
 
@@ -103,15 +150,27 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
                 // state between reads instead of replacing those partial bytes.
                 var characterCount = decoder.GetChars(buffer, 0, count, characterBuffer, 0, flush: false);
                 if (characterCount > 0)
-                    OutputReceived?.Invoke(id, new string(characterBuffer, 0, characterCount));
+                    PublishOutput(id, new string(characterBuffer, 0, characterCount));
             }
 
             var remainingCharacters = decoder.GetChars([], 0, 0, characterBuffer, 0, flush: true);
             if (remainingCharacters > 0)
-                OutputReceived?.Invoke(id, new string(characterBuffer, 0, remainingCharacters));
+                PublishOutput(id, new string(characterBuffer, 0, remainingCharacters));
         }
         catch (ObjectDisposedException) { }
         catch (IOException) { }
+    }
+
+    private void PublishOutput(Guid id, string text)
+    {
+        var output = _recentOutput.GetOrAdd(id, _ => []);
+        lock (output)
+        {
+            output.Add(text);
+            while (output.Count > 2000)
+                output.RemoveAt(0);
+        }
+        OutputReceived?.Invoke(id, text);
     }
 
     private async Task WatchProcessAsync(Guid id, TerminalSession session)
@@ -119,10 +178,16 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         try
         {
             await session.Process.WaitForExitAsync();
-            if (_sessions.TryGetValue(id, out var active) && ReferenceEquals(active, session))
+            if (IsActiveSession(id, session))
                 SessionExited?.Invoke(id, session.Process.ExitCode);
         }
         catch (InvalidOperationException) { }
+    }
+
+    private bool IsActiveSession(Guid id, TerminalSession session)
+    {
+        lock (_sessionsLock)
+            return _sessions.TryGetValue(id, out var active) && ReferenceEquals(active, session);
     }
 
     private TerminalSession CreateSession(string workingDirectory, string commandLine, int columns, int rows)

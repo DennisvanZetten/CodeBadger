@@ -1056,11 +1056,16 @@
 
     private async Task CopyCommitBranchNamesAsync(GitCommitEntry commit)
     {
-        var branchNames = (commit.BranchLabels ?? [])
-            .Select(label => label.Name)
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
+        var branchNames = await GitBranchService.GetBranchesContainingCommitAsync(RepositoryPath, commit.Hash);
+        var currentBranch = _snapshot?.Branch;
+        if (branchNames.Count > 1 && !string.IsNullOrWhiteSpace(currentBranch))
+        {
+            var current = branchNames.FirstOrDefault(branch =>
+                string.Equals(branch, currentBranch, StringComparison.Ordinal) ||
+                branch.EndsWith('/' + currentBranch, StringComparison.Ordinal));
+            if (current is not null)
+                branchNames = new[] { current };
+        }
         if (branchNames.Count == 0)
         {
             Snackbar.Add(L.T("No branch name is associated with this commit."), Severity.Info);

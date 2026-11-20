@@ -263,6 +263,16 @@ public sealed class GitBranchService
         return new GitCommitBranchCheck(result.ExitCode == 0, null);
     }
 
+    public async Task<IReadOnlyList<string>> GetBranchesContainingCommitAsync(string path, string commitHash)
+    {
+        var result = await RunGitAsync(path, "branch", "--all", "--contains", commitHash, "--format=%(refname:short)");
+        return result.Success
+            ? result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(branch => branch.TrimEnd('\r'))
+                .ToArray()
+            : [];
+    }
+
     public async Task<GitOperationResult> CherryPickCommitAsync(string path, string commitHash) =>
         await RunGitAsync(path, "cherry-pick", commitHash);
 

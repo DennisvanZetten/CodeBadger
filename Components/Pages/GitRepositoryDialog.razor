@@ -215,15 +215,20 @@
                                 {
                                     <div class="git-context-menu-backdrop" @onclick="CloseCommitContextMenu">
                                         <div class="git-commit-context-menu" @onclick:stopPropagation="true">
+                                            <button class="git-commit-context-menu-item" disabled="@_isOperating" @onclick="@(() => OpenCreateBranchDialog(_contextMenuCommit.Hash))">
+                                                <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+                                                <span>@L.T("Create branch here")</span>
+                                            </button>
+                                            <button class="git-commit-context-menu-item" disabled="@_isOperating" @onclick="CheckoutSelectedCommitAsync">
+                                                <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" />
+                                                <span>@L.T("Checkout commit (detached HEAD)")</span>
+                                            </button>
+                                            <div class="git-context-menu-separator" role="separator"></div>
                                             <button class="git-commit-context-menu-item" disabled="@(_isCheckingCherryPick || _isCommitOnCurrentBranch != false || _isOperating)"
                                                     aria-readonly="@(_isCheckingCherryPick || _isCommitOnCurrentBranch != false || _isOperating)"
                                                     @onclick="CherryPickSelectedCommitAsync">
                                                 <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" />
                                                 <span>@L.T("Cherry-pick commit")</span>
-                                            </button>
-                                            <button class="git-commit-context-menu-item" disabled="@_isOperating" @onclick="@(() => OpenCreateBranchDialog(_contextMenuCommit.Hash))">
-                                                <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
-                                                <span>@L.T("Create branch here")</span>
                                             </button>
                                             @if (_contextMenuMergeBranch is not null && !string.IsNullOrWhiteSpace(_contextMenuTargetBranch))
                                             {
@@ -1097,6 +1102,30 @@
             Snackbar.Add(result.Success
                     ? L.T("Branch '{0}' merged into '{1}'.", sourceBranch, targetBranch)
                     : L.T("Merge failed: {0}", result.Message),
+                result.Success ? Severity.Success : Severity.Error);
+            await RefreshAsync();
+        }
+        finally
+        {
+            _isOperating = false;
+        }
+    }
+
+    private async Task CheckoutSelectedCommitAsync()
+    {
+        var commit = _contextMenuCommit;
+        if (commit is null || _isOperating)
+            return;
+
+        CloseCommitContextMenu();
+        _contextMenuNeedsPosition = false;
+        _isOperating = true;
+        try
+        {
+            var result = await GitBranchService.CheckoutCommitAsync(RepositoryPath, commit.Hash);
+            Snackbar.Add(result.Success
+                    ? L.T("Checked out commit {0} in detached HEAD.", commit.ShortHash)
+                    : L.T("Could not check out commit: {0}", result.Message),
                 result.Success ? Severity.Success : Severity.Error);
             await RefreshAsync();
         }

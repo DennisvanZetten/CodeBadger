@@ -239,6 +239,21 @@ public sealed class GitBranchService
     public async Task<GitOperationResult> GetCommitFileDiffAsync(string path, string commitHash, string filePath) =>
         await RunGitAsync(path, "show", "--format=", "--no-ext-diff", "--find-renames", $"{commitHash}", "--", filePath);
 
+    public async Task<GitOperationResult> CheckoutCommitAsync(string path, string commitHash)
+    {
+        var statusResult = await RunGitAsync(path, "status", "--porcelain=v1", "-uall");
+        if (!statusResult.Success)
+            return new GitOperationResult(false, _localization.T("Could not check the working tree before checkout: {0}", statusResult.Message), string.Empty);
+        if (!string.IsNullOrWhiteSpace(statusResult.Output))
+            return new GitOperationResult(false, _localization.T("Commit or stash your changes before checking out a commit."), string.Empty);
+
+        var commitResult = await RunGitAsync(path, "rev-parse", "--verify", "--quiet", $"{commitHash}^{{commit}}");
+        if (!commitResult.Success)
+            return new GitOperationResult(false, _localization.T("The selected commit is no longer available."), string.Empty);
+
+        return await RunGitAsync(path, "switch", "--detach", commitResult.Output.Trim());
+    }
+
     public async Task<GitCommitBranchCheck> IsCommitOnCurrentBranchAsync(string path, string commitHash)
     {
         var result = await RunGitAllowExitOneAsync(path, "merge-base", "--is-ancestor", commitHash, "HEAD");

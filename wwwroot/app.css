@@ -1485,6 +1485,12 @@ h1:focus {
     cursor: default;
 }
 
+.git-context-menu-separator {
+    height: 1px;
+    margin: 0.25rem 0.35rem;
+    background: var(--mud-palette-divider);
+}
+
 .git-create-branch-backdrop {
     position: fixed;
     z-index: 1600;

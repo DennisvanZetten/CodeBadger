@@ -100,12 +100,23 @@ export function attach(reference) {
     const down = event => startDrag(event);
     const move = event => moveDrag(event);
     const up = event => endDrag(event);
+    const contextMenu = event => {
+        const tab = event.target.closest?.('.repository-tabs .mud-tab');
+        if (!tab) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        const repositoryId = tab.dataset.repositoryId ?? repositoryIdFromTab(tab);
+        if (repositoryId)
+            dotnet?.invokeMethodAsync('OpenRepositoryContextMenu', repositoryId, event.clientX, event.clientY);
+    };
     const cancel = () => { dragState = null; };
     document.addEventListener('pointerdown', down, true);
     document.addEventListener('pointermove', move, true);
     document.addEventListener('pointerup', up, true);
     document.addEventListener('pointercancel', cancel, true);
-    listeners = [[document, 'pointerdown', down], [document, 'pointermove', move], [document, 'pointerup', up], [document, 'pointercancel', cancel]];
+    document.addEventListener('contextmenu', contextMenu, true);
+    listeners = [[document, 'pointerdown', down], [document, 'pointermove', move], [document, 'pointerup', up], [document, 'pointercancel', cancel], [document, 'contextmenu', contextMenu]];
     syncTabIds();
     detachedIndicatorsObserver = new MutationObserver(syncTabIds);
     const root = document.querySelector('.repository-tabs');

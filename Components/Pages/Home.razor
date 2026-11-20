@@ -48,9 +48,7 @@
                 <MudTabPanel @key="repository.Id" Tag="@(_gitSnapshots.TryGetValue(repository, out var panelSnapshot) ? panelSnapshot : null)">
                     <TabContent>
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="repository-tab-header-content">
-                            <span class="repository-tab-label" data-repository-id="@repository.Id"
-                                  @oncontextmenu="@(args => OpenRepositoryContextMenuAsync(repository, args))"
-                                  @oncontextmenu:preventDefault="true">
+                            <span class="repository-tab-label" data-repository-id="@repository.Id">
                             @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && repository.OpenCodeSandboxEnabled)
                             {
                                 <MudTooltip Class="repository-sandbox-indicator" Text="@L.T(SandboxSessions.IsRunning(repository.Id) ? "Sandbox active" : "Sandbox enabled; not running")">
@@ -197,6 +195,24 @@
         return UndockRepositoryAsync(repositoryId, pointerX, pointerY);
     }
 
+    [JSInvokable]
+    public Task OpenRepositoryContextMenu(string repositoryId, double clientX, double clientY)
+    {
+        var repository = Guid.TryParse(repositoryId, out var id)
+            ? DockedRepositories.FirstOrDefault(candidate => candidate.Id == id)
+            : null;
+        if (repository is null || !CanOpenRepositorySlackSessions(repository))
+        {
+            CloseRepositoryContextMenu();
+            return InvokeAsync(StateHasChanged);
+        }
+
+        _contextMenuRepository = repository;
+        _contextMenuX = Math.Max(8, clientX);
+        _contextMenuY = Math.Max(8, clientY);
+        return InvokeAsync(StateHasChanged);
+    }
+
     private Task UndockRepositoryAsync(string repositoryId, int pointerX, int pointerY)
     {
         if (!Guid.TryParse(repositoryId, out var id) || DockedRepositories.FirstOrDefault(repository => repository.Id == id) is not { } repository)
@@ -285,20 +301,6 @@
         StateHasChanged();
     });
     private void HandleSandboxState(Guid id) => _ = InvokeAsync(StateHasChanged);
-
-    private void OpenRepositoryContextMenuAsync(RepositoryEntry repository, MouseEventArgs args)
-    {
-        if (!CanOpenRepositorySlackSessions(repository))
-        {
-            CloseRepositoryContextMenu();
-            return;
-        }
-        _activeTabIndex = DockedRepositories.FindIndex(candidate => candidate.Id == repository.Id);
-        Preferences.Default.Set(LastRepositoryPreferenceKey, repository.Id.ToString());
-        _contextMenuRepository = repository;
-        _contextMenuX = Math.Max(8, args.ClientX);
-        _contextMenuY = Math.Max(8, args.ClientY);
-    }
 
     private void CloseRepositoryContextMenu() => _contextMenuRepository = null;
 

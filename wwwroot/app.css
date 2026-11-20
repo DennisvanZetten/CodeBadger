@@ -498,24 +498,35 @@ h1:focus {
     justify-content: flex-end;
 }
 
-.repository-sandbox-toggle {
+.repository-sandbox-toggle,
+.repository-notifications-toggle {
     grid-column: 2 / 5;
-    grid-row: 2;
     min-width: 0;
 }
 
-.repository-sandbox-toggle .mud-switch {
+.repository-sandbox-toggle {
+    grid-row: 3;
+}
+
+.repository-notifications-toggle {
+    grid-row: 2;
+}
+
+.repository-sandbox-toggle .mud-switch,
+.repository-notifications-toggle .mud-switch {
     margin: 0;
 }
 
-.repository-sandbox-toggle {
+.repository-sandbox-toggle,
+.repository-notifications-toggle {
     margin: 0;
     padding: 0.2rem 0.75rem 0.5rem;
     border: 1px solid var(--mud-palette-divider);
     border-radius: var(--mud-default-borderradius);
 }
 
-.repository-sandbox-toggle legend {
+.repository-sandbox-toggle legend,
+.repository-notifications-toggle legend {
     width: auto;
     padding: 0 0.35rem;
     font-size: 0.8rem;
@@ -631,6 +642,11 @@ h1:focus {
     }
 
     .repository-sandbox-toggle {
+        grid-column: 1 / -1;
+        grid-row: 5;
+    }
+
+    .repository-notifications-toggle {
         grid-column: 1 / -1;
         grid-row: 4;
     }
@@ -1477,6 +1493,7 @@ h1:focus {
 
 .detached-repository-tab-header {
     position: relative;
+    box-sizing: border-box;
     display: flex;
     align-items: center;
     min-width: 0;
@@ -1485,6 +1502,7 @@ h1:focus {
     min-height: 2.25rem;
     gap: 0.4rem;
     padding-top: 0.35rem;
+    padding-right: 1.7rem;
     padding-bottom: 0.35rem;
     border: 1px solid var(--mud-palette-divider);
     border-radius: var(--mud-default-borderradius);

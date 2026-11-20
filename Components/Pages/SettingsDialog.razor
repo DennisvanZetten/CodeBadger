@@ -95,7 +95,7 @@
                             }
                             @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
                             {
-                                <fieldset class="repository-sandbox-toggle">
+                                <fieldset class="repository-notifications-toggle">
                                     <legend>@L.T("Slack notifications")</legend>
                                     <MudSwitch T="bool" Value="@repository.SlackNotificationsMuted"
                                                ValueChanged="@(value => SetRepositorySlackMutedAsync(repository, value))"

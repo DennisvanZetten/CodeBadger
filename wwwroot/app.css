@@ -1338,7 +1338,6 @@ h1:focus {
 }
 
 .repository-tabs .repository-tab-header-content {
-    position: relative;
     box-sizing: border-box;
     width: 100%;
     min-width: 0;
@@ -1401,6 +1400,10 @@ h1:focus {
 
 .repository-tabs .repository-undock-button,
 .detached-repository-tab-header .repository-dock-button {
+    position: absolute;
+    top: -0.4rem;
+    right: -0.2rem;
+    z-index: 1;
     width: 1.5rem;
     height: 1.5rem;
     min-width: 1.5rem;
@@ -1411,9 +1414,6 @@ h1:focus {
 }
 
 .repository-tabs .repository-undock-button {
-    position: absolute;
-    top: 0.1rem;
-    right: 0.1rem;
     margin: 0;
 }
 
@@ -1476,6 +1476,7 @@ h1:focus {
 }
 
 .detached-repository-tab-header {
+    position: relative;
     display: flex;
     align-items: center;
     min-width: 0;

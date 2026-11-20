@@ -79,11 +79,9 @@
                                        title="@L.T("Agent session is working", AgentTools.GetDisplayName(repository.AgentTool))"></span>
                             }
                             </span>
-                            <MudTooltip Text="@L.T("Undock tab")">
-                                <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small"
-                                               Class="repository-undock-button" aria-label="@L.T("Undock tab")"
-                                               OnClick="@(() => UndockRepository(repository))" />
-                            </MudTooltip>
+                            <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small"
+                                           Class="repository-undock-button" aria-label="@L.T("Undock tab")"
+                                           title="@L.T("Undock tab")" OnClick="@(() => UndockRepository(repository))" />
                         </MudStack>
                     </TabContent>
                     <ChildContent>

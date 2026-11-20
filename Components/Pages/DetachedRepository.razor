@@ -21,11 +21,9 @@
         <div @ref="_tabHeader" class="px-2 pb-2 detached-repository-tab-header">
             <img class="repository-agent-logo" src="@AgentLogo(_repository)" alt="" />
             <span>@_title</span>
-            <MudTooltip Text="@L.T("Dock tab")">
-                <MudIconButton Icon="@Icons.Material.Filled.Dock" Size="Size.Small"
-                               Class="repository-dock-button" aria-label="@L.T("Dock tab")"
-                               OnClick="DockTab" />
-            </MudTooltip>
+            <MudIconButton Icon="@Icons.Material.Filled.Dock" Size="Size.Small"
+                           Class="repository-dock-button" aria-label="@L.T("Dock tab")"
+                           title="@L.T("Dock tab")" OnClick="DockTab" />
         </div>
         <RepositoryWorkspace @key="_repository.Id" Repository="_repository" RepositoryTitle="@_title"
                              RepositoryExists="@Directory.Exists(_repository.Path)"

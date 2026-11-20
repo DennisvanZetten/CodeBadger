@@ -11,7 +11,7 @@ public sealed class AiCommitMessageService
 
     public AiCommitMessageService(LocalizationService localization) => _localization = localization;
 
-    public async Task<AiCommitMessageResult> GenerateAsync(LauncherSettings settings, string diff)
+    public async Task<AiCommitMessageResult> GenerateAsync(LauncherSettings settings, string diff, string? branchName = null)
     {
         if (string.IsNullOrWhiteSpace(diff))
             return new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("Please stage at least one change before generating a commit message."));
@@ -25,7 +25,7 @@ public sealed class AiCommitMessageService
         try
         {
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
-            using var request = CreateRequest(provider, uri, settings, boundedDiff);
+            using var request = CreateRequest(provider, uri, settings, boundedDiff, branchName);
             using var response = await client.SendAsync(request);
             var responseBody = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
@@ -59,9 +59,10 @@ public sealed class AiCommitMessageService
             : new AiCommitMessageResult(false, string.Empty, string.Empty, result.Error);
     }
 
-    private static HttpRequestMessage CreateRequest(string provider, Uri endpoint, LauncherSettings settings, string diff)
+    private static HttpRequestMessage CreateRequest(string provider, Uri endpoint, LauncherSettings settings, string diff, string? branchName)
     {
         var prompt = new StringBuilder("Generate a Git commit title and description for the staged changes. Respond only as JSON with string properties \"title\" and \"description\". The title must be concise, imperative mood, and at most 72 characters. The description may be empty.");
+        prompt.Append("\n\nCurrent branch name: ").Append(string.IsNullOrWhiteSpace(branchName) ? "(unavailable)" : branchName.Trim());
         if (!string.IsNullOrWhiteSpace(settings.AiCustomInstruction))
             prompt.Append("\n\nAdditional user instructions:\n").Append(settings.AiCustomInstruction.Trim());
         prompt.Append("\n\nStaged diff:\n").Append(diff);

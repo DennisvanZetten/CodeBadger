@@ -738,7 +738,8 @@
                 return;
             }
 
-            var result = await AiCommitMessageService.GenerateAsync(AiSettings, diff.Output);
+            var branch = await GitBranchService.GetCurrentBranchAsync(RepositoryPath);
+            var result = await AiCommitMessageService.GenerateAsync(AiSettings, diff.Output, branch.Branch);
             if (result.Success)
             {
                 _commitTitle = result.Title;

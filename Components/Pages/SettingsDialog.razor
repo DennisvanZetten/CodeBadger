@@ -40,10 +40,10 @@
                                 <MudSwitch @bind-Value="repository.IsActive" Color="Color.Primary" />
                             </div>
                             <div class="repository-name-control">
-                                <MudTextField @bind-Value="repository.Name" Label="@L.T("Name")" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                 <MudTextField @bind-Value="repository.Name" Label="@L.T("Name")" Placeholder="@L.T("New repository")" Variant="Variant.Outlined" Margin="Margin.Dense" />
                             </div>
                             <div class="repository-path-control">
-                                <MudTextField @bind-Value="repository.Path" Label="@L.T("Path")" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                 <MudTextField @bind-Value="repository.Path" Placeholder="@L.T("Path")" aria-label="@L.T("Path")" Variant="Variant.Outlined" Margin="Margin.Dense" />
                                 <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.FolderOpen" Color="Color.Primary" aria-label="@L.T("Browse for repository folder")"
                                                 Disabled="@(!FolderPicker.IsSupported)" OnClick="@(() => BrowseRepositoryAsync(repository))" />
                             </div>
@@ -449,7 +449,7 @@
         }
     }
 
-    private void AddRepository() => Settings.Repositories.Add(new RepositoryEntry { Name = L.T("New repository") });
+    private void AddRepository() => Settings.Repositories.Add(new RepositoryEntry());
 
     private async Task SetRepositorySlackMutedAsync(RepositoryEntry repository, bool muted)
     {

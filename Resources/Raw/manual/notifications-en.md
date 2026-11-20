@@ -1,4 +1,4 @@
-# CodeBadger notification manual
+# Slack notification manual
 
 This manual explains how to configure Slack notifications, create the Slack app, and use session replies, agent switching, and mute controls.
 

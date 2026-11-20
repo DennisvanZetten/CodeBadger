@@ -1,4 +1,4 @@
-# Handleiding CodeBadger-meldingen
+# Handleiding Slack-meldingen
 
 In deze handleiding lees je hoe je Slack-meldingen instelt, de Slack-app aanmaakt en replies, agentwissels en dempknoppen gebruikt.
 

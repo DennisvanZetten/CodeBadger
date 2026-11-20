@@ -1,4 +1,4 @@
-# Manuel des notifications CodeBadger
+# Manuel des notifications Slack
 
 Ce manuel explique comment configurer les notifications Slack, créer l’application Slack et utiliser les réponses, le changement d’agent et la mise en sourdine.
 

@@ -1,4 +1,4 @@
-# CodeBadger-Benachrichtigungshandbuch
+# Slack-Benachrichtigungshandbuch
 
 Dieses Handbuch erklärt die Einrichtung von Slack-Benachrichtigungen, das Erstellen der Slack-App sowie Antworten, Agentenwechsel und Stummschaltung.
 

@@ -1,7 +1,7 @@
 # End-to-end file isolation with a built-in Windows process and a test repository.
 # No AI-provider requests or production repository files are used.
 $ErrorActionPreference = 'Stop'
-$sources = @('SandboxProcessEnvironment.cs', 'WindowsAppContainerProfile.cs', 'SandboxWorkspace.cs', 'WindowsSandboxProcess.cs') |
+$sources = @('SandboxProcessEnvironment.cs', 'WindowsAppContainerProfile.cs', 'SandboxWorkspace.cs', 'WindowsRepositoryAccessGuardian.cs', 'WindowsSandboxProcess.cs') |
     ForEach-Object { Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "..\Services\$_") }
 Add-Type -TypeDefinition ($sources -join [Environment]::NewLine)
 $repository = Join-Path ([IO.Path]::GetTempPath()) ('CodeBadgerWorkspaceProcess-' + [guid]::NewGuid().ToString('N'))

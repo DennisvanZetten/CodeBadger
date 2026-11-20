@@ -220,6 +220,7 @@
                     <MudNumericField T="int" @bind-Value="Settings.SandboxMaxFileMb" Label="@L.T("Maximum per file (MB)")" Min="1" Max="512" Variant="Variant.Outlined" />
                     <MudNumericField T="int" @bind-Value="Settings.SandboxMaxTotalMb" Label="@L.T("Maximum total selection (MB)")" Min="1" Max="2048" Variant="Variant.Outlined" />
                     <MudText Typo="Typo.caption">@L.T("Applies to new sandbox sessions. Larger limits increase disk and memory use.")</MudText>
+                    <MudAlert Severity="Severity.Info">@L.T("Automatic mode: selections within both limits use copy and review. Exceeding either limit uses direct SDK chat with immediate changes to existing selected files.")</MudAlert>
                 </MudStack>
             </MudTabPanel>
             <MudTabPanel Text="@L.T("Other")" Icon="@Icons.Material.Filled.Tune">

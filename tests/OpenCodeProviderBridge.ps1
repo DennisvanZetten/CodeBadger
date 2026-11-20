@@ -1,6 +1,7 @@
 # Real OpenCode/AppContainer integration against a fake pipe provider only.
 # No provider credentials or external AI requests are used.
-param([Parameter(Mandatory = $true)][string]$OpenCodeExecutable)
+param([Parameter(Mandatory = $true)][string]$OpenCodeExecutable, [switch]$Direct, [switch]$ProbeWithoutFsctlMitigation,
+    [ValidateSet('registryRead', 'lpacAppExperience', 'lpacServicesManagement')][string]$ProbeRuntimeCapability = 'registryRead')
 $ErrorActionPreference = 'Stop'
 $test = @'
 using System;
@@ -9,7 +10,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 public static class OpenCodeProviderTest
 {
-    public static async Task Run(string executable, string assets)
+    public static async Task Run(string executable, string assets, bool direct)
     {
         CodeBadger.Services.SandboxBrokerPipe pipe = null;
         Task serving = null;
@@ -19,12 +20,20 @@ public static class OpenCodeProviderTest
         CodeBadger.Services.WindowsSandboxProcess process = null;
         string repository = Path.Combine(Path.GetTempPath(), "CodeBadgerProviderTest-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(repository);
+        string recovery = Path.Combine(Path.GetTempPath(), "CodeBadgerProviderRecovery-" + Guid.NewGuid().ToString("N"));
+        if (direct)
+        {
+            Directory.CreateDirectory(recovery);
+            File.WriteAllText(Path.Combine(repository, "reviewed.txt"), "synthetic reviewed content");
+            File.Copy(Path.Combine(assets, "repository-guardian.ps1"), Path.Combine(recovery, "repository-guardian.ps1"));
+            File.Copy(Path.GetFullPath(Path.Combine(assets, "../../../Services/WindowsRepositoryAccessLease.cs")), Path.Combine(recovery, "WindowsRepositoryAccessLease.cs"));
+        }
         string consoleOutput = "";
         Task reader = null;
         var answered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
-            terminal = CodeBadger.Services.WindowsSandboxTerminal.StartPrepared(executable, repository, Array.Empty<string>(), (sid, folder) =>
+            Func<string, string, string> prepare = (sid, folder) =>
             {
                 home = folder;
                 pipe = new CodeBadger.Services.SandboxBrokerPipe(sid);
@@ -68,7 +77,10 @@ public static class OpenCodeProviderTest
                 };
                 File.WriteAllText(Path.Combine(folder, "opencode.json"), JsonSerializer.Serialize(config));
                 return "run --standalone --print-logs --log-level error --model codebadger/test-model \"Reply OK without using tools\"";
-            });
+            };
+            terminal = direct
+                ? CodeBadger.Services.WindowsSandboxTerminal.StartDirectPrepared(executable, "", repository, new[] { "reviewed.txt" }, prepare, recovery)
+                : CodeBadger.Services.WindowsSandboxTerminal.StartPrepared(executable, repository, Array.Empty<string>(), prepare);
             process = terminal.Process;
             reader = Task.Run(() =>
             {
@@ -99,7 +111,7 @@ public static class OpenCodeProviderTest
                     ", http hook=" + File.Exists(Path.Combine(home, "adapter-http.txt")) + ". " +
                     (consoleOutput.Length > 6000 ? consoleOutput.Substring(consoleOutput.Length - 6000) : consoleOutput) + diagnostics);
             }
-            Console.WriteLine("OpenCode received a fake provider answer through the AppContainer pipe; explicit stop succeeded.");
+            Console.WriteLine("OpenCode received a fake provider answer through the AppContainer pipe (" + (direct ? "direct LPAC" : "copy") + "); explicit stop succeeded.");
         }
         finally
         {
@@ -126,15 +138,29 @@ public static class OpenCodeProviderTest
                 }
             }
             if (serving != null) { try { await serving.WaitAsync(TimeSpan.FromSeconds(5)); } catch { } }
+            if (direct)
+            {
+                File.Delete(Path.Combine(repository, "reviewed.txt"));
+                foreach (string file in Directory.EnumerateFiles(recovery)) File.Delete(file);
+                Directory.Delete(recovery);
+            }
             Directory.Delete(repository);
         }
     }
 }
 '@
-$sources = @('SandboxProcessEnvironment.cs', 'WindowsAppContainerProfile.cs', 'SandboxWorkspace.cs', 'WindowsSandboxProcess.cs', 'WindowsSandboxTerminal.cs') |
+$sources = @('SandboxProcessEnvironment.cs', 'WindowsAppContainerProfile.cs', 'SandboxWorkspace.cs', 'WindowsRepositoryAccessGuardian.cs', 'WindowsSandboxProcess.cs', 'WindowsSandboxTerminal.cs') |
     ForEach-Object { Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "..\Services\$_") }
 # Test-only flags confirmed in the installed V2 binary. Do not widen host ACLs.
 $sources = $sources | ForEach-Object { $_.Replace('["HOME"] = sandboxHome,', '["HOME"] = sandboxHome, ["OPENCODE_CONFIG_PROJECT_DISABLE"] = "1", ["OPENCODE_CONFIG"] = Path.Combine(sandboxHome, "opencode.json"), ["OPENCODE_DISABLE_MODELS_FETCH"] = "1",') }
+if ($ProbeWithoutFsctlMitigation) {
+    # Diagnostic ONLY on the synthetic test repository. Never used by production startup.
+    $sources = $sources | ForEach-Object { $_.Replace('Marshal.WriteInt64(mitigation, 8, 1L << 56);', 'Marshal.WriteInt64(mitigation, 8, 0);') }
+}
+if ($ProbeRuntimeCapability -ne 'registryRead') {
+    # Isolated test-only runtime capability probe, not a production fallback.
+    $sources = $sources | ForEach-Object { $_.Replace('new[] { "registryRead" }', 'new[] { "registryRead", "' + $ProbeRuntimeCapability + '" }') }
+}
 $pipe = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\SandboxBrokerPipe.cs')
 $pipe = $pipe.Replace('namespace CodeBadger.Services;', 'namespace CodeBadger.Services {') + '}'
 $usings = "#nullable enable annotations`nusing System; using System.IO; using System.Threading; using System.Threading.Tasks;"
@@ -142,4 +168,4 @@ $test = $test.Replace('using System;', '').Replace('using System.IO;', '').Repla
 $errorSource = (Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\SandboxBrokerException.cs')).Replace('namespace CodeBadger.Services;', 'namespace CodeBadger.Services {') + '}'
 Add-Type -TypeDefinition ($usings + 'using System.Text.Json;' + $pipe + $errorSource + ($sources -join [Environment]::NewLine) + $test)
 $assets = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\Resources\Raw\sandbox'))
-$null = [OpenCodeProviderTest]::Run($OpenCodeExecutable, $assets).GetAwaiter().GetResult()
+$null = [OpenCodeProviderTest]::Run($OpenCodeExecutable, $assets, $Direct.IsPresent).GetAwaiter().GetResult()

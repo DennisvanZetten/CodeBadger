@@ -34,6 +34,52 @@ Monitor the run under the repository's Actions tab. When it succeeds, open Relea
 
 ## Local Windows build
 
+### OpenCode sandbox modes
+
+Sandbox mode is selected from the **reviewed file selection**, not the size of excluded
+repository content. At or below the configured per-file and total limits, files are copied
+and changes remain subject to review. Exceeding either size limit selects direct mode.
+Entry/depth limits and unsafe paths are safety errors, not triggers for direct mode.
+
+Direct mode currently supports **editing existing selected files only**. Changes are immediate;
+there is no review copy. Creation, deletion, rename and atomic-replacement saves are blocked.
+Unselected files do not receive access. Symlinks, junctions, hardlinks and unsupported ACLs
+are refused. It requires system-installed PowerShell 7 and Windows support for FSCTL process
+mitigation; unsupported systems fail closed. Direct mode does not add MCP or provider compatibility.
+
+Large selections use a **listenerless SDK chat** in CodeBadger, not the OpenCode TUI.
+Small selections retain the existing OpenCode terminal. The app includes a pinned SDK 2.3.2 /
+Node 24.11.0 runtime archive built by `installer/Build-SandboxSdk.ps1`; its archive and Node
+hashes are checked before repository access is granted. No SDK download or dependency
+installation occurs at sandbox startup. The initial local build needs npm/network access to
+prepare this generated archive. Release builds package it in the signed MSIX.
+
+The chat uses a separate AppContainer-authenticated pipe for bounded prompts, answers and
+tool status. Provider requests still use the existing host-owned approval/key broker.
+Shell execution is denied in direct chat; existing selected files can be edited immediately.
+Live Bonzai requests, MCP integration and installed-MSIX behavior have not been validated
+by the synthetic tests; the provider compatibility limits still apply.
+
+Run `tests/SandboxLpacSdkProbe.ps1 -Prompt -Edit -Runner` to test the packaged runtime,
+two chat prompts, fake provider completion, direct file editing and stop/ACL cleanup.
+Run `tests/SandboxDirectRepository.ps1` for isolation, thresholds and crash/recovery checks.
+
+A less-privileged AppContainer (LPAC) opts out of broad ALL APPLICATION PACKAGES access.
+A separate host guardian holds file/directory handles and journals the original DACL and
+integrity labels before grants. On stop or host termination it stops all sandbox descendants,
+removes access and verifies restoration. Windows may update ACL auto-inheritance bookkeeping;
+the original access rules, ACE inheritance flags and protection remain unchanged. Concurrent
+ACL edits are not overwritten: the sandbox ACE is removed, recovery is reported as incomplete,
+and the journal is retained. Pending journals must recover before another direct session.
+Only one direct session per CodeBadger recovery directory is supported.
+
+**Recovery limitation:** ACLs are persistent, not a kernel-managed expiring lease. Simultaneous
+guardian/host termination or power loss leaves journals for recovery at the next app startup;
+immediate ACL restoration during a machine outage cannot be guaranteed. Direct mode is not a
+solution when that stronger guarantee is required. As with AppContainer generally, Windows
+runtime resources and the sandbox's own profile remain accessible; this is not a literal
+filesystem containing only the repository.
+
 For a local build using the existing long-term PFX and password:
 
 ```powershell

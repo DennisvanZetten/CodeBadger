@@ -38,8 +38,18 @@ namespace CodeBadger.Services
             SandboxWorkspace.Limits? limits = null)
             => StartCore(executable, string.Empty, repositoryPath, selectedFiles, columns, rows, prepare, limits);
 
+        public static WindowsSandboxTerminal StartDirectPrepared(string executable, string arguments, string repositoryPath,
+            IReadOnlyList<string> files, Func<string, string, string>? prepare, string recoveryDirectory)
+            => StartCore(executable, arguments, repositoryPath, files, 120, 30, prepare, null, recoveryDirectory);
+
+        public static WindowsSandboxTerminal StartDirectRuntime(string repositoryPath, IReadOnlyList<string> files,
+            Func<string, string, string> stageRuntime, Func<string, string, string> prepare, string recoveryDirectory)
+            => StartCore(Path.Combine(Environment.SystemDirectory, "cmd.exe"), "", repositoryPath, files, 120, 30,
+                prepare, null, recoveryDirectory, stageRuntime);
+
         private static WindowsSandboxTerminal StartCore(string executable, string arguments, string repositoryPath,
-            IEnumerable<string> selectedFiles, int columns, int rows, Func<string, string, string>? prepare, SandboxWorkspace.Limits? limits = null)
+            IEnumerable<string> selectedFiles, int columns, int rows, Func<string, string, string>? prepare, SandboxWorkspace.Limits? limits = null,
+            string? recoveryDirectory = null, Func<string, string, string>? stageRuntime = null)
         {
             if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
             SafeFileHandle? inputRead = null, inputWrite = null, outputRead = null, outputWrite = null;
@@ -60,7 +70,11 @@ namespace CodeBadger.Services
                 inputWrite = null;
                 output = new FileStream(outputRead, FileAccess.Read, 1, isAsync: false);
                 outputRead = null;
-                process = prepare is null
+                process = stageRuntime != null
+                    ? WindowsSandboxProcess.StartDirectRuntime(repositoryPath, new List<string>(selectedFiles), console, stageRuntime, prepare!, recoveryDirectory!)
+                    : recoveryDirectory != null
+                    ? WindowsSandboxProcess.StartDirectPrepared(executable, arguments, repositoryPath, new List<string>(selectedFiles), console, prepare, recoveryDirectory)
+                    : prepare is null
                     ? WindowsSandboxProcess.StartWithWorkspace(executable, arguments, repositoryPath, selectedFiles, console)
                     : WindowsSandboxProcess.StartWithWorkspacePrepared(executable, repositoryPath, selectedFiles, console, prepare, limits);
                 // Keep ConPTY's supplied endpoints alive until process creation
@@ -116,8 +130,7 @@ namespace CodeBadger.Services
         public void Dispose()
         {
             if (_disposed) return;
-            _disposed = true;
-            try { Process.Dispose(); }
+            try { Process.Dispose(); _disposed = true; }
             finally
             {
                 Input.Dispose(); Output.Dispose();

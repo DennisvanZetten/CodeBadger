@@ -39,7 +39,7 @@ public static class SandboxTerminalTest
     }
 }
 '@
-$sources = @('SandboxProcessEnvironment.cs', 'WindowsAppContainerProfile.cs', 'SandboxWorkspace.cs', 'WindowsSandboxProcess.cs', 'WindowsSandboxTerminal.cs') |
+$sources = @('SandboxProcessEnvironment.cs', 'WindowsAppContainerProfile.cs', 'SandboxWorkspace.cs', 'WindowsRepositoryAccessGuardian.cs', 'WindowsSandboxProcess.cs', 'WindowsSandboxTerminal.cs') |
     ForEach-Object { Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "..\Services\$_") }
 Add-Type -TypeDefinition ($test + [Environment]::NewLine + ($sources -join [Environment]::NewLine))
 $repository = Join-Path ([IO.Path]::GetTempPath()) ('CodeBadgerTerminalTest-' + [guid]::NewGuid().ToString('N'))

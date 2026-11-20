@@ -66,9 +66,10 @@ $pipe = $pipe.Replace('namespace CodeBadger.Services;', 'namespace CodeBadger.Se
 $profile = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\WindowsAppContainerProfile.cs')
 $process = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\WindowsSandboxProcess.cs')
 $workspace = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\SandboxWorkspace.cs')
+$guardian = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\WindowsRepositoryAccessGuardian.cs')
 $environment = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\SandboxProcessEnvironment.cs')
 $usings = "#nullable enable annotations`nusing System; using System.IO; using System.Threading; using System.Threading.Tasks;"
 $test = $test.Replace('using System;', '').Replace('using System.IO.Pipes;', '').Replace('using System.Threading.Tasks;', '')
 $errorSource = (Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\SandboxBrokerException.cs')).Replace('namespace CodeBadger.Services;', 'namespace CodeBadger.Services {') + '}'
-Add-Type -TypeDefinition ($usings + $pipe + $errorSource + $profile + $process + $workspace + $environment + $test)
+Add-Type -TypeDefinition ($usings + $pipe + $errorSource + $profile + $process + $workspace + $guardian + $environment + $test)
 $null = [BrokerPipeTest]::Run($TestIdleTimeout.IsPresent).GetAwaiter().GetResult()

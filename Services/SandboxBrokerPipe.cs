@@ -21,11 +21,14 @@ public sealed class SandboxBrokerPipe : IDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private bool _disposed;
     private int _started;
+    private readonly int _maxMessages;
     public string Name { get; }
     public string HostName { get; }
 
-    public SandboxBrokerPipe(string appContainerSid)
+    public SandboxBrokerPipe(string appContainerSid, int maxMessages = 1000)
     {
+        if (maxMessages is < 1 or > 432000) throw new ArgumentOutOfRangeException(nameof(maxMessages));
+        _maxMessages = maxMessages;
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
         var sid = new SecurityIdentifier(appContainerSid);
         if (!sid.Value.StartsWith("S-1-15-2-", StringComparison.Ordinal))
@@ -81,7 +84,7 @@ public sealed class SandboxBrokerPipe : IDisposable
                 await _pipe.ReadExactlyAsync(header.AsMemory(0, 1), authenticationTimeout.Token);
                 ValidateClient();
             }
-            for (int messages = 0; messages < 1000; messages++)
+            for (int messages = 0; messages < _maxMessages; messages++)
             {
                 // Waiting for the next user prompt is not an in-flight request.
                 // Keep the authenticated session alive until explicit shutdown;

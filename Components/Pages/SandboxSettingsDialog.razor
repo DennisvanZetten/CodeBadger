@@ -25,7 +25,7 @@
                     <SandboxFileTree Entries="@_tree" Selected="@_selectedFiles" SelectionChanged="SelectionChanged" />
                 </MudPaper>
             }
-            <MudAlert Severity="Severity.Warning">@L.T("Selected files and folders are copied automatically on startup. Review selected content for secrets; detection is not guaranteed.")</MudAlert>
+            <MudAlert Severity="Severity.Warning">@L.T("Selections within the general sandbox size limits are copied for review. Larger selections use temporary access to real selected files: changes are immediate, and creating, deleting and renaming files is blocked. Review selected content for secrets; detection is not guaranteed.")</MudAlert>
             @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
         </MudStack>
     </DialogContent>

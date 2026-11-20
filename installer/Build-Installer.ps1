@@ -28,6 +28,7 @@ if (@($versionParts | Where-Object { $_ -gt 65535 }).Count -gt 0) {
 
 $projectDirectory = Split-Path -Parent $PSScriptRoot
 $projectFile = Join-Path $projectDirectory "CodeBadger.csproj"
+& (Join-Path $PSScriptRoot 'Build-SandboxSdk.ps1')
 $outputDirectory = Join-Path $projectDirectory "artifacts\installer\$Version"
 $appPackagesDirectory = Join-Path $projectDirectory "artifacts\installer\.packages\$Version"
 $appPackagesDirectoryRelative = "artifacts/installer/.packages/$Version/"

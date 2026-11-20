@@ -25,6 +25,41 @@ namespace CodeBadger.Services
             public long TotalBytes => (long)Math.Clamp(TotalMb, 1, 2048) * 1024 * 1024;
         }
         public sealed record PreparedWorkspace(string Directory, IReadOnlyList<PreparedFile> Files, Limits Limits);
+        public enum AccessMode { Copy, Direct }
+        public sealed record Assessment(AccessMode Mode, IReadOnlyList<string> Files, long TotalBytes, long LargestFileBytes);
+
+        /// <summary>Size is measured over the reviewed selection, never over excluded secrets.
+        /// Safety/entry limits are not size thresholds and must never trigger a less safe fallback.</summary>
+        public static Assessment Assess(string repositoryPath, IEnumerable<string> selectedFiles, Limits? limits = null)
+        {
+            limits ??= new Limits();
+            if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+            if (!Path.IsPathFullyQualified(repositoryPath)) throw new ArgumentException("An absolute repository path is required.");
+            string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(repositoryPath));
+            var locks = new List<SafeFileHandle>();
+            try
+            {
+                LockAncestors(root, locks);
+                string[] files = ExpandSelections(root, selectedFiles.Select(ValidateSelection));
+                if (files.Length > 10000) throw new InvalidDataException("Selection exceeds the 10,000 file safety limit.");
+                long total = 0, largest = 0;
+                foreach (string relative in files)
+                {
+                    string path = Path.Combine(root, relative);
+                    LockAncestors(Path.GetDirectoryName(path)!, locks);
+                    using var handle = OpenLocked(path, false);
+                    if (!GetFileInformationByHandle(handle, out FileInformation info)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                    if ((info.Attributes & (uint)(FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0 || info.Links != 1)
+                        throw new UnauthorizedAccessException("Linked files are not allowed in a sandbox selection.");
+                    long length = checked(((long)info.SizeHigh << 32) | info.SizeLow);
+                    total = checked(total + length);
+                    largest = Math.Max(largest, length);
+                }
+                return new Assessment(largest > limits.FileBytes || total > limits.TotalBytes ? AccessMode.Direct : AccessMode.Copy,
+                    Array.AsReadOnly(files), total, largest);
+            }
+            finally { foreach (var handle in locks) handle.Dispose(); }
+        }
         public sealed record BrowserEntry(string Name, string RelativePath, bool IsDirectory, bool IsSensitive, IReadOnlyList<BrowserEntry> Children);
 
         /// <summary>Lists a bounded tree without following links or exposing sensitive paths as selectable entries.</summary>

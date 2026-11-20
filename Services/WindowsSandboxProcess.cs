@@ -21,6 +21,9 @@ namespace CodeBadger.Services
         private IntPtr _process;
         private WindowsAppContainerProfile _profile;
         private bool _disposed;
+        private WindowsRepositoryAccessGuardian? _repositoryAccess;
+        public SandboxWorkspace.AccessMode Mode { get; private set; } = SandboxWorkspace.AccessMode.Copy;
+        public System.Threading.Tasks.Task? RepositoryGuardianCompletion => _repositoryAccess?.Completion;
 
         public SandboxWorkspace.PreparedWorkspace? Workspace { get; private set; }
 
@@ -86,15 +89,33 @@ namespace CodeBadger.Services
             return StartStagedCore(executable, string.Empty, repositoryPath, selectedFiles, pseudoConsole, prepare, limits);
         }
 
+        public static WindowsSandboxProcess StartDirectPrepared(string executable, string arguments, string repositoryPath,
+            IReadOnlyList<string> files, IntPtr pseudoConsole, Func<string, string, string>? prepare, string recoveryDirectory)
+        {
+            var assessment = SandboxWorkspace.Assess(repositoryPath, files);
+            return StartStagedCore(executable, arguments, repositoryPath, assessment.Files, pseudoConsole, prepare, null, recoveryDirectory);
+        }
+
+        public static WindowsSandboxProcess StartDirectRuntime(string repositoryPath, IReadOnlyList<string> files,
+            IntPtr pseudoConsole, Func<string, string, string> stageRuntime, Func<string, string, string> prepare, string recoveryDirectory)
+        {
+            var assessment = SandboxWorkspace.Assess(repositoryPath, files);
+            return StartStagedCore(Path.Combine(Environment.SystemDirectory, "cmd.exe"), "", repositoryPath,
+                assessment.Files, pseudoConsole, prepare, null, recoveryDirectory, stageRuntime);
+        }
+
         private static WindowsSandboxProcess StartStagedCore(string executable, string arguments,
             string? repositoryPath, IEnumerable<string>? selectedFiles, IntPtr pseudoConsole = default,
-            Func<string, string, string>? prepare = null, SandboxWorkspace.Limits? limits = null)
+            Func<string, string, string>? prepare = null, SandboxWorkspace.Limits? limits = null, string? recoveryDirectory = null,
+            Func<string, string, string>? stageRuntime = null)
         {
             ValidateStart(executable, arguments, Environment.SystemDirectory);
             var profile = WindowsAppContainerProfile.Create();
             string stagedExecutable;
             byte[] environment;
             SandboxWorkspace.PreparedWorkspace? workspace = null;
+            WindowsRepositoryAccessGuardian? access = null;
+            IntPtr directJob = IntPtr.Zero;
             try
             {
                 string bin = Path.Combine(profile.FolderPath, "bin");
@@ -104,8 +125,22 @@ namespace CodeBadger.Services
                 Directory.CreateDirectory(Path.Combine(profile.FolderPath, "AppData", "Roaming"));
                 stagedExecutable = Path.Combine(bin, Path.GetFileName(executable));
                 File.Copy(executable, stagedExecutable, overwrite: false);
-                if (repositoryPath != null)
+                if (stageRuntime != null)
+                {
+                    stagedExecutable = stageRuntime(profile.Sid, profile.FolderPath);
+                    if (!Path.GetFullPath(stagedExecutable).StartsWith(profile.FolderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || !File.Exists(stagedExecutable))
+                        throw new UnauthorizedAccessException("Runtime must be staged inside the private sandbox profile.");
+                }
+                if (repositoryPath != null && recoveryDirectory == null)
                     workspace = SandboxWorkspace.Create(repositoryPath, profile.FolderPath, selectedFiles!, limits);
+                if (recoveryDirectory != null)
+                {
+                    profile.EnableLpacRuntime();
+                    string jobName = "Local\\CodeBadger.Repository." + Guid.NewGuid().ToString("N");
+                    directJob = CreateJobObjectW(IntPtr.Zero, jobName);
+                    if (directJob == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+                    access = WindowsRepositoryAccessGuardian.Grant(repositoryPath!, new List<string>(selectedFiles!), profile.Sid, recoveryDirectory, jobName);
+                }
                 environment = SandboxProcessEnvironment.CreateWindowsBlock(
                     Environment.GetFolderPath(Environment.SpecialFolder.Windows), profile.FolderPath);
                 if (prepare is not null)
@@ -117,11 +152,21 @@ namespace CodeBadger.Services
             }
             catch
             {
-                try { profile.Dispose(); } catch { /* Preserve preparation failure. */ }
+                try { access?.Dispose(); }
+                finally
+                {
+                    if (directJob != IntPtr.Zero) CloseHandle(directJob);
+                    try { profile.Dispose(); } catch { /* Preserve preparation failure. */ }
+                }
                 throw;
             }
-            var process = StartCore(stagedExecutable, arguments, workspace == null ? profile.FolderPath : workspace.Directory, environment, profile, pseudoConsole);
+            WindowsSandboxProcess process;
+            try { process = StartCore(stagedExecutable, arguments, recoveryDirectory != null ? repositoryPath! : workspace == null ? profile.FolderPath : workspace.Directory,
+                environment, profile, pseudoConsole, directJob); }
+            catch { access?.Dispose(); throw; }
             process.Workspace = workspace;
+            process._repositoryAccess = access;
+            if (access != null) process.Mode = SandboxWorkspace.AccessMode.Direct;
             return process;
         }
 
@@ -137,14 +182,15 @@ namespace CodeBadger.Services
         }
 
         private static WindowsSandboxProcess StartCore(string executable, string arguments, string workingDirectory,
-            byte[] environment, WindowsAppContainerProfile profile, IntPtr pseudoConsole = default)
+            byte[] environment, WindowsAppContainerProfile profile, IntPtr pseudoConsole = default, IntPtr existingJob = default)
         {
             IntPtr job = IntPtr.Zero, process = IntPtr.Zero, thread = IntPtr.Zero;
             IntPtr attributes = IntPtr.Zero, env = IntPtr.Zero, limitsPointer = IntPtr.Zero;
+            IntPtr jobAttribute = IntPtr.Zero, mitigation = IntPtr.Zero, packagePolicy = IntPtr.Zero;
             bool initialized = false, assigned = false, success = false;
             try
             {
-                job = CreateJobObjectW(IntPtr.Zero, IntPtr.Zero);
+                job = existingJob != IntPtr.Zero ? existingJob : CreateJobObjectW(IntPtr.Zero, null);
                 if (job == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
                 var limits = new JobExtendedLimitInformation();
                 limits.BasicLimitInformation.LimitFlags = 0x00002000; // KILL_ON_JOB_CLOSE
@@ -154,7 +200,7 @@ namespace CodeBadger.Services
                     throw new Win32Exception(Marshal.GetLastWin32Error());
 
                 nuint size = 0;
-                int attributeCount = pseudoConsole == IntPtr.Zero ? 1 : 2;
+                int attributeCount = (pseudoConsole == IntPtr.Zero ? 1 : 2) + (existingJob != IntPtr.Zero ? 3 : 0);
                 InitializeProcThreadAttributeList(IntPtr.Zero, attributeCount, 0, ref size);
                 if (size == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
                 attributes = Marshal.AllocHGlobal((IntPtr)size);
@@ -166,6 +212,27 @@ namespace CodeBadger.Services
                 if (!UpdateProcThreadAttribute(attributes, 0, 0x00020009, profile.SecurityCapabilities,
                         (nuint)(IntPtr.Size * 2 + sizeof(uint) * 2), IntPtr.Zero, IntPtr.Zero))
                     throw new Win32Exception(Marshal.GetLastWin32Error());
+                if (existingJob != IntPtr.Zero)
+                {
+                    // Atomic job membership closes the host-crash window between
+                    // CreateProcess and AssignProcessToJobObject.
+                    jobAttribute = Marshal.AllocHGlobal(IntPtr.Size);
+                    Marshal.WriteIntPtr(jobAttribute, job);
+                    if (!UpdateProcThreadAttribute(attributes, 0, 0x0002000d, jobAttribute, (nuint)IntPtr.Size, IntPtr.Zero, IntPtr.Zero))
+                        throw new Win32Exception(Marshal.GetLastWin32Error());
+                    // Deny FSCTLs (including turning writable files into reparse points).
+                    // Unsupported Windows versions refuse process creation, never omit this.
+                    mitigation = Marshal.AllocHGlobal(16);
+                    Marshal.WriteInt64(mitigation, 0, 0);
+                    Marshal.WriteInt64(mitigation, 8, 1L << 56);
+                    if (!UpdateProcThreadAttribute(attributes, 0, 0x00020007, mitigation, 16, IntPtr.Zero, IntPtr.Zero))
+                        throw new Win32Exception(Marshal.GetLastWin32Error());
+                    // LPAC opts out of broad ALL APPLICATION PACKAGES grants on
+                    // unrelated user data. Copy mode retains its existing behavior.
+                    packagePolicy = Marshal.AllocHGlobal(4); Marshal.WriteInt32(packagePolicy, 1);
+                    if (!UpdateProcThreadAttribute(attributes, 0, 0x0002000f, packagePolicy, 4, IntPtr.Zero, IntPtr.Zero))
+                        throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
 
 
                 env = Marshal.AllocHGlobal(environment.Length);
@@ -179,7 +246,7 @@ namespace CodeBadger.Services
                     throw new Win32Exception(Marshal.GetLastWin32Error());
                 process = info.Process;
                 thread = info.Thread;
-                if (!AssignProcessToJobObject(job, process)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                if (existingJob == IntPtr.Zero && !AssignProcessToJobObject(job, process)) throw new Win32Exception(Marshal.GetLastWin32Error());
                 assigned = true;
                 if (ResumeThread(thread) == uint.MaxValue) throw new Win32Exception(Marshal.GetLastWin32Error());
                 var result = new WindowsSandboxProcess(job, process, profile);
@@ -191,6 +258,9 @@ namespace CodeBadger.Services
                 if (thread != IntPtr.Zero) CloseHandle(thread);
                 if (initialized) DeleteProcThreadAttributeList(attributes);
                 if (attributes != IntPtr.Zero) Marshal.FreeHGlobal(attributes);
+                if (jobAttribute != IntPtr.Zero) Marshal.FreeHGlobal(jobAttribute);
+                if (mitigation != IntPtr.Zero) Marshal.FreeHGlobal(mitigation);
+                if (packagePolicy != IntPtr.Zero) Marshal.FreeHGlobal(packagePolicy);
                 if (env != IntPtr.Zero) Marshal.FreeHGlobal(env);
                 if (limitsPointer != IntPtr.Zero) Marshal.FreeHGlobal(limitsPointer);
                 if (!success)
@@ -244,6 +314,12 @@ namespace CodeBadger.Services
         public void Dispose()
         {
             if (_disposed) return;
+            if (_repositoryAccess != null)
+            {
+                Stop();
+                _repositoryAccess.Dispose(); // successful disposal means descendants stopped and ACLs verified
+                _repositoryAccess = null;
+            }
             _disposed = true;
             if (_job != IntPtr.Zero) { CloseHandle(_job); _job = IntPtr.Zero; }
             if (_process != IntPtr.Zero) { WaitForSingleObject(_process, 5000); CloseHandle(_process); _process = IntPtr.Zero; }
@@ -287,7 +363,7 @@ namespace CodeBadger.Services
         }
         [DllImport("kernel32.dll", SetLastError = true)] private static extern bool QueryInformationJobObject(IntPtr job, int infoClass,
             out JobBasicAccountingInformation information, uint length, IntPtr returnLength);
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr CreateJobObjectW(IntPtr attributes, IntPtr name);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr CreateJobObjectW(IntPtr attributes, string? name);
         [DllImport("kernel32.dll", SetLastError = true)] private static extern bool SetInformationJobObject(IntPtr job, int infoClass, IntPtr info, uint length);
         [DllImport("kernel32.dll", SetLastError = true)] private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
         [DllImport("kernel32.dll", SetLastError = true)] private static extern bool TerminateJobObject(IntPtr job, uint code);

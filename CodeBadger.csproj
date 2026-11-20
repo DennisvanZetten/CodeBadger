@@ -65,6 +65,7 @@
 
         <!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
         <MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+        <MauiAsset Include="Services\WindowsRepositoryAccessLease.cs" LogicalName="sandbox/WindowsRepositoryAccessLease.cs" />
     </ItemGroup>
 
     <ItemGroup>
@@ -80,4 +81,10 @@
         <AssemblyMetadata Include="CodeBadgerSigningCertificateThumbprint" Value="$(CodeBadgerSigningCertificateThumbprint)" />
     </ItemGroup>
 
+    <Target Name="PrepareSandboxSdk" BeforeTargets="PrepareForBuild" Condition="$([MSBuild]::IsOSPlatform('windows')) and '$(DesignTimeBuild)' != 'true' and !Exists('Resources\Raw\sandbox-sdk\runtime.zip')">
+        <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildProjectDirectory)\installer\Build-SandboxSdk.ps1&quot;" />
+        <ItemGroup>
+            <MauiAsset Include="Resources\Raw\sandbox-sdk\*" LogicalName="sandbox-sdk/%(Filename)%(Extension)" />
+        </ItemGroup>
+    </Target>
 </Project>

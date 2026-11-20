@@ -28,7 +28,7 @@ public static class SandboxSessionTest
     }
 }
 '@
-$sources = @('SandboxProcessEnvironment.cs', 'WindowsAppContainerProfile.cs', 'SandboxWorkspace.cs', 'WindowsSandboxProcess.cs', 'WindowsSandboxTerminal.cs') |
+$sources = @('SandboxProcessEnvironment.cs', 'WindowsAppContainerProfile.cs', 'SandboxWorkspace.cs', 'WindowsRepositoryAccessGuardian.cs', 'WindowsSandboxProcess.cs', 'WindowsSandboxTerminal.cs') |
     ForEach-Object { Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "..\Services\$_") }
 $service = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\WindowsSandboxSessionService.cs')
 $service = $service.Replace('namespace CodeBadger.Services;', 'namespace CodeBadger.Services {') + '}'
@@ -36,10 +36,20 @@ $usings = "#nullable enable annotations`nusing System; using System.IO; using Sy
 $support = @'
 public static class FileSystem
 {
+    public static string AppDataDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodeBadgerSessionTestRecovery");
     public static Task<Stream> OpenAppPackageFileAsync(string name) => throw new NotSupportedException("Not used by this test.");
 }
 namespace CodeBadger.Services
 {
+    public sealed partial class WindowsSandboxSessionService
+    {
+        private Task StartSdkOpenCodeAsync(Guid id, string path, IReadOnlyList<string> files, Uri endpoint, string model, string key, SandboxNetworkBroker broker, SandboxApprovalService approvals)
+        {
+            ChatUpdated?.Invoke(id, "error", "Not used by copy-mode tests.");
+            throw new NotSupportedException("Not used by copy-mode tests.");
+        }
+    }
+    public sealed class SandboxSdkChatBridge : IDisposable { public void Dispose() { } }
     public sealed class SandboxNetworkBroker { }
     public sealed class SandboxApprovalService { }
     public sealed class SandboxProviderBridge : IDisposable

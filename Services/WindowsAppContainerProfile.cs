@@ -3,6 +3,7 @@ namespace CodeBadger.Services
     using System;
     using System.Runtime.InteropServices;
     using System.Threading;
+    using System.Collections.Generic;
 
     /// <summary>
     /// A temporary Windows AppContainer identity with no capabilities. This is
@@ -15,6 +16,8 @@ namespace CodeBadger.Services
         private IntPtr _sid;
         private IntPtr _securityCapabilities;
         private bool _disposed;
+        private IntPtr _runtimeCapability;
+        private readonly List<IntPtr> _runtimeCapabilitySids = new List<IntPtr>();
 
         private WindowsAppContainerProfile(string name, IntPtr sid)
         {
@@ -35,6 +38,39 @@ namespace CodeBadger.Services
                 ObjectDisposedException.ThrowIf(_disposed, this);
                 return _securityCapabilities;
             }
+        }
+
+        /// <summary>LPAC needs explicit read-only Windows registry access for Winsock
+        /// initialization. This is not a network capability or a filesystem grant.</summary>
+        public void EnableLpacRuntime()
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_runtimeCapability != IntPtr.Zero) throw new InvalidOperationException("Runtime already configured.");
+            string[] names = new[] { "registryRead" };
+            int stride = Marshal.SizeOf<SidAndAttributes>();
+            _runtimeCapability = Marshal.AllocHGlobal(stride * names.Length);
+            for (int n = 0; n < names.Length; n++)
+            {
+                if (!DeriveCapabilitySidsFromName(names[n], out IntPtr groups, out uint groupCount, out IntPtr capabilities, out uint count))
+                    throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+                try
+                {
+                if (count != 1) throw new InvalidOperationException("Windows returned an unexpected registry runtime capability.");
+                IntPtr sid = Marshal.ReadIntPtr(capabilities);
+                uint length = GetLengthSid(sid);
+                IntPtr copiedSid = Marshal.AllocHGlobal((int)length);
+                _runtimeCapabilitySids.Add(copiedSid);
+                if (!CopySid(length, copiedSid, sid)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+                Marshal.StructureToPtr(new SidAndAttributes { Sid = copiedSid, Attributes = 4 }, IntPtr.Add(_runtimeCapability, stride * n), false);
+                }
+                finally
+                {
+                for (int i = 0; i < groupCount; i++) LocalFree(Marshal.ReadIntPtr(groups, i * IntPtr.Size));
+                for (int i = 0; i < count; i++) LocalFree(Marshal.ReadIntPtr(capabilities, i * IntPtr.Size));
+                LocalFree(groups); LocalFree(capabilities);
+                }
+            }
+            Marshal.StructureToPtr(new NativeSecurityCapabilities { AppContainerSid = _sid, Capabilities = _runtimeCapability, CapabilityCount = (uint)names.Length }, _securityCapabilities, false);
         }
 
         public static WindowsAppContainerProfile Create()
@@ -104,6 +140,9 @@ namespace CodeBadger.Services
                 Marshal.FreeHGlobal(_securityCapabilities);
                 _securityCapabilities = IntPtr.Zero;
             }
+            if (_runtimeCapability != IntPtr.Zero) { Marshal.FreeHGlobal(_runtimeCapability); _runtimeCapability = IntPtr.Zero; }
+            foreach (IntPtr sid in _runtimeCapabilitySids) Marshal.FreeHGlobal(sid);
+            _runtimeCapabilitySids.Clear();
             if (_sid != IntPtr.Zero)
             {
                 FreeSid(_sid);
@@ -132,6 +171,10 @@ namespace CodeBadger.Services
             public uint CapabilityCount;
             public uint Reserved;
         }
+        [StructLayout(LayoutKind.Sequential)] private struct SidAndAttributes { public IntPtr Sid; public uint Attributes; }
+        [DllImport("kernelbase.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)] private static extern bool DeriveCapabilitySidsFromName(string name, out IntPtr groups, out uint groupCount, out IntPtr capabilities, out uint count);
+        [DllImport("advapi32.dll")] private static extern uint GetLengthSid(IntPtr sid);
+        [DllImport("advapi32.dll", SetLastError = true)] private static extern bool CopySid(uint length, IntPtr destination, IntPtr source);
 
         [DllImport("userenv.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
         private static extern int CreateAppContainerProfile(string name, string displayName, string description,

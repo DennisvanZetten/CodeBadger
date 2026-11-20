@@ -158,6 +158,8 @@ else
     protected override async Task OnInitializedAsync()
     {
         _settings = StartupSettings ?? await SettingsService.LoadAsync();
+        try { await WindowsRepositoryAccessGuardian.RecoverPendingAsync(FileSystem.AppDataDirectory, FileSystem.OpenAppPackageFileAsync); }
+        catch (Exception error) { Snackbar.Add("Repository access recovery failed: " + error.Message, Severity.Error); }
         SettingsService.SettingsSaved += HandleSettingsSaved;
         SandboxApprovals.Requested += HandleSandboxApproval;
         SandboxSessions.StateChanged += HandleSandboxState;

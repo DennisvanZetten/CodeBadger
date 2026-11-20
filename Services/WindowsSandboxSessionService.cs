@@ -7,7 +7,7 @@ namespace CodeBadger.Services;
 /// Manages isolated, no-network terminals and host-owned review snapshots.
 /// No automatic OpenCode startup: provider transport must be prepared first.
 /// </summary>
-public sealed class WindowsSandboxSessionService : IAsyncDisposable
+public sealed partial class WindowsSandboxSessionService : IAsyncDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly ConcurrentDictionary<Guid, Session> _sessions = new();
@@ -16,6 +16,7 @@ public sealed class WindowsSandboxSessionService : IAsyncDisposable
     public event Action<Guid, string>? OutputReceived;
     public event Action<Guid>? StateChanged;
     public event Action<Guid, string>? ProviderFailed;
+    public event Action<Guid, string, string>? ChatUpdated;
 
     private sealed class Session
     {
@@ -23,10 +24,14 @@ public sealed class WindowsSandboxSessionService : IAsyncDisposable
         public required WindowsSandboxTerminal Terminal { get; init; }
         public Task Reader { get; set; } = Task.CompletedTask;
         public SandboxProviderBridge? Bridge { get; init; }
+        public SandboxSdkChatBridge? Chat { get; init; }
+        public volatile bool Stopping;
     }
     private sealed record Review(string RepositoryPath, IReadOnlyList<SandboxWorkspace.FileChange> Changes);
 
     public bool IsRunning(Guid repositoryId) => _sessions.ContainsKey(repositoryId);
+    public SandboxWorkspace.AccessMode? GetMode(Guid repositoryId) => _sessions.TryGetValue(repositoryId, out var session)
+        ? session.Terminal.Process.Mode : null;
 
     public IReadOnlyList<SandboxWorkspace.FileChange> GetChanges(Guid repositoryId, string repositoryPath)
         => _reviews.TryGetValue(repositoryId, out var review) &&
@@ -42,6 +47,12 @@ public sealed class WindowsSandboxSessionService : IAsyncDisposable
         IReadOnlyList<string> selectedFiles, Uri endpoint, string model, string hostApiKey,
         SandboxNetworkBroker broker, SandboxApprovalService approvals, SandboxWorkspace.Limits? limits = null)
     {
+        var assessment = await Task.Run(() => SandboxWorkspace.Assess(repositoryPath, selectedFiles, limits));
+        if (assessment.Mode == SandboxWorkspace.AccessMode.Direct)
+        {
+            await StartSdkOpenCodeAsync(repositoryId, repositoryPath, assessment.Files, endpoint, model, hostApiKey, broker, approvals);
+            return;
+        }
         string pluginSource;
         string transportSource;
         using (var reader = new StreamReader(await FileSystem.OpenAppPackageFileAsync("sandbox/server.mjs")))
@@ -76,7 +87,20 @@ public sealed class WindowsSandboxSessionService : IAsyncDisposable
             WindowsSandboxTerminal terminal;
             try
             {
-                terminal = await Task.Run(() => prepare is null
+                var assessment = await Task.Run(() => SandboxWorkspace.Assess(path, selectedFiles, limits));
+                if (prepare is not null && assessment.Mode == SandboxWorkspace.AccessMode.Direct)
+                    throw new IOException("The selection grew past its copy limits during startup. Restart to use direct SDK chat; no repository access was granted.");
+                await WindowsRepositoryAccessGuardian.RecoverPendingAsync(FileSystem.AppDataDirectory, FileSystem.OpenAppPackageFileAsync);
+                string? recovery = assessment.Mode == SandboxWorkspace.AccessMode.Direct
+                    ? await WindowsRepositoryAccessGuardian.PrepareAsync(FileSystem.AppDataDirectory, FileSystem.OpenAppPackageFileAsync) : null;
+                Func<string, string, string>? callback = prepare is null ? null : (sid, folder) =>
+                {
+                    bridge = prepare(sid, folder);
+                    return arguments;
+                };
+                terminal = await Task.Run(() => recovery != null
+                    ? WindowsSandboxTerminal.StartDirectPrepared(executable, arguments, path, assessment.Files, callback, recovery)
+                    : prepare is null
                     ? WindowsSandboxTerminal.Start(executable, arguments, path, selectedFiles)
                     : WindowsSandboxTerminal.StartPrepared(executable, path, selectedFiles, (sid, folder) =>
                     {
@@ -89,6 +113,7 @@ public sealed class WindowsSandboxSessionService : IAsyncDisposable
             _sessions[repositoryId] = session;
             session.Reader = Task.Run(() => ReadOutput(repositoryId, session));
             if (bridge is not null) _ = MonitorBridgeAsync(repositoryId, session);
+            if (terminal.Process.RepositoryGuardianCompletion is not null) _ = MonitorGuardianAsync(repositoryId, session);
         }
         finally { _gate.Release(); }
         StateChanged?.Invoke(repositoryId);
@@ -121,10 +146,15 @@ public sealed class WindowsSandboxSessionService : IAsyncDisposable
         {
             if (!_sessions.TryGetValue(repositoryId, out var session)) return;
             // Never report successful revocation while descendants are running.
+            session.Stopping = true;
             await Task.Run(session.Terminal.Process.Stop);
             session.Bridge?.Dispose();
-            var changes = await Task.Run(() => session.Terminal.Process.StopAndCaptureChanges());
-            _reviews[repositoryId] = new Review(session.RepositoryPath, changes);
+            session.Chat?.Dispose();
+            if (session.Terminal.Process.Mode == SandboxWorkspace.AccessMode.Copy)
+            {
+                var changes = await Task.Run(() => session.Terminal.Process.StopAndCaptureChanges());
+                _reviews[repositoryId] = new Review(session.RepositoryPath, changes);
+            }
             // Reader remains active while ConPTY emits final output on close.
             await Task.Run(session.Terminal.CloseConsole);
             await session.Reader.WaitAsync(TimeSpan.FromSeconds(10));
@@ -181,6 +211,24 @@ public sealed class WindowsSandboxSessionService : IAsyncDisposable
                 try { listener(repositoryId, message); } catch { }
             }
         }
+    }
+
+    private async Task MonitorGuardianAsync(Guid repositoryId, Session session)
+    {
+        await session.Terminal.Process.RepositoryGuardianCompletion!;
+        await _gate.WaitAsync();
+        try
+        {
+            if (!_sessions.TryGetValue(repositoryId, out var active) || !ReferenceEquals(active, session)) return;
+            await Task.Run(session.Terminal.Process.Stop);
+            session.Bridge?.Dispose();
+            session.Chat?.Dispose();
+            foreach (Action<Guid, string> listener in ProviderFailed?.GetInvocationList() ?? [])
+            {
+                try { listener(repositoryId, "Repository guardian stopped unexpectedly. Sandbox processes were stopped; ACL recovery must be verified before another direct session."); } catch { }
+            }
+        }
+        finally { _gate.Release(); }
     }
 
     private void PublishOutput(Guid repositoryId, string text)

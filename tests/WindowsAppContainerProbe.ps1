@@ -183,7 +183,8 @@ $environmentSource = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\
 $profileSource = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\WindowsAppContainerProfile.cs')
 $launcherSource = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\WindowsSandboxProcess.cs')
 $workspaceSource = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\SandboxWorkspace.cs')
-Add-Type -TypeDefinition ($probeSource + [Environment]::NewLine + $environmentSource + [Environment]::NewLine + $profileSource + [Environment]::NewLine + $workspaceSource + [Environment]::NewLine + $launcherSource)
+$guardianSource = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\Services\WindowsRepositoryAccessGuardian.cs')
+Add-Type -TypeDefinition ($probeSource + [Environment]::NewLine + $environmentSource + [Environment]::NewLine + $profileSource + [Environment]::NewLine + $workspaceSource + [Environment]::NewLine + $guardianSource + [Environment]::NewLine + $launcherSource)
 
 $directory = Join-Path ([System.IO.Path]::GetTempPath()) ('CodeBadgerProbe-' + [guid]::NewGuid().ToString('N'))
 $privateFile = Join-Path $directory 'private.txt'

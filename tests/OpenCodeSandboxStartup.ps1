@@ -2,7 +2,7 @@
 # Uses only a generated test repository; no host credentials or AI provider.
 param([Parameter(Mandatory = $true)][string]$OpenCodeExecutable)
 $ErrorActionPreference = 'Stop'
-$sources = @('SandboxProcessEnvironment.cs', 'WindowsAppContainerProfile.cs', 'SandboxWorkspace.cs', 'WindowsSandboxProcess.cs') |
+$sources = @('SandboxProcessEnvironment.cs', 'WindowsAppContainerProfile.cs', 'SandboxWorkspace.cs', 'WindowsRepositoryAccessGuardian.cs', 'WindowsSandboxProcess.cs') |
     ForEach-Object { Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "..\Services\$_") }
 Add-Type -TypeDefinition ($sources -join [Environment]::NewLine)
 $repository = Join-Path ([IO.Path]::GetTempPath()) ('CodeBadgerOpenCodeTest-' + [guid]::NewGuid().ToString('N'))

@@ -21,3 +21,9 @@
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# SDK probe dependencies and generated standalone artifacts
+node_modules/
+tests/sdk-probe/*.exe
+tests/sdk-probe/bundled-*.mjs
+Resources/Raw/sandbox-sdk/

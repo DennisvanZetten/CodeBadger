@@ -18,11 +18,29 @@
         </MudStack>
     }
     @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+    @if (_direct)
+    {
+        <MudAlert Severity="Severity.Warning">@L.T("Direct repository mode: changes are immediately written to real selected files. No review copy is created. Creating, deleting and renaming files is blocked.")</MudAlert>
+        <MudPaper Outlined="true" Class="pa-3" Style="max-height:60vh;overflow:auto">
+            @foreach (var message in _messages)
+            {
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@message.Role</MudText>
+                <MudText Style="white-space:pre-wrap;overflow-wrap:anywhere">@message.Text</MudText>
+                <MudDivider Class="my-2" />
+            }
+        </MudPaper>
+        <MudTextField T="string" @bind-Value="_prompt" Label="@L.T("Message")" Lines="3" MaxLength="32000" Disabled="@(!_started || _busy || _chatBusy)" />
+        <MudStack Row="true">
+            <MudButton Color="Color.Primary" OnClick="SendChatAsync" Disabled="@(!_started || _busy || _chatBusy || string.IsNullOrWhiteSpace(_prompt))">@L.T("Send")</MudButton>
+            <MudButton Color="Color.Warning" OnClick="StopAndReviewAsync" Disabled="@(!_started || _busy)">@L.T("Stop sandbox")</MudButton>
+            @if (_chatBusy) { <MudProgressCircular Indeterminate="true" Size="Size.Small" /> }
+        </MudStack>
+    }
     @if (!_started && Sessions.GetChanges(RepositoryId, RepositoryPath).Count > 0)
     {
         <MudButton Color="Color.Warning" Disabled="@_busy" OnClick="DiscardAsync">@L.T("Discard captured sandbox changes")</MudButton>
     }
-    <div class="repository-terminal" @ref="_element"></div>
+    <div class="repository-terminal" style="@(_direct ? "display:none" : null)" @ref="_element"></div>
 </MudStack>
 
 @code {
@@ -35,6 +53,10 @@
     private bool _busy = true;
     private string _stage = "Preparing sandbox terminal...";
     private bool _started;
+    private bool _direct;
+    private bool _chatBusy;
+    private string _prompt = "";
+    private readonly List<(string Role, string Text)> _messages = [];
     private bool _disposed;
     private string? _error;
     private ElementReference _element;
@@ -46,6 +68,7 @@
         Sessions.OutputReceived += Output;
         Sessions.StateChanged += State;
         Sessions.ProviderFailed += ProviderFailure;
+        Sessions.ChatUpdated += ChatUpdate;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -74,19 +97,25 @@
         {
             _stage = "Detecting OpenCode...";
             await InvokeAsync(StateHasChanged);
-            string executable = OpenCodeExecutableLocator.Find();
             _stage = "Loading sandbox startup model...";
             await InvokeAsync(StateHasChanged);
             var provider = await Providers.ResolveAsync(RepositoryPath, ModelReference);
             var settings = await Settings.LoadAsync();
             if (_disposed) return;
             var files = ReviewedFiles.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            _stage = "Copying reviewed files and starting isolated OpenCode...";
+            var limits = new SandboxWorkspace.Limits(settings.SandboxMaxFileMb, settings.SandboxMaxTotalMb);
+            _stage = "Measuring reviewed selection...";
+            await InvokeAsync(StateHasChanged);
+            var assessment = await Task.Run(() => SandboxWorkspace.Assess(RepositoryPath, files, limits));
+            _direct = assessment.Mode == SandboxWorkspace.AccessMode.Direct;
+            string executable = _direct ? string.Empty : OpenCodeExecutableLocator.Find();
+            _stage = _direct ? "Preparing temporary access to real repository files..." : "Copying reviewed files and starting isolated OpenCode...";
             await InvokeAsync(StateHasChanged);
             await Sessions.StartOpenCodeAsync(RepositoryId, RepositoryPath, executable, files, provider.Endpoint,
-                provider.Model, provider.ApiKey, Broker, Approvals, new SandboxWorkspace.Limits(settings.SandboxMaxFileMb, settings.SandboxMaxTotalMb));
+                provider.Model, provider.ApiKey, Broker, Approvals, limits);
             if (_disposed) { await Sessions.StopAsync(RepositoryId); return; }
             _started = true;
+            _direct = Sessions.GetMode(RepositoryId) == SandboxWorkspace.AccessMode.Direct;
         }
         catch (Exception exception) { _error = exception.Message; }
         finally { _busy = false; }
@@ -100,6 +129,7 @@
         {
             await Sessions.StopAsync(RepositoryId);
             _started = false;
+            if (_direct) return;
             var dialog = await Dialogs.ShowAsync<SandboxChangesDialog>(L.T("Review sandbox changes"),
                 new DialogParameters<SandboxChangesDialog>
                 {
@@ -119,6 +149,33 @@
             L.T("Discard the captured changes? They will no longer be available for review."),
             yesText: L.T("Discard"), cancelText: L.T("Cancel")) == true)
             await Sessions.DiscardReviewAsync(RepositoryId);
+    }
+
+    private async Task SendChatAsync()
+    {
+        string prompt = _prompt;
+        _chatBusy = true;
+        try
+        {
+            await Sessions.SendChatAsync(RepositoryId, prompt);
+            _messages.Add((L.T("You"), prompt));
+            _prompt = "";
+        }
+        catch (Exception error) { _error = error.Message; _chatBusy = false; }
+    }
+
+    private void ChatUpdate(Guid id, string type, string text)
+    {
+        if (id != RepositoryId || _disposed) return;
+        _ = InvokeAsync(() =>
+        {
+            if (type is "text" or "tool") _messages.Add((type == "text" ? "OpenCode" : L.T("Tool"), text));
+            if (_messages.Count > 200) _messages.RemoveAt(0);
+            if (type == "error") { _error = text; _chatBusy = false; }
+            if (type == "busy") _chatBusy = true;
+            if (type == "idle") _chatBusy = false;
+            StateHasChanged();
+        });
     }
 
     [JSInvokable] public Task SendInput(string input) => Sessions.WriteInputAsync(RepositoryId, input);
@@ -146,6 +203,7 @@
         Sessions.OutputReceived -= Output;
         Sessions.StateChanged -= State;
         Sessions.ProviderFailed -= ProviderFailure;
+        Sessions.ChatUpdated -= ChatUpdate;
         try { await Sessions.StopAsync(RepositoryId); }
         finally
         {

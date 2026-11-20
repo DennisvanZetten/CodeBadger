@@ -236,11 +236,6 @@ h1:focus {
 }
 
 .help-menu-trigger {
-    opacity: 0.72;
-}
-
-.help-menu-trigger:hover,
-.help-menu-trigger:focus-visible {
     opacity: 1;
 }
 

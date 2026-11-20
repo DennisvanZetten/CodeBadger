@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>CodeBadger</title>
     <base href="/" />
+    <script>
+        if (window.location.pathname.replace(/\/+$/, "").toLowerCase() === "/manual") {
+            document.documentElement.dataset.skipStartupSplash = "true";
+        }
+    </script>
+    <style>
+        html[data-skip-startup-splash="true"] #app > .startup-splash {
+            display: none;
+        }
+    </style>
     <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
     <link href="lib/xterm/xterm.css" rel="stylesheet" />
     <link rel="stylesheet" href="app.css" />

@@ -38,12 +38,12 @@ public sealed class WindowTitleBarService
         settingsButton.Clicked += (_, _) => SettingsRequested?.Invoke();
         var helpButton = new ImageButton
         {
-            WidthRequest = 32,
-            HeightRequest = 32,
+            WidthRequest = 36,
+            HeightRequest = 36,
             Margin = new Thickness(0, 0, 2, 0),
-            Padding = 8,
+            Padding = 0,
             BackgroundColor = Colors.Transparent,
-            Source = new FontImageSource { FontFamily = "Segoe MDL2 Assets", Glyph = "\uE897", Size = 16 }
+            Source = new FontImageSource { FontFamily = "Segoe UI", Glyph = "?", Size = 22 }
         };
         SemanticProperties.SetDescription(helpButton, "Help menu");
         helpButton.Clicked += (_, _) => HelpRequested?.Invoke();
@@ -65,7 +65,7 @@ public sealed class WindowTitleBarService
             {
                 Spacing = 0,
                 VerticalOptions = LayoutOptions.Center,
-                Children = { helpButton, settingsButton }
+                Children = { settingsButton, helpButton }
             } : null
         };
         _titleBars[window] = (titleBar, showSettings ? settingsButton : null, showSettings ? helpButton : null);

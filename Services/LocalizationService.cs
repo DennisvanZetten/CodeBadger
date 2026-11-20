@@ -273,6 +273,7 @@ public sealed class LocalizationService
         ["Branch: not loaded yet"] = ["Branch: not loaded yet", "Branch: nog niet opgehaald", "Branch: noch nicht geladen", "Branche : pas encore chargée"],
         ["Branch: {0}"] = ["Branch: {0}", "Branch: {0}", "Branch: {0}", "Branche : {0}"],
         ["Git status unavailable."] = ["Git status unavailable.", "Git-status niet beschikbaar.", "Git-Status nicht verfügbar.", "État Git indisponible."],
+        ["OpenCode session completed, but no response text was available."] = ["OpenCode session completed, but no response text was available.", "De OpenCode-sessie is afgerond, maar er was geen antwoordtekst beschikbaar.", "Die OpenCode-Sitzung wurde abgeschlossen, aber es war kein Antworttext verfügbar.", "La session OpenCode est terminée, mais aucun texte de réponse n’était disponible."],
         ["Checking repository..."] = ["Checking repository...", "Repository controleren...", "Repository wird geprüft...", "Vérification du dépôt..."],
         ["Loading local settings..."] = ["Loading local settings...", "Lokale instellingen laden...", "Lokale Einstellungen werden geladen...", "Chargement des paramètres locaux..."],
         ["Agent command detected"] = ["Agent command detected", "Agentopdracht gevonden", "Agent-Befehl erkannt", "Commande de l’agent détectée"],

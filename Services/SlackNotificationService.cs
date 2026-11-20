@@ -43,6 +43,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
     }
 
     public event Action<OpenCodeActivityService.ActiveSession, string>? ReplyReceived;
+    public event Action<OpenCodeActivityService.ActiveSession>? SessionStarted;
     public event Action<bool, string>? ConnectionChanged;
     public event Action? SessionNotificationsChanged;
     public bool IsConnected { get; private set; }
@@ -152,12 +153,20 @@ public sealed class SlackNotificationService : IAsyncDisposable
         string? threadTs = null;
         if (_sessionThreads.TryGetValue(session.Id, out var previous))
             threadTs = previous.ThreadTs;
-        var result = await PostMessageAsync(_botToken, _channelId, message, threadTs, cancellationToken);
-        if (threadTs is null && result is not null)
+        try
         {
-            _sessionThreads[session.Id] = new ThreadLink(result, _channelId, session.Directory, session.Agent, title, DateTime.UtcNow);
-            await SaveThreadLinksAsync();
-            SessionNotificationsChanged?.Invoke();
+            var result = await PostMessageAsync(_botToken, _channelId, message, threadTs, cancellationToken);
+            if (threadTs is null && result is not null)
+            {
+                _sessionThreads[session.Id] = new ThreadLink(result, _channelId, session.Directory, session.Agent, title, DateTime.UtcNow);
+                await SaveThreadLinksAsync();
+                SessionNotificationsChanged?.Invoke();
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogError(exception, "Could not post completion for OpenCode session {SessionId} to Slack.", session.Id);
+            throw;
         }
     }
 
@@ -572,6 +581,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
         _sessionThreads[session.Id] = new ThreadLink(threadTs, _channelId, session.Directory, session.Agent, title, DateTime.UtcNow);
         await SaveThreadLinksAsync();
         SessionNotificationsChanged?.Invoke();
+        SessionStarted?.Invoke(session with { Title = title });
         var selectedName = string.IsNullOrWhiteSpace(repository.Name)
             ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path)) : repository.Name;
         await PostMessageAsync(_botToken, _channelId,

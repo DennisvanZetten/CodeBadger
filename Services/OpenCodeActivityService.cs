@@ -102,43 +102,42 @@ public sealed class OpenCodeActivityService
     {
         if (!IsValidSessionId(sessionId))
             return null;
-        using var response = await RequestAsync($"/api/session/{sessionId}/message?order=desc&limit=20&type=assistant", cancellationToken,
+        using var response = await RequestAsync($"/api/session/{sessionId}/message?order=desc&limit=20", cancellationToken,
             workingDirectory: directory);
         if (response is null || !response.RootElement.TryGetProperty("data", out var messages) || messages.ValueKind != JsonValueKind.Array)
             return null;
 
         foreach (var message in messages.EnumerateArray())
         {
-            if (!message.TryGetProperty("type", out var type) || type.GetString() != "assistant" ||
-                !message.TryGetProperty("finish", out var finish) || finish.GetString() is not ("stop" or "length") ||
-                !message.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
+            var info = message.TryGetProperty("info", out var infoValue) && infoValue.ValueKind == JsonValueKind.Object
+                ? infoValue : message;
+            var roleProperty = info.TryGetProperty("role", out var roleValue) ? roleValue :
+                info.TryGetProperty("type", out var typeValue) ? typeValue : default;
+            if (roleProperty.ValueKind != JsonValueKind.String || roleProperty.GetString() != "assistant")
                 continue;
 
-            var text = string.Join("\n", content.EnumerateArray()
+            if (info.TryGetProperty("finish", out var finish) && finish.ValueKind == JsonValueKind.String &&
+                finish.GetString() is not ("stop" or "length"))
+                continue;
+            if (info.TryGetProperty("time", out var time) && time.ValueKind == JsonValueKind.Object &&
+                time.TryGetProperty("completed", out var completed) && completed.ValueKind == JsonValueKind.Null)
+                continue;
+
+            var parts = message.TryGetProperty("parts", out var partsValue) && partsValue.ValueKind == JsonValueKind.Array
+                ? partsValue
+                : info.TryGetProperty("content", out var contentValue) && contentValue.ValueKind == JsonValueKind.Array
+                    ? contentValue : default;
+            if (parts.ValueKind != JsonValueKind.Array)
+                continue;
+
+            var text = string.Join("\n", parts.EnumerateArray()
                 .Where(part => part.TryGetProperty("type", out var partType) && partType.GetString() == "text")
                 .Select(part => part.TryGetProperty("text", out var partText) ? partText.GetString() : null)
                 .Where(partText => !string.IsNullOrWhiteSpace(partText))).Trim();
             if (!string.IsNullOrWhiteSpace(text))
-                return await SummarizeAnswerAsync(sessionId, directory, text, cancellationToken);
+                return text.Length > 3500 ? text[..3500] + "\n…" : text;
         }
         return null;
-    }
-
-    private static async Task<string> SummarizeAnswerAsync(string sessionId, string directory, string answer,
-        CancellationToken cancellationToken)
-    {
-        var source = answer.Length > 12000 ? answer[..12000] : answer;
-        var prompt = "Summarize only the assistant's latest completed answer below for a brief Slack notification. " +
-            "Keep important outcomes and actions, use the same language as the answer, and do not add information. " +
-            "Return only the summary.\n\nLatest completed answer:\n" + source;
-        var body = JsonSerializer.Serialize(new { prompt });
-        using var response = await RequestAsync($"/api/session/{sessionId}/generate", cancellationToken,
-            HttpMethod.Post, body, directory);
-        if (response is not null && response.RootElement.TryGetProperty("data", out var data) &&
-            data.TryGetProperty("text", out var summary) && summary.ValueKind == JsonValueKind.String &&
-            !string.IsNullOrWhiteSpace(summary.GetString()))
-            return summary.GetString()!.Trim();
-        return source.Length > 3500 ? source[..3500] + "\n…" : source;
     }
 
     public async Task<bool> HasPendingInteractionAsync(string sessionId, string directory, CancellationToken cancellationToken)

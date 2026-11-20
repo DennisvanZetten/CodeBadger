@@ -122,6 +122,8 @@
     private readonly HashSet<Guid> _runningSessions = [];
     private readonly HashSet<Guid> _questionSessions = [];
     private readonly Dictionary<string, OpenCodeActivityService.ActiveSession> _runningOpenCodeSessions = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DateTime> _pendingSlackCompletions = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _slackStartedSessions = new(StringComparer.Ordinal);
     private bool _activityNeedsBaseline = true;
     private bool _isRefreshingBranches;
     private bool _isDockDragActive;
@@ -144,6 +146,7 @@
         catch (Exception error) { Snackbar.Add("Repository access recovery failed: " + error.Message, Severity.Error); }
         SettingsService.SettingsSaved += HandleSettingsSaved;
         SlackNotifications.ReplyReceived += HandleSlackReplyReceived;
+        SlackNotifications.SessionStarted += HandleSlackSessionStarted;
         SlackNotifications.SessionNotificationsChanged += HandleSlackSessionNotificationsChanged;
         SandboxApprovals.Requested += HandleSandboxApproval;
         SandboxSessions.StateChanged += HandleSandboxState;
@@ -608,14 +611,20 @@
                             OpenCodeActivityService.NormalizePath(repository.Path) is { } path &&
                             string.Equals(path, session.Directory, StringComparison.OrdinalIgnoreCase)))
                         .ToDictionary(session => session.Id, StringComparer.Ordinal);
-                    var completedSessions = _activityNeedsBaseline
-                        ? []
-                        : _runningOpenCodeSessions.Where(pair => !activeOpenCodeSessions.ContainsKey(pair.Key))
-                            .Select(pair => pair.Value).ToArray();
+                    var completedSessions = _runningOpenCodeSessions
+                        .Where(pair => !activeOpenCodeSessions.ContainsKey(pair.Key) &&
+                            (!_activityNeedsBaseline || _slackStartedSessions.Contains(pair.Key)))
+                        .Select(pair => pair.Value).ToArray();
                     var asked = !_activityNeedsBaseline && questions.Except(_questionSessions).Any();
                     _activityNeedsBaseline = false;
                     foreach (var pair in activeOpenCodeSessions)
+                    {
                         _runningOpenCodeSessions[pair.Key] = pair.Value;
+                        _pendingSlackCompletions.Remove(pair.Key);
+                        _slackStartedSessions.Remove(pair.Key);
+                    }
+                    foreach (var session in completedSessions)
+                        _pendingSlackCompletions.TryAdd(session.Id, DateTime.UtcNow);
                     var changed = !_runningSessions.SetEquals(running) || !_questionSessions.SetEquals(questions);
                     _runningSessions.Clear();
                     _runningSessions.UnionWith(running);
@@ -633,9 +642,10 @@
                         try { await JS.InvokeVoidAsync("codeBadgerSounds.play", CompletionSounds.Normalize(_settings.QuestionSound)); }
                         catch (JSException) { }
                     }
-                    if (_settings.SlackNotificationsEnabled)
+                    if (_settings.SlackNotificationsEnabled && SlackNotifications.CanSendNotifications)
                     {
-                        foreach (var session in completedSessions)
+                        foreach (var session in _runningOpenCodeSessions.Values
+                                     .Where(session => _pendingSlackCompletions.ContainsKey(session.Id)).ToArray())
                         {
                             try
                             {
@@ -645,18 +655,27 @@
                                         StringComparison.OrdinalIgnoreCase));
                                 if (repository?.SlackNotificationsMuted == true || SlackNotifications.IsSessionMuted(session.Id))
                                 {
+                                    _pendingSlackCompletions.Remove(session.Id);
                                     _runningOpenCodeSessions.Remove(session.Id);
                                     continue;
                                 }
-                                if (repository is null || !SlackNotifications.CanSendNotifications)
+                                if (repository is null)
                                     continue;
                                 if (await OpenCodeActivity.HasPendingInteractionAsync(session.Id, session.Directory, cancellationToken))
                                     continue;
                                 var answer = await OpenCodeActivity.GetLatestCompletedAnswerAsync(session.Id, session.Directory, cancellationToken);
+                                if (string.IsNullOrWhiteSpace(answer))
+                                {
+                                    if (DateTime.UtcNow - _pendingSlackCompletions[session.Id] < TimeSpan.FromMinutes(2))
+                                        continue;
+                                    answer = L.T("OpenCode session completed, but no response text was available.");
+                                }
                                 if (!string.IsNullOrWhiteSpace(answer))
                                 {
                                     await SlackNotifications.PublishCompletionAsync(session, answer, cancellationToken);
+                                    _pendingSlackCompletions.Remove(session.Id);
                                     _runningOpenCodeSessions.Remove(session.Id);
+                                    _slackStartedSessions.Remove(session.Id);
                                 }
                             }
                             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
@@ -668,8 +687,8 @@
                     }
                     else
                     {
-                        foreach (var session in completedSessions)
-                            _runningOpenCodeSessions.Remove(session.Id);
+                        // Keep completed sessions queued until Slack reconnects, so a transient
+                        // connection interruption does not silently drop their completion reply.
                     }
                 });
             } while (await timer.WaitForNextTickAsync(cancellationToken));
@@ -714,6 +733,13 @@
 
     private void HandleSlackSessionNotificationsChanged() => _ = InvokeAsync(StateHasChanged);
 
+    private void HandleSlackSessionStarted(OpenCodeActivityService.ActiveSession session) => _ = InvokeAsync(() =>
+    {
+        _runningOpenCodeSessions[session.Id] = session;
+        _slackStartedSessions.Add(session.Id);
+        _pendingSlackCompletions.Remove(session.Id);
+    });
+
     private string BranchLabel(RepositoryEntry repository)
     {
         if (_repositoriesLoading.Contains(repository.Id))
@@ -738,6 +764,7 @@
         _statusMonitorCancellation.Dispose();
         SettingsService.SettingsSaved -= HandleSettingsSaved;
         SlackNotifications.ReplyReceived -= HandleSlackReplyReceived;
+        SlackNotifications.SessionStarted -= HandleSlackSessionStarted;
         SlackNotifications.SessionNotificationsChanged -= HandleSlackSessionNotificationsChanged;
         L.LanguageChanged -= HandleLanguageChanged;
         _selfReference?.Dispose();

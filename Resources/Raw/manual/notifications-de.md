@@ -1,4 +1,4 @@
-# CodeBadger-Handbuch
+# CodeBadger-Benachrichtigungshandbuch
 
 Dieses Handbuch erklärt die Einrichtung von Slack-Benachrichtigungen, das Erstellen der Slack-App sowie Antworten, Agentenwechsel und Stummschaltung.
 
@@ -46,10 +46,10 @@ Die Slack-Antwort muss von der in CodeBadger eingetragenen Mitglieder-ID stammen
 
 ## 5. Repository oder Sitzung stummschalten
 
-Wenn Slack-Benachrichtigungen verbunden sind, öffnen Sie das gewünschte OpenCode-Repository in CodeBadger und verwenden den Bereich **Slack notifications**:
+Wenn Slack-Benachrichtigungen verbunden sind, öffnen Sie **Settings → Repositories**, um die Einstellung für das gesamte Repository zu verwalten:
 
-- **Mute repository** verhindert zukünftige automatische Abschlussmeldungen für alle Sitzungen in diesem Repository. Mit **Unmute repository** aktivieren Sie sie wieder.
-- Slack-verknüpfte Sitzungen werden einzeln aufgelistet. **Mute session** deaktiviert zukünftige automatische Meldungen für diese Sitzung; **Unmute session** aktiviert sie wieder.
+- Aktivieren Sie **Mute Slack notifications for this repository**, um zukünftige automatische Abschlussmeldungen für alle Sitzungen dieses Repositorys zu stoppen. Deaktivieren Sie die Option, um sie wieder zu aktivieren.
+- Um eine einzelne Sitzung stummzuschalten, klicken Sie mit der rechten Maustaste auf den Repository-Tab und wählen **Session notifications**. Diese Option ist nur verfügbar, wenn Slack verbunden und das Repository nicht stummgeschaltet ist. Der Dialog listet Slack-verknüpfte Sitzungen mit **Mute session** und **Unmute session** pro Sitzung auf.
 
 Die Stummschaltung betrifft nur automatische Abschlussmeldungen. Sie beendet den Agenten nicht, löscht keine Slack-Nachrichten und blockiert keine Antworten im bestehenden Sitzungsthread.
 

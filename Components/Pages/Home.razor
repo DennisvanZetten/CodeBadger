@@ -13,6 +13,7 @@
 @inject RepositoryDetachedWindowService DetachedWindows
 @inject Microsoft.Extensions.Logging.ILogger<Home> Logger
 @using Microsoft.Extensions.Logging
+@using CodeBadger.Components.Pages
 @implements IAsyncDisposable
 
 <PageTitle>CodeBadger</PageTitle>
@@ -47,7 +48,9 @@
                 <MudTabPanel @key="repository.Id" Tag="@(_gitSnapshots.TryGetValue(repository, out var panelSnapshot) ? panelSnapshot : null)">
                     <TabContent>
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                            <span class="repository-tab-label" data-repository-id="@repository.Id">
+                            <span class="repository-tab-label" data-repository-id="@repository.Id"
+                                  @oncontextmenu="@(args => OpenRepositoryContextMenuAsync(repository, args))"
+                                  @oncontextmenu:preventDefault="true">
                             @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && repository.OpenCodeSandboxEnabled)
                             {
                                 <MudTooltip Class="repository-sandbox-indicator" Text="@L.T(SandboxSessions.IsRunning(repository.Id) ? "Sandbox active" : "Sandbox enabled; not running")">
@@ -90,17 +93,22 @@
                                               IsVisible="@(DockedRepositories.IndexOf(repository) == _activeTabIndex)"
                                               GitBranchLabel="@BranchLabel(repository)"
                                               GitSnapshot="@(_gitSnapshots.TryGetValue(repository, out var workspaceSnapshot) ? workspaceSnapshot : null)"
-                                              SlackNotificationsAvailable="@SlackNotifications.CanSendNotifications"
-                                              SlackRepositoryMuted="@repository.SlackNotificationsMuted"
-                                              SlackSessions="@SlackNotifications.GetSessionNotifications(repository.Path)"
-                                              OnToggleSlackRepositoryMute="@(() => ToggleSlackRepositoryMuteAsync(repository))"
-                                              OnToggleSlackSessionMute="@(change => ToggleSlackSessionMuteAsync(change.SessionId, change.Muted))"
                                               OnOpenGitOverview="@(() => OpenGitDialogAsync(repository))" />
                     </ChildContent>
                 </MudTabPanel>
             }
             </ChildContent>
         </MudTabs>
+        @if (_contextMenuRepository is not null && CanOpenRepositorySlackSessions(_contextMenuRepository))
+        {
+            <div class="repository-tab-context-backdrop" @onclick="CloseRepositoryContextMenu" @oncontextmenu:preventDefault="true"></div>
+            <div class="repository-tab-context-menu" style="left:@(_contextMenuX)px;top:@(_contextMenuY)px" @onclick:stopPropagation="true">
+                <MudButton FullWidth="true" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.NotificationsActive"
+                           OnClick="OpenRepositorySlackSessionsAsync">
+                    @L.T("Session notifications")
+                </MudButton>
+            </div>
+        }
         @if (_isDockDragActive)
         {
             <div class="repository-dock-drop-hint" role="status">@L.T("Drop tab here to dock")</div>
@@ -122,6 +130,9 @@
     private bool _isDockDragActive;
     private readonly HashSet<Guid> _repositoriesLoading = [];
     private int _activeTabIndex;
+    private RepositoryEntry? _contextMenuRepository;
+    private double _contextMenuX;
+    private double _contextMenuY;
     private List<RepositoryEntry> DockedRepositories => _activeRepositories.Where(repository => !DetachedWindows.IsDetached(repository.Id)).ToList();
     private readonly CancellationTokenSource _statusMonitorCancellation = new();
     private IJSObjectReference? _tabsModule;
@@ -275,6 +286,44 @@
         StateHasChanged();
     });
     private void HandleSandboxState(Guid id) => _ = InvokeAsync(StateHasChanged);
+
+    private void OpenRepositoryContextMenuAsync(RepositoryEntry repository, MouseEventArgs args)
+    {
+        if (!CanOpenRepositorySlackSessions(repository))
+        {
+            CloseRepositoryContextMenu();
+            return;
+        }
+        _activeTabIndex = DockedRepositories.FindIndex(candidate => candidate.Id == repository.Id);
+        Preferences.Default.Set(LastRepositoryPreferenceKey, repository.Id.ToString());
+        _contextMenuRepository = repository;
+        _contextMenuX = Math.Max(8, args.ClientX);
+        _contextMenuY = Math.Max(8, args.ClientY);
+    }
+
+    private void CloseRepositoryContextMenu() => _contextMenuRepository = null;
+
+    private bool CanOpenRepositorySlackSessions(RepositoryEntry repository) =>
+        !repository.SlackNotificationsMuted && SlackNotifications.CanSendNotifications &&
+        AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode;
+
+    private async Task OpenRepositorySlackSessionsAsync()
+    {
+        var repository = _contextMenuRepository;
+        CloseRepositoryContextMenu();
+        if (repository is null || !CanOpenRepositorySlackSessions(repository))
+            return;
+
+        var parameters = new DialogParameters<SlackSessionNotificationsDialog>
+        {
+            { dialog => dialog.RepositoryName, RepositoryTitle(repository) },
+            { dialog => dialog.RepositoryPath, repository.Path },
+            { dialog => dialog.RepositoryMuted, repository.SlackNotificationsMuted }
+        };
+        var dialog = await DialogService.ShowAsync<SlackSessionNotificationsDialog>(L.T("Session notifications"), parameters,
+            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Medium, CloseButton = true, CloseOnEscapeKey = true });
+        await dialog.Result;
+    }
 
     private void HandleSandboxApproval(SandboxApprovalRequest request)
     {
@@ -661,18 +710,6 @@
             }
         }
     });
-
-    private async Task ToggleSlackRepositoryMuteAsync(RepositoryEntry repository)
-    {
-        repository.SlackNotificationsMuted = !repository.SlackNotificationsMuted;
-        await SettingsService.SaveAsync(_settings);
-    }
-
-    private async Task ToggleSlackSessionMuteAsync(string sessionId, bool muted)
-    {
-        await SlackNotifications.SetSessionMutedAsync(sessionId, muted);
-        await InvokeAsync(StateHasChanged);
-    }
 
     private void HandleSlackSessionNotificationsChanged() => _ = InvokeAsync(StateHasChanged);
 

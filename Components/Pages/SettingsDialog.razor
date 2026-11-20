@@ -93,6 +93,16 @@
                                     </div>
                                 </fieldset>
                             }
+                            @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
+                            {
+                                <fieldset class="repository-sandbox-toggle">
+                                    <legend>@L.T("Slack notifications")</legend>
+                                    <MudSwitch T="bool" Value="@repository.SlackNotificationsMuted"
+                                               ValueChanged="@(value => SetRepositorySlackMutedAsync(repository, value))"
+                                               Color="Color.Primary" Label="@L.T("Mute Slack notifications for this repository")"
+                                               Disabled="@(!Settings.SlackNotificationsEnabled || _isSavingRepositorySlackSetting)" />
+                                </fieldset>
+                            }
                             <div class="repository-order-controls">
                                 <MudTooltip Text="@L.T("Move up")">
                                     <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.KeyboardArrowUp" aria-label="@L.T("Move up")"
@@ -344,6 +354,7 @@
 
     private bool _isTestingAi;
     private bool _isSaving;
+    private bool _isSavingRepositorySlackSetting;
     private bool _hasTestedConnection;
     private IReadOnlyList<string> _availableModels = [];
     private static readonly string[] AiProviders = ["OpenAI", "Azure OpenAI", "Anthropic", "Google Gemini", "Ollama", "Custom URL"];
@@ -439,6 +450,25 @@
     }
 
     private void AddRepository() => Settings.Repositories.Add(new RepositoryEntry { Name = L.T("New repository") });
+
+    private async Task SetRepositorySlackMutedAsync(RepositoryEntry repository, bool muted)
+    {
+        if (_isSavingRepositorySlackSetting)
+            return;
+        _isSavingRepositorySlackSetting = true;
+        var previous = repository.SlackNotificationsMuted;
+        repository.SlackNotificationsMuted = muted;
+        try
+        {
+            await SettingsService.SaveAsync(Settings);
+        }
+        catch (Exception exception)
+        {
+            repository.SlackNotificationsMuted = previous;
+            Snackbar.Add(L.T("Could not save repository settings: {0}", exception.Message), Severity.Error);
+        }
+        finally { _isSavingRepositorySlackSetting = false; }
+    }
 
     private void MoveRepository(RepositoryEntry repository, int offset)
     {

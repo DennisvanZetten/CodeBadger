@@ -1,4 +1,4 @@
-# Handleiding CodeBadger
+# Handleiding CodeBadger-meldingen
 
 In deze handleiding lees je hoe je Slack-meldingen instelt, de Slack-app aanmaakt en replies, agentwissels en dempknoppen gebruikt.
 
@@ -46,10 +46,10 @@ De Slack-reply moet komen van de Slack-lid-ID die in CodeBadger is ingesteld. Co
 
 ## 5. Dempen per repository of sessie
 
-Als Slack-meldingen verbonden zijn, open je de gewenste OpenCode-repository in CodeBadger en gebruik je het paneel **Slack notifications**:
+Als Slack-meldingen verbonden zijn, open je **Instellingen → Repositories** om de instelling voor de hele repository te beheren:
 
-- **Mute repository** stopt toekomstige automatische klaar-meldingen voor alle sessies in die repository. Met **Unmute repository** zet je ze weer aan.
-- Slack-gekoppelde sessies staan afzonderlijk in de lijst. **Mute session** dempt toekomstige automatische meldingen voor die sessie; met **Unmute session** zet je ze weer aan.
+- Schakel **Mute Slack notifications for this repository** in om toekomstige automatische klaar-meldingen voor alle sessies in die repository te stoppen. Schakel de optie uit om meldingen te hervatten.
+- Wil je één sessie dempen? Klik met de rechtermuisknop op de repositorytab en kies **Session notifications**. Deze optie is alleen beschikbaar als Slack verbonden is en de repository niet gedempt is. In het venster staan Slack-gekoppelde sessies met per sessie **Mute session** en **Unmute session**.
 
 Dempen geldt alleen voor automatische klaar-meldingen. Het stopt de agent niet, verwijdert geen Slack-berichten en blokkeert geen replies in een bestaande sessiethread.
 

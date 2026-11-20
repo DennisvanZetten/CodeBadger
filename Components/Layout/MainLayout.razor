@@ -36,25 +36,16 @@ else
                 <img class="appbar-logo mr-3" src="codebadger.svg" alt="CodeBadger" />
                 <MudText Typo="Typo.h6">CodeBadger</MudText>
                 <MudSpacer />
+                <MudTooltip Text="@L.T("Help menu")">
+                    <MudIconButton Class="help-menu-trigger" Icon="@Icons.Material.Filled.HelpOutline" Color="Color.Default" Size="Size.Small"
+                                   aria-label="@L.T("Help menu")" title="@L.T("Help menu")" OnClick="OpenHelpMenuAsync" />
+                </MudTooltip>
                 <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Default" Size="Size.Small"
                                 aria-label="@L.T("Open settings")" OnClick="OpenSettingsAsync" />
             </MudAppBar>
         }
         <MudMainContent Class="@(WindowTitleBar.UsesNativeTitleBar ? "native-titlebar-content" : null)"
                         Style="@(WindowTitleBar.UsesNativeTitleBar ? "padding-top: 0;" : null)">
-            @if (!IsDetachedRepositoryRoute())
-            {
-                <nav class="app-section-nav" aria-label="@L.T("Main navigation")">
-                    <NavLink href="/" Match="NavLinkMatch.All" class="app-section-link">
-                        <MudIcon Icon="@Icons.Material.Filled.FolderOpen" Size="Size.Small" />
-                        <span>@L.T("Repositories")</span>
-                    </NavLink>
-                    <NavLink href="/manual" class="app-section-link">
-                        <MudIcon Icon="@Icons.Material.Filled.MenuBook" Size="Size.Small" />
-                        <span>@L.T("Manual")</span>
-                    </NavLink>
-                </nav>
-            }
             <CascadingValue Value="_startupSettings" IsFixed="true">
                 @Body
             </CascadingValue>
@@ -79,12 +70,18 @@ else
     }
 
     private void HandleSettingsRequested() => _ = InvokeAsync(OpenSettingsAsync);
+    private void HandleHelpRequested() => _ = InvokeAsync(OpenHelpMenuAsync);
 
     protected override void OnParametersSet()
     {
         WindowTitleBar.SettingsRequested -= HandleSettingsRequested;
+        WindowTitleBar.HelpRequested -= HandleHelpRequested;
+        WindowTitleBar.SetHelpDescription(L.T("Help menu"));
         if (!IsDetachedRepositoryRoute())
+        {
             WindowTitleBar.SettingsRequested += HandleSettingsRequested;
+            WindowTitleBar.HelpRequested += HandleHelpRequested;
+        }
     }
 
     private bool IsDetachedRepositoryRoute() =>
@@ -93,6 +90,7 @@ else
     private void HandleLanguageChanged() => _ = InvokeAsync(() =>
     {
         WindowTitleBar.SetSettingsState(!_isStarting, L.T("Open settings"));
+        WindowTitleBar.SetHelpDescription(L.T("Help menu"));
         StateHasChanged();
     });
 
@@ -263,10 +261,20 @@ else
         }
     }
 
+    private async Task OpenHelpMenuAsync()
+    {
+        var dialog = await DialogService.ShowAsync<HelpMenuDialog>(L.T("Help menu"),
+            options: new DialogOptions { CloseButton = true, CloseOnEscapeKey = true, MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: true })
+            Navigation.NavigateTo("/manual");
+    }
+
     public void Dispose()
     {
         L.LanguageChanged -= HandleLanguageChanged;
         SettingsService.SettingsSaved -= HandleSettingsSaved;
         WindowTitleBar.SettingsRequested -= HandleSettingsRequested;
+        WindowTitleBar.HelpRequested -= HandleHelpRequested;
     }
 }

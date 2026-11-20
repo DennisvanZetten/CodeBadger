@@ -1,4 +1,4 @@
-# Manuel CodeBadger
+# Manuel des notifications CodeBadger
 
 Ce manuel explique comment configurer les notifications Slack, créer l’application Slack et utiliser les réponses, le changement d’agent et la mise en sourdine.
 
@@ -46,10 +46,10 @@ La réponse Slack doit provenir de l’identifiant de membre configuré dans Cod
 
 ## 5. Mettre en sourdine un dépôt ou une session
 
-Lorsque les notifications Slack sont connectées, ouvrez le dépôt OpenCode concerné dans CodeBadger et utilisez le panneau **Slack notifications** :
+Lorsque les notifications Slack sont connectées, ouvrez **Settings → Repositories** pour gérer le paramètre de tout le dépôt :
 
-- **Mute repository** arrête les futures notifications automatiques de fin pour toutes les sessions de ce dépôt. **Unmute repository** les réactive.
-- Les sessions associées à Slack sont listées séparément. **Mute session** arrête les futures notifications automatiques pour cette session ; **Unmute session** les réactive.
+- Activez **Mute Slack notifications for this repository** pour arrêter les futures notifications automatiques de fin pour toutes les sessions de ce dépôt. Désactivez cette option pour les reprendre.
+- Pour mettre une seule session en sourdine, faites un clic droit sur l’onglet du dépôt et choisissez **Session notifications**. Cette option n’est disponible que si Slack est connecté et que le dépôt n’est pas en sourdine. La boîte de dialogue liste les sessions liées à Slack et propose **Mute session** ou **Unmute session** pour chacune.
 
 La mise en sourdine ne concerne que les notifications automatiques de fin. Elle n’arrête pas l’agent, ne supprime aucun message Slack et ne bloque pas les réponses dans un fil de session existant.
 

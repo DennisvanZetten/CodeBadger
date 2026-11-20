@@ -1,0 +1,67 @@
+@inject SlackNotificationService SlackNotifications
+@inject LocalizationService L
+@implements IDisposable
+
+<MudDialog>
+    <TitleContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icons.Material.Filled.NotificationsActive" Color="Color.Primary" />
+            <MudStack Spacing="0">
+                <MudText Typo="Typo.h6">@L.T("Session notifications")</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@RepositoryName</MudText>
+            </MudStack>
+        </MudStack>
+    </TitleContent>
+    <DialogContent>
+        @if (SessionItems.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                @L.T("No Slack-linked sessions for this repository yet.")
+            </MudAlert>
+        }
+        else
+        {
+            <MudStack Spacing="2">
+                @foreach (var session in SessionItems)
+                {
+                    <MudPaper @key="session.Id" Outlined="true" Elevation="0" Class="pa-3">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap" Spacing="2">
+                            <MudStack Spacing="0">
+                                <MudText Typo="Typo.body1">@session.Title</MudText>
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">@session.Agent · @session.Id</MudText>
+                            </MudStack>
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined"
+                                       Color="@(session.IsMuted ? Color.Warning : Color.Primary)"
+                                       StartIcon="@(session.IsMuted ? Icons.Material.Filled.NotificationsOff : Icons.Material.Filled.NotificationsActive)"
+                                       OnClick="@(() => ToggleSessionMuteAsync(session))">
+                                @L.T(session.IsMuted ? "Unmute session" : "Mute session")
+                            </MudButton>
+                        </MudStack>
+                    </MudPaper>
+                }
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Size="Size.Small" OnClick="Close">@L.T("Close")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter, EditorRequired] public string RepositoryName { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string RepositoryPath { get; set; } = string.Empty;
+    [Parameter] public bool RepositoryMuted { get; set; }
+    private IReadOnlyList<SlackNotificationService.SessionNotification> SessionItems =>
+        SlackNotifications.GetSessionNotifications(RepositoryPath, RepositoryMuted);
+
+    protected override void OnInitialized() => SlackNotifications.SessionNotificationsChanged += HandleSessionsChanged;
+
+    private async Task ToggleSessionMuteAsync(SlackNotificationService.SessionNotification session) =>
+        await SlackNotifications.SetSessionMutedAsync(session.Id, !session.IsMuted);
+
+    private void HandleSessionsChanged() => _ = InvokeAsync(StateHasChanged);
+    private void Close() => MudDialog.Close();
+
+    public void Dispose() => SlackNotifications.SessionNotificationsChanged -= HandleSessionsChanged;
+}

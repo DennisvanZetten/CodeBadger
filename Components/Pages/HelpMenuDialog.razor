@@ -1,0 +1,26 @@
+@inject LocalizationService L
+
+<MudDialog Class="help-menu-dialog">
+    <TitleContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icons.Material.Filled.HelpOutline" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">@L.T("Help menu")</MudText>
+        </MudStack>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">@L.T("Choose what you need help with.")</MudText>
+        <MudButton FullWidth="true" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.MenuBook"
+                   OnClick="OpenManuals">
+            @L.T("Manuals")
+        </MudButton>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Size="Size.Small" OnClick="Close">@L.T("Close")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    private void OpenManuals() => MudDialog.Close(DialogResult.Ok(true));
+    private void Close() => MudDialog.Cancel();
+}

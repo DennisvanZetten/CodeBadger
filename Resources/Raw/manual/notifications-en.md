@@ -1,4 +1,4 @@
-# CodeBadger manual
+# CodeBadger notification manual
 
 This manual explains how to configure Slack notifications, create the Slack app, and use session replies, agent switching, and mute controls.
 
@@ -46,10 +46,10 @@ The channel reply must come from the Slack member ID configured in CodeBadger. C
 
 ## 5. Mute a repository or session
 
-When Slack notifications are connected, open the relevant OpenCode repository in CodeBadger and use its **Slack notifications** panel:
+When Slack notifications are connected, open **Settings → Repositories** to manage the repository-wide setting:
 
-- **Mute repository** stops future automatic Slack completion notifications for every session in that repository. **Unmute repository** turns them back on.
-- Each Slack-linked session is listed separately. **Mute session** stops future automatic completion notifications for that session; **Unmute session** restores them.
+- Enable **Mute Slack notifications for this repository** to stop future automatic Slack completion notifications for every session in that repository. Turn it off to resume them.
+- To mute one session, right-click the repository tab and choose **Session notifications**. This option is available only while Slack notifications are connected and the repository is not muted. The dialog lists Slack-linked sessions; use **Mute session** or **Unmute session** for the selected session.
 
 Muting affects automatic completion notifications only. It does not stop the agent, delete Slack messages, or block replies in an existing session thread.
 

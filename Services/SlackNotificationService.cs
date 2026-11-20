@@ -139,8 +139,10 @@ public sealed class SlackNotificationService : IAsyncDisposable
     public bool CanSendNotifications => IsConnected && !string.IsNullOrWhiteSpace(_botToken) &&
         !string.IsNullOrWhiteSpace(_channelId) && !string.IsNullOrWhiteSpace(_allowedUserId);
 
-    public IReadOnlyList<SessionNotification> GetSessionNotifications(string directory)
+    public IReadOnlyList<SessionNotification> GetSessionNotifications(string directory, bool repositoryMuted = false)
     {
+        if (repositoryMuted || !CanSendNotifications)
+            return [];
         var normalized = OpenCodeActivityService.NormalizePath(directory);
         if (normalized is null)
             return [];

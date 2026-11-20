@@ -235,39 +235,34 @@ h1:focus {
     display: none;
 }
 
-.app-section-nav {
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-    padding: 0.55rem 1rem;
-    background: var(--mud-palette-surface);
-    border-bottom: 1px solid var(--mud-palette-divider);
+.help-menu-trigger {
+    opacity: 0.72;
 }
 
-.app-section-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    padding: 0.4rem 0.75rem;
-    border-radius: 0.55rem;
-    color: var(--mud-palette-text-secondary);
-    text-decoration: none;
-    font-weight: 600;
-}
-
-.app-section-link.active {
-    background: var(--mud-palette-primary-hover);
-    color: var(--mud-palette-primary);
-}
-
-.app-section-link:hover {
-    background: var(--mud-palette-action-default-hover);
-    color: var(--mud-palette-text-primary);
-    text-decoration: none;
+.help-menu-trigger:hover,
+.help-menu-trigger:focus-visible {
+    opacity: 1;
 }
 
 .manual-page {
     min-height: calc(100vh - 8rem);
+}
+
+.manual-search {
+    max-width: 48rem;
+    width: 100%;
+    align-self: center;
+}
+
+.manual-card {
+    height: 100%;
+    cursor: pointer;
+    transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.manual-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--mud-elevation-4);
 }
 
 .markdown-content {
@@ -1374,6 +1369,25 @@ h1:focus {
     align-items: center;
     gap: 0.3rem;
     min-width: 0;
+    cursor: context-menu;
+}
+
+.repository-tab-context-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1400;
+    background: transparent;
+}
+
+.repository-tab-context-menu {
+    position: fixed;
+    z-index: 1401;
+    min-width: 220px;
+    padding: 0.35rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: var(--mud-default-borderradius);
+    background: var(--mud-palette-surface);
+    box-shadow: var(--mud-elevation-8);
 }
 
 .repository-tabs .repository-undock-button,

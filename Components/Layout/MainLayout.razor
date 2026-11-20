@@ -8,6 +8,7 @@
 @inject StartupDetectionService StartupDetection
 @inject UpdateService UpdateService
 @inject WindowTitleBarService WindowTitleBar
+@inject RepositoryDetachedWindowService DetachedWindows
 @inject NavigationManager Navigation
 @using CodeBadger.Components.Pages
 
@@ -15,7 +16,7 @@
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
-@if (_isStarting)
+@if (_isStarting && !IsManualWindowRoute())
 {
     <div class="startup-splash" role="status" aria-live="polite">
         <div class="startup-logo-halo">
@@ -72,6 +73,12 @@ else
     private void HandleSettingsRequested() => _ = InvokeAsync(OpenSettingsAsync);
     private void HandleHelpRequested() => _ = InvokeAsync(OpenHelpMenuAsync);
 
+    protected override void OnInitialized()
+    {
+        if (IsManualWindowRoute())
+            _isStarting = false;
+    }
+
     protected override void OnParametersSet()
     {
         WindowTitleBar.SettingsRequested -= HandleSettingsRequested;
@@ -107,7 +114,9 @@ else
     {
         if (firstRender && !IsDetachedRepositoryRoute())
             WindowTitleBar.SetSettingsState(true, L.T("Open settings"));
-        if (firstRender && _isStarting)
+        if (firstRender && IsManualWindowRoute())
+            await InitializeManualWindowAsync();
+        else if (firstRender && _isStarting)
         {
             if (IsDetachedRepositoryRoute())
                 await InitializeDetachedWindowAsync();
@@ -147,6 +156,16 @@ else
         WindowTitleBar.ApplyTheme(_theme);
         Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
         _isStarting = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task InitializeManualWindowAsync()
+    {
+        var settings = await SettingsService.LoadAsync();
+        _startupSettings = settings;
+        _theme = LauncherThemes.Get(settings.Theme);
+        WindowTitleBar.ApplyTheme(_theme);
+        Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
         await InvokeAsync(StateHasChanged);
     }
 
@@ -267,8 +286,20 @@ else
             options: new DialogOptions { CloseButton = true, CloseOnEscapeKey = true, MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
         var result = await dialog.Result;
         if (result is { Canceled: false, Data: true })
-            Navigation.NavigateTo("/manual");
+        {
+            if (WindowTitleBar.UsesNativeTitleBar)
+                DetachedWindows.OpenManualWindow();
+            else
+                Navigation.NavigateTo("/manual");
+        }
     }
+
+    private bool IsManualWindowRoute() =>
+        GetCurrentRoutePath().Equals("manual", StringComparison.OrdinalIgnoreCase);
+
+    private string GetCurrentRoutePath() => Navigation.ToBaseRelativePath(Navigation.Uri)
+        .TrimStart('/')
+        .Split('?', '#')[0];
 
     public void Dispose()
     {

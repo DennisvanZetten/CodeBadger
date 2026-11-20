@@ -150,6 +150,18 @@ public sealed class RepositoryDetachedWindowService(
         Application.Current?.OpenWindow(window);
     }
 
+    public void OpenManualWindow()
+    {
+        var window = new Window(new MainPage("/manual"))
+        {
+            Title = "CodeBadger — Manual",
+            Width = 920,
+            Height = 760
+        };
+        titleBar.Configure(window, showSettings: false, title: window.Title);
+        Application.Current?.OpenWindow(window);
+    }
+
     public void Undock(RepositoryEntry repository, int? pointerX = null, int? pointerY = null)
     {
         if (!IsDetached(repository.Id))

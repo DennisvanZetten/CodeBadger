@@ -93,7 +93,7 @@
     ];
 
     private readonly Dictionary<string, string> _searchIndex = new(StringComparer.Ordinal);
-    private IReadOnlyList<ManualDefinition> _manuals = [];
+    private IReadOnlyList<ManualDefinition> _manuals = AllManuals;
     private ManualDefinition? _selectedManual;
     private string _searchText = string.Empty;
     private string _content = string.Empty;
@@ -101,11 +101,20 @@
     private string _errorDetail = string.Empty;
     private bool _isLoading;
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
         L.LanguageChanged += HandleLanguageChanged;
+        _ = LoadSearchIndexAndRefreshAsync();
+    }
+
+    private async Task LoadSearchIndexAndRefreshAsync()
+    {
         await LoadSearchIndexAsync();
-        SearchManuals();
+        await InvokeAsync(() =>
+        {
+            SearchManuals();
+            StateHasChanged();
+        });
     }
 
     private void HandleLanguageChanged() => _ = InvokeAsync(async () =>

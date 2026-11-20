@@ -11,8 +11,14 @@ public sealed class SlackNotificationService : IAsyncDisposable
 {
     private const string ThreadLinksStorageKey = "codebadger-slack-session-threads";
     private const string MutedSessionsStorageKey = "codebadger-slack-muted-sessions";
+    private readonly LauncherSettingsService _settingsService;
+    private readonly OpenCodeActivityService _openCodeActivity;
+    private readonly GitBranchService _gitBranchService;
+    private readonly AiCommitMessageService _aiCommitMessageService;
     private static readonly HttpClient Http = new() { BaseAddress = new Uri("https://slack.com/api/") };
     private readonly ConcurrentDictionary<string, ThreadLink> _sessionThreads = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, PendingNewSession> _pendingNewSessions = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, PendingCommitMessage> _pendingCommitMessages = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _seenReplies = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _mutedSessions = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _configurationGate = new(1, 1);
@@ -23,6 +29,15 @@ public sealed class SlackNotificationService : IAsyncDisposable
     private string _channelId = string.Empty;
     private string _allowedUserId = string.Empty;
 
+    public SlackNotificationService(LauncherSettingsService settingsService, OpenCodeActivityService openCodeActivity,
+        GitBranchService gitBranchService, AiCommitMessageService aiCommitMessageService)
+    {
+        _settingsService = settingsService;
+        _openCodeActivity = openCodeActivity;
+        _gitBranchService = gitBranchService;
+        _aiCommitMessageService = aiCommitMessageService;
+    }
+
     public event Action<OpenCodeActivityService.ActiveSession, string>? ReplyReceived;
     public event Action<bool, string>? ConnectionChanged;
     public event Action? SessionNotificationsChanged;
@@ -32,6 +47,12 @@ public sealed class SlackNotificationService : IAsyncDisposable
     public sealed record SlackChannel(string Id, string Name, bool IsMember, bool IsPrivate);
     public sealed record SessionNotification(string Id, string Title, string Agent, string Directory, bool IsMuted);
     private sealed record ThreadLink(string ThreadTs, string ChannelId, string Directory, string Agent, string Title, DateTime CreatedAt);
+    private sealed class PendingNewSession(IReadOnlyList<RepositoryEntry> repositories)
+    {
+        public IReadOnlyList<RepositoryEntry> Repositories { get; } = repositories;
+        public RepositoryEntry? SelectedRepository { get; set; }
+    }
+    private sealed record PendingCommitMessage(string SessionId, string Directory, string Title, string Description);
 
     public async Task<IReadOnlyList<SlackChannel>> GetChannelsAsync(string botToken, CancellationToken cancellationToken = default)
     {
@@ -265,11 +286,11 @@ public sealed class SlackNotificationService : IAsyncDisposable
                 !payload.TryGetProperty("event", out var slackEvent) ||
                 !slackEvent.TryGetProperty("type", out var type) || type.GetString() != "message")
                 continue;
-            await HandleMessageEventAsync(payload, slackEvent);
+            await HandleMessageEventAsync(payload, slackEvent, cancellationToken);
         }
     }
 
-    private async Task HandleMessageEventAsync(JsonElement payload, JsonElement slackEvent)
+    private async Task HandleMessageEventAsync(JsonElement payload, JsonElement slackEvent, CancellationToken cancellationToken)
     {
         if (slackEvent.TryGetProperty("bot_id", out _) ||
             !slackEvent.TryGetProperty("channel", out var channelValue) || channelValue.GetString() != _channelId ||
@@ -282,23 +303,247 @@ public sealed class SlackNotificationService : IAsyncDisposable
         var ts = tsValue.GetString();
         if (string.IsNullOrWhiteSpace(ts) || !_seenReplies.TryAdd(eventId ?? ts, 0))
             return;
+        var text = textValue.GetString()!.Trim();
         var threadTs = slackEvent.TryGetProperty("thread_ts", out var threadValue) ? threadValue.GetString() : null;
         if (string.IsNullOrWhiteSpace(threadTs))
         {
+            if (text.Equals("!new", StringComparison.OrdinalIgnoreCase))
+            {
+                await BeginNewSessionWizardAsync(cancellationToken);
+                return;
+            }
+
             _seenReplies.TryRemove(eventId ?? ts, out _);
             return;
         }
+
+        if (_pendingNewSessions.TryGetValue(threadTs, out var pendingNewSession))
+        {
+            await HandleNewSessionWizardReplyAsync(threadTs, pendingNewSession, text, cancellationToken);
+            return;
+        }
+
         var linkedSession = _sessionThreads.FirstOrDefault(pair => pair.Value.ThreadTs == threadTs && pair.Value.ChannelId == _channelId);
         if (string.IsNullOrWhiteSpace(linkedSession.Key))
             return;
-        var text = textValue.GetString()!.Trim();
+        if (_pendingCommitMessages.TryGetValue(threadTs, out var pendingCommit))
+        {
+            await CompletePendingCommitAsync(threadTs, pendingCommit, text, cancellationToken);
+            return;
+        }
         if (!string.IsNullOrWhiteSpace(text))
         {
-            var session = new OpenCodeActivityService.ActiveSession(linkedSession.Key,
-                linkedSession.Value.Directory, linkedSession.Value.Agent, linkedSession.Value.Title);
-            ReplyReceived?.Invoke(session, text);
+            if (text.Equals("!commit", StringComparison.OrdinalIgnoreCase))
+                await StartCommitCommandAsync(linkedSession.Key, linkedSession.Value, threadTs, cancellationToken);
+            else
+            {
+                var session = new OpenCodeActivityService.ActiveSession(linkedSession.Key,
+                    linkedSession.Value.Directory, linkedSession.Value.Agent, linkedSession.Value.Title);
+                ReplyReceived?.Invoke(session, text);
+            }
         }
         await Task.CompletedTask;
+    }
+
+    private async Task StartCommitCommandAsync(string sessionId, ThreadLink thread, string threadTs,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await StartCommitCommandCoreAsync(sessionId, thread, threadTs, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            await PostMessageAsync(_botToken, _channelId,
+                "Could not run the commit command: " + EscapeSlack(exception.Message), threadTs, cancellationToken);
+        }
+    }
+
+    private async Task StartCommitCommandCoreAsync(string sessionId, ThreadLink thread, string threadTs,
+        CancellationToken cancellationToken)
+    {
+        var settings = await _settingsService.LoadAsync();
+        var repository = settings.Repositories.FirstOrDefault(candidate =>
+            AgentTools.Normalize(candidate.AgentTool) == AgentTools.OpenCode &&
+            string.Equals(OpenCodeActivityService.NormalizePath(candidate.Path),
+                OpenCodeActivityService.NormalizePath(thread.Directory), StringComparison.OrdinalIgnoreCase));
+        if (repository is null || repository.OpenCodeSandboxEnabled)
+        {
+            await PostMessageAsync(_botToken, _channelId,
+                "Commit from Slack is only available for a configured, non-sandboxed OpenCode repository.", threadTs, cancellationToken);
+            return;
+        }
+
+        var stage = await _gitBranchService.StageAllChangesAsync(thread.Directory);
+        if (!stage.Success)
+        {
+            await PostMessageAsync(_botToken, _channelId,
+                "Could not stage repository changes: " + EscapeSlack(stage.Message), threadTs, cancellationToken);
+            return;
+        }
+
+        var diff = await _gitBranchService.GetStagedDiffAsync(thread.Directory);
+        if (!diff.Success)
+        {
+            await PostMessageAsync(_botToken, _channelId,
+                "Could not read staged changes: " + EscapeSlack(diff.Message), threadTs, cancellationToken);
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(diff.Output))
+        {
+            await PostMessageAsync(_botToken, _channelId, "There are no changes to commit.", threadTs, cancellationToken);
+            return;
+        }
+
+        var promptSettings = settings;
+        var canGenerate = !string.IsNullOrWhiteSpace(promptSettings.AiApiKey) ||
+            promptSettings.AiProvider.Equals("Ollama", StringComparison.OrdinalIgnoreCase) ||
+            promptSettings.AiProvider.Equals("Custom URL", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(promptSettings.AiCustomUrl);
+        if (canGenerate)
+        {
+            var branch = await _gitBranchService.GetCurrentBranchAsync(thread.Directory);
+            var generated = await _aiCommitMessageService.GenerateAsync(promptSettings, diff.Output, branch.Branch);
+            if (generated.Success)
+            {
+                await CommitStagedChangesAsync(thread.Directory, generated.Title, generated.Description, threadTs, cancellationToken);
+                return;
+            }
+
+            await PostMessageAsync(_botToken, _channelId,
+                "AI could not generate a commit message (" + EscapeSlack(generated.Error) + "). Reply in this thread with a commit title; you may add a description on the next line.",
+                threadTs, cancellationToken);
+            _pendingCommitMessages[threadTs] = new PendingCommitMessage(sessionId, thread.Directory, string.Empty, string.Empty);
+            return;
+        }
+
+        await PostMessageAsync(_botToken, _channelId,
+            "Changes are staged. Reply in this thread with a commit title; you may add a description on the next line.",
+            threadTs, cancellationToken);
+        _pendingCommitMessages[threadTs] = new PendingCommitMessage(sessionId, thread.Directory, string.Empty, string.Empty);
+    }
+
+    private async Task CompletePendingCommitAsync(string threadTs, PendingCommitMessage pending, string message,
+        CancellationToken cancellationToken)
+    {
+        var lines = message.Split('\n', 2, StringSplitOptions.TrimEntries);
+        var title = lines[0].Trim();
+        var description = lines.Length > 1 ? lines[1].Trim() : string.Empty;
+        if (string.IsNullOrWhiteSpace(title) || title.Length > 72)
+        {
+            await PostMessageAsync(_botToken, _channelId,
+                "Commit title must contain 1–72 characters. Reply with a title and optional description.",
+                threadTs, cancellationToken);
+            return;
+        }
+
+        if (await CommitStagedChangesAsync(pending.Directory, title, description, threadTs, cancellationToken))
+            _pendingCommitMessages.TryRemove(threadTs, out _);
+    }
+
+    private async Task<bool> CommitStagedChangesAsync(string directory, string title, string description, string threadTs,
+        CancellationToken cancellationToken)
+    {
+        var message = string.IsNullOrWhiteSpace(description) ? title.Trim() : $"{title.Trim()}\n\n{description.Trim()}";
+        var result = await _gitBranchService.CommitAsync(directory, message);
+        await PostMessageAsync(_botToken, _channelId,
+            result.Success ? "✅ Commit created: " + EscapeSlack(title.Trim()) : "❌ Commit failed: " + EscapeSlack(result.Message),
+            threadTs, cancellationToken);
+        return result.Success;
+    }
+
+    private async Task BeginNewSessionWizardAsync(CancellationToken cancellationToken)
+    {
+        var settings = await _settingsService.LoadAsync();
+        var repositories = settings.Repositories
+            .Where(repository => repository.IsActive && !repository.OpenCodeSandboxEnabled &&
+                AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && Directory.Exists(repository.Path))
+            .OrderBy(repository => string.IsNullOrWhiteSpace(repository.Name)
+                ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path)) : repository.Name,
+                StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (repositories.Length == 0)
+        {
+            await PostMessageAsync(_botToken, _channelId,
+                "No eligible repositories are available. Activate a non-sandboxed OpenCode repository in CodeBadger Settings.",
+                null, cancellationToken);
+            return;
+        }
+
+        var lines = repositories.Select((repository, index) =>
+        {
+            var name = string.IsNullOrWhiteSpace(repository.Name)
+                ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path)) : repository.Name;
+            return $"{index + 1}. {EscapeSlack(name)}";
+        });
+        var threadTs = await PostMessageAsync(_botToken, _channelId,
+            "*Start a new OpenCode session*\nReply in this thread with a repository number:\n" + string.Join("\n", lines),
+            null, cancellationToken);
+        _pendingNewSessions[threadTs] = new PendingNewSession(repositories);
+    }
+
+    private async Task HandleNewSessionWizardReplyAsync(string threadTs, PendingNewSession pending,
+        string text, CancellationToken cancellationToken)
+    {
+        if (pending.SelectedRepository is null)
+        {
+            if (!int.TryParse(text, out var selection) || selection < 1 || selection > pending.Repositories.Count)
+            {
+                await PostMessageAsync(_botToken, _channelId,
+                    $"Reply with a number from 1 to {pending.Repositories.Count} to choose a repository.", threadTs, cancellationToken);
+                return;
+            }
+
+            pending.SelectedRepository = pending.Repositories[selection - 1];
+            var repositoryName = string.IsNullOrWhiteSpace(pending.SelectedRepository.Name)
+                ? Path.GetFileName(Path.TrimEndingDirectorySeparator(pending.SelectedRepository.Path))
+                : pending.SelectedRepository.Name;
+            await PostMessageAsync(_botToken, _channelId,
+                $"Selected *{EscapeSlack(repositoryName)}*. Reply in this thread with the task for OpenCode.",
+                threadTs, cancellationToken);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(text) || text.Length > 32000)
+        {
+            await PostMessageAsync(_botToken, _channelId,
+                "Send a task between 1 and 32,000 characters to start the session.", threadTs, cancellationToken);
+            return;
+        }
+
+        var repository = pending.SelectedRepository;
+        OpenCodeActivityService.ActiveSession session;
+        try
+        {
+            session = await _openCodeActivity.CreateSessionAsync(repository.Path, text, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _pendingNewSessions.TryRemove(threadTs, out _);
+            await PostMessageAsync(_botToken, _channelId,
+                "Could not start the OpenCode session: " + EscapeSlack(exception.Message) + "\nSend `!new` to try again.",
+                threadTs, cancellationToken);
+            return;
+        }
+
+        var title = string.IsNullOrWhiteSpace(session.Title) ? text : session.Title;
+        _sessionThreads[session.Id] = new ThreadLink(threadTs, _channelId, session.Directory, session.Agent, title, DateTime.UtcNow);
+        await SaveThreadLinksAsync();
+        _pendingNewSessions.TryRemove(threadTs, out _);
+        SessionNotificationsChanged?.Invoke();
+        var selectedName = string.IsNullOrWhiteSpace(repository.Name)
+            ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path)) : repository.Name;
+        await PostMessageAsync(_botToken, _channelId,
+            $"✅ Started a new OpenCode session in *{EscapeSlack(selectedName)}*. Session: `{EscapeSlack(session.Id)}`",
+            threadTs, cancellationToken);
     }
 
     private async Task LoadThreadLinksAsync(string channelId)

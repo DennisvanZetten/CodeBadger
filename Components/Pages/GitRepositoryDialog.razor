@@ -224,13 +224,17 @@
                                                 <span>@L.T("Checkout commit (detached HEAD)")</span>
                                             </button>
                                             <div class="git-context-menu-separator" role="separator"></div>
-                                            <button class="git-commit-context-menu-item" disabled="@(_isCheckingCherryPick || _isCommitOnCurrentBranch != false || _isOperating)"
-                                                    aria-readonly="@(_isCheckingCherryPick || _isCommitOnCurrentBranch != false || _isOperating)"
-                                                    @onclick="CherryPickSelectedCommitAsync">
+                                             <button class="git-commit-context-menu-item" disabled="@(_isCheckingCherryPick || _isCommitOnCurrentBranch != false || _isOperating)"
+                                                     aria-readonly="@(_isCheckingCherryPick || _isCommitOnCurrentBranch != false || _isOperating)"
+                                                     @onclick="CherryPickSelectedCommitAsync">
                                                 <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" />
                                                 <span>@L.T("Cherry-pick commit")</span>
-                                            </button>
-                                            @if (_contextMenuMergeBranch is not null && !string.IsNullOrWhiteSpace(_contextMenuTargetBranch))
+                                             </button>
+                                             <button class="git-commit-context-menu-item" disabled="@_isOperating" @onclick="RevertSelectedCommitAsync">
+                                                 <MudIcon Icon="@Icons.Material.Filled.Undo" Size="Size.Small" />
+                                                 <span>@L.T("Revert commit")</span>
+                                             </button>
+                                             @if (_contextMenuMergeBranch is not null && !string.IsNullOrWhiteSpace(_contextMenuTargetBranch))
                                             {
                                                 <button class="git-commit-context-menu-item" disabled="@(_isCheckingMergeBranch || !_mergeBranchReady || _isOperating)"
                                                         title="@(_mergeBranchError ?? string.Empty)" @onclick="MergeSelectedBranchAsync">
@@ -245,8 +249,22 @@
                                                     <span>@L.T("Merge {0} into {1}", _contextMenuMergeBranch, _contextMenuTargetBranch)</span>
                                                 </button>
                                             }
-                                        </div>
-                                    </div>
+                                            <div class="git-context-menu-separator" role="separator"></div>
+                                            <div class="git-commit-context-menu-section-label">@L.T("Copy to clipboard")</div>
+                                            <button class="git-commit-context-menu-item" @onclick="@(() => CopyCommitBranchNamesAsync(_contextMenuCommit))">
+                                                <MudIcon Icon="@Icons.Material.Filled.AccountTree" Size="Size.Small" />
+                                                <span>@L.T("Copy branch name")</span>
+                                            </button>
+                                            <button class="git-commit-context-menu-item" @onclick="@(() => CopyCommitInfoAsync(_contextMenuCommit))">
+                                                <MudIcon Icon="@Icons.Material.Filled.Subject" Size="Size.Small" />
+                                                <span>@L.T("Copy commit info")</span>
+                                            </button>
+                                            <button class="git-commit-context-menu-item" @onclick="@(() => CopyCommitShaAsync(_contextMenuCommit))">
+                                                <MudIcon Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small" />
+                                                <span>@L.T("Copy commit SHA")</span>
+                                            </button>
+                                         </div>
+                                     </div>
                                 }
                                 @if (_isCreateBranchDialogOpen)
                                 {
@@ -1036,6 +1054,45 @@
         _mergeBranchError = null;
     }
 
+    private async Task CopyCommitBranchNamesAsync(GitCommitEntry commit)
+    {
+        var branchNames = (commit.BranchLabels ?? [])
+            .Select(label => label.Name)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (branchNames.Count == 0)
+        {
+            Snackbar.Add(L.T("No branch name is associated with this commit."), Severity.Info);
+            return;
+        }
+
+        await CopyCommitValueAsync(string.Join(Environment.NewLine, branchNames), L.T("Branch name copied."));
+    }
+
+    private async Task CopyCommitInfoAsync(GitCommitEntry commit)
+    {
+        var commitInfo = $"{commit.Subject}\n{commit.Author} · {FormatDate(commit.Date)}";
+        await CopyCommitValueAsync(commitInfo, L.T("Commit info copied."));
+    }
+
+    private Task CopyCommitShaAsync(GitCommitEntry commit) =>
+        CopyCommitValueAsync(commit.Hash, L.T("Commit SHA copied."));
+
+    private async Task CopyCommitValueAsync(string value, string successMessage)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", value);
+            Snackbar.Add(successMessage, Severity.Success);
+        }
+        catch (JSException)
+        {
+            Snackbar.Add(L.T("Could not copy to clipboard."), Severity.Error);
+        }
+        CloseCommitContextMenu();
+    }
+
     private void OpenCreateBranchDialog(string startPoint)
     {
         var commit = _snapshot?.Commits.FirstOrDefault(item => item.Hash == startPoint);
@@ -1161,6 +1218,38 @@
             Snackbar.Add(result.Success
                     ? L.T("Cherry-pick completed for commit {0}.", commit.ShortHash)
                     : L.T("Cherry-pick failed: {0}", result.Message),
+                result.Success ? Severity.Success : Severity.Error);
+            await RefreshAsync();
+        }
+        finally
+        {
+            _isOperating = false;
+        }
+    }
+
+    private async Task RevertSelectedCommitAsync()
+    {
+        var commit = _contextMenuCommit;
+        if (commit is null || _isOperating)
+            return;
+
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            L.T("Revert commit?"),
+            (MarkupString)string.Format(L.T("Revert commit confirmation"), commit.ShortHash, commit.Subject),
+            yesText: L.T("Revert commit"),
+            cancelText: L.T("Cancel"),
+            options: new DialogOptions { CloseOnEscapeKey = true });
+        if (confirmed != true || _contextMenuCommit?.Hash != commit.Hash)
+            return;
+
+        CloseCommitContextMenu();
+        _isOperating = true;
+        try
+        {
+            var result = await GitBranchService.RevertCommitAsync(RepositoryPath, commit.Hash);
+            Snackbar.Add(result.Success
+                    ? L.T("Revert commit completed for {0}.", commit.ShortHash)
+                    : L.T("Revert commit failed: {0}", result.Message),
                 result.Success ? Severity.Success : Severity.Error);
             await RefreshAsync();
         }

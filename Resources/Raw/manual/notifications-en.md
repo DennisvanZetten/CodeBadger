@@ -39,7 +39,9 @@ The status shown in this panel reports whether CodeBadger is connected to Slack 
 
 - When a monitored OpenCode session finishes, CodeBadger posts a concise summary to the selected Slack channel. The message identifies the agent and session.
 - Reply **in the thread on the CodeBadger message** to continue that exact OpenCode session. A new channel message is not routed to a session.
+- Send `!new` as a standalone channel message to start a new session. In the thread CodeBadger posts, reply with a repository number, then send your task as the next thread reply. Only active, non-sandboxed OpenCode repositories are listed.
 - To switch agent for a reply, start the thread reply with `!build` or `!plan`, followed by a space and your instruction. For example: `!plan Compare two implementation approaches`. The agent switches first, then receives the text after the command. Future turns keep using the selected agent until you switch again.
+- Send `!commit` in a session thread to stage and commit all repository changes. If AI commit messages are configured, CodeBadger generates the message automatically. Otherwise, CodeBadger asks for a title; send it as the next thread reply, optionally followed by the description on the next line.
 - Use `!build` for implementation work and `!plan` for planning and analysis. Do not send only `!build` or `!plan`; include an instruction after it.
 
 The channel reply must come from the Slack member ID configured in CodeBadger. CodeBadger must be running to receive Slack replies and monitor session completion.

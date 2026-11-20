@@ -1751,6 +1751,7 @@ h1:focus {
 .git-commit-context-menu-item {
     display: flex;
     align-items: center;
+    justify-content: flex-start;
     gap: 0.5rem;
     width: 100%;
     min-height: 1.9rem;
@@ -1762,6 +1763,11 @@ h1:focus {
     text-align: left;
     cursor: pointer;
     font-size: 0.72rem;
+}
+
+.git-commit-context-menu-item > span {
+    flex: 1 1 auto;
+    text-align: left;
 }
 
 .git-commit-context-menu-item .mud-icon-root {
@@ -1790,6 +1796,14 @@ h1:focus {
     height: 1px;
     margin: 0.25rem 0.35rem;
     background: var(--mud-palette-divider);
+}
+
+.git-commit-context-menu-section-label {
+    padding: 0.3rem 0.55rem 0.15rem;
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
 }
 
 .git-create-branch-backdrop {

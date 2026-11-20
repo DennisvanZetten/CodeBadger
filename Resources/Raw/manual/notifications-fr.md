@@ -40,6 +40,8 @@ L’état affiché dans ce panneau indique si CodeBadger est connecté à Slack 
 - Lorsqu’une session OpenCode surveillée se termine, CodeBadger publie un résumé concis dans le canal Slack choisi. Le message indique l’agent et la session.
 - Répondez **dans le fil du message CodeBadger** pour continuer exactement cette session OpenCode. Un nouveau message dans le canal n’est associé à aucune session.
 - Pour changer d’agent pour une réponse, commencez votre réponse au fil par `!build` ou `!plan`, suivi d’un espace et de votre instruction. Exemple : `!plan Compare deux approches d’implémentation`. L’agent est d’abord changé, puis reçoit le texte après la commande. Les tours suivants continuent avec cet agent jusqu’au prochain changement.
+- Envoyez `!commit` dans un fil de session pour indexer et valider toutes les modifications du dépôt. Si les messages de commit par IA sont configurés, CodeBadger génère automatiquement le message. Sinon, CodeBadger demande un titre ; envoyez-le dans la réponse suivante du fil, avec éventuellement la description à la ligne suivante.
+- Envoyez `!new` comme message autonome dans le canal pour démarrer une nouvelle session. Dans le fil créé par CodeBadger, répondez avec le numéro d’un dépôt, puis envoyez votre tâche dans la réponse suivante du fil. Seuls les dépôts OpenCode actifs sans sandbox sont affichés.
 - Utilisez `!build` pour le travail d’implémentation et `!plan` pour la planification et l’analyse. N’envoyez pas uniquement `!build` ou `!plan` : ajoutez une instruction.
 
 La réponse Slack doit provenir de l’identifiant de membre configuré dans CodeBadger. CodeBadger doit être ouvert pour recevoir les réponses Slack et détecter la fin des sessions.

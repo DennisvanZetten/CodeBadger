@@ -266,6 +266,22 @@ public sealed class GitBranchService
     public async Task<GitOperationResult> CherryPickCommitAsync(string path, string commitHash) =>
         await RunGitAsync(path, "cherry-pick", commitHash);
 
+    public async Task<GitOperationResult> RevertCommitAsync(string path, string commitHash)
+    {
+        var statusResult = await RunGitAsync(path, "status", "--porcelain=v1", "-uall");
+        if (!statusResult.Success)
+            return new GitOperationResult(false,
+                _localization.T("Could not check the working tree before reverting: {0}", statusResult.Message), string.Empty);
+        if (!string.IsNullOrWhiteSpace(statusResult.Output))
+            return new GitOperationResult(false, _localization.T("Commit or stash your changes before reverting a commit."), string.Empty);
+
+        var commitResult = await RunGitAsync(path, "rev-parse", "--verify", "--quiet", $"{commitHash}^{{commit}}");
+        if (!commitResult.Success)
+            return new GitOperationResult(false, _localization.T("The selected commit is no longer available."), string.Empty);
+
+        return await RunGitAsync(path, "revert", "--no-edit", commitResult.Output.Trim());
+    }
+
     public async Task<GitOperationResult> CreateAndCheckoutBranchAsync(string path, string branchName, string startPoint)
     {
         branchName = branchName.Trim();
@@ -343,6 +359,9 @@ public sealed class GitBranchService
 
     public async Task<GitOperationResult> StageFileAsync(string path, string filePath) =>
         await RunGitAsync(path, "add", "--", filePath);
+
+    public async Task<GitOperationResult> StageAllChangesAsync(string path) =>
+        await RunGitAsync(path, "add", "--all");
 
     public async Task<GitOperationResult> UnstageFileAsync(string path, string filePath) =>
         await RunGitAsync(path, "restore", "--staged", "--", filePath);

@@ -38,6 +38,7 @@ public sealed class LauncherSettingsService
             settings.Language = _localization.CurrentLanguage;
             settings.Theme = LauncherThemes.Get(settings.Theme).Id;
             settings.CompletionSound = CompletionSounds.Normalize(settings.CompletionSound);
+            settings.QuestionSound = CompletionSounds.Normalize(settings.QuestionSound);
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
             settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
             settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);
@@ -60,6 +61,7 @@ public sealed class LauncherSettingsService
             settings.Language = LocalizationService.NormalizeLanguage(settings.Language);
             settings.Theme = LauncherThemes.Get(settings.Theme).Id;
             settings.CompletionSound = CompletionSounds.Normalize(settings.CompletionSound);
+            settings.QuestionSound = CompletionSounds.Normalize(settings.QuestionSound);
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
             settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
             settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);

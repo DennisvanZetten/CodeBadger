@@ -66,7 +66,15 @@ else
                             <img class="repository-agent-logo" src="@AgentLogo(repository)" alt="@AgentTools.GetDisplayName(repository.AgentTool)"
                                  title="@AgentTools.GetDisplayName(repository.AgentTool)" />
                             <MudText>@RepositoryTitle(repository)</MudText>
-                            @if (_runningSessions.Contains(repository.Id))
+                            @if (_questionSessions.Contains(repository.Id))
+                            {
+                                <MudTooltip Text="@L.T("Agent is waiting for your answer")">
+                                    <MudIcon Icon="@Icons.Material.Filled.HelpOutline" Size="Size.Small" Color="Color.Warning"
+                                             aria-label="@L.T("Agent is waiting for your answer")"
+                                             title="@L.T("Agent is waiting for your answer")" />
+                                </MudTooltip>
+                            }
+                            else if (_runningSessions.Contains(repository.Id))
                             {
                                 <span class="repository-activity-spinner @AgentSpinnerClass(repository)" role="status"
                                        aria-label="@L.T("Agent session is working", AgentTools.GetDisplayName(repository.AgentTool))"
@@ -143,6 +151,7 @@ else
     private readonly Dictionary<RepositoryEntry, GitBranchInfo> _branches = [];
     private readonly Dictionary<RepositoryEntry, GitRepositorySnapshot> _gitSnapshots = [];
     private readonly HashSet<Guid> _runningSessions = [];
+    private readonly HashSet<Guid> _questionSessions = [];
     private bool _activityNeedsBaseline = true;
     private bool _isRefreshingBranches;
     private bool _isLoadingRepositories;
@@ -201,6 +210,7 @@ else
             _settings = await SettingsService.LoadAsync();
             SyncRepositories();
             _runningSessions.Clear();
+            _questionSessions.Clear();
             _activityNeedsBaseline = true;
             var selectedIndex = activeRepositoryId is { } repositoryId
                 ? _activeRepositories.FindIndex(repository => repository.Id == repositoryId)
@@ -453,15 +463,16 @@ else
             do
             {
                 var supported = _activeRepositories.Any(repository => AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode);
-                var directories = supported ? await OpenCodeActivity.GetActiveDirectoriesAsync(cancellationToken) : null;
+                var activity = supported ? await OpenCodeActivity.GetActivityAsync(cancellationToken) : null;
                 await InvokeAsync(async () =>
                 {
-                    if (directories is null)
+                    if (activity is null)
                     {
                         _activityNeedsBaseline = true;
-                        if (_runningSessions.Count > 0)
+                        if (_runningSessions.Count > 0 || _questionSessions.Count > 0)
                         {
                             _runningSessions.Clear();
+                            _questionSessions.Clear();
                             StateHasChanged();
                         }
                         return;
@@ -469,18 +480,31 @@ else
                     var running = _activeRepositories
                         .Where(repository => AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
                         .Where(repository => !string.IsNullOrWhiteSpace(repository.Path) &&
-                            OpenCodeActivityService.NormalizePath(repository.Path) is { } path && directories.Contains(path))
+                            OpenCodeActivityService.NormalizePath(repository.Path) is { } path && activity.ActiveDirectories.Contains(path))
+                        .Select(repository => repository.Id).ToHashSet();
+                    var questions = _activeRepositories
+                        .Where(repository => AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
+                        .Where(repository => !string.IsNullOrWhiteSpace(repository.Path) &&
+                            OpenCodeActivityService.NormalizePath(repository.Path) is { } path && activity.QuestionDirectories.Contains(path))
                         .Select(repository => repository.Id).ToHashSet();
                     var finished = !_activityNeedsBaseline && _runningSessions.Except(running).Any();
+                    var asked = !_activityNeedsBaseline && questions.Except(_questionSessions).Any();
                     _activityNeedsBaseline = false;
-                    var changed = !_runningSessions.SetEquals(running);
+                    var changed = !_runningSessions.SetEquals(running) || !_questionSessions.SetEquals(questions);
                     _runningSessions.Clear();
                     _runningSessions.UnionWith(running);
+                    _questionSessions.Clear();
+                    _questionSessions.UnionWith(questions);
                     if (changed)
                         StateHasChanged();
                     if (finished && _settings.CompletionSoundEnabled)
                     {
                         try { await JS.InvokeVoidAsync("codeBadgerSounds.play", CompletionSounds.Normalize(_settings.CompletionSound)); }
+                        catch (JSException) { }
+                    }
+                    if (asked && _settings.QuestionSoundEnabled)
+                    {
+                        try { await JS.InvokeVoidAsync("codeBadgerSounds.play", CompletionSounds.Normalize(_settings.QuestionSound)); }
                         catch (JSException) { }
                     }
                 });

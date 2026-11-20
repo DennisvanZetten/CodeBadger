@@ -249,6 +249,13 @@
                         }
                     </MudSelect>
                     <MudSwitch @bind-Value="Settings.CompletionSoundEnabled" Color="Color.Primary" Label="@L.T("Play a sound when a session finishes")" />
+                    <MudSelect T="string" Label="@L.T("Question sound")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.QuestionSound" @bind-Value:after="PreviewQuestionSoundAsync" Disabled="@(!Settings.QuestionSoundEnabled)">
+                        @foreach (var sound in CompletionSounds.All)
+                        {
+                            <MudSelectItem T="string" Value="@sound">@L.T($"Sound: {sound}")</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudSwitch @bind-Value="Settings.QuestionSoundEnabled" Color="Color.Primary" Label="@L.T("Play a sound when the agent asks a question")" />
                 </MudStack>
             </MudTabPanel>
         </MudTabs>
@@ -268,6 +275,12 @@
     private async Task PreviewSoundAsync()
     {
         try { await JS.InvokeVoidAsync("codeBadgerSounds.play", CompletionSounds.Normalize(Settings.CompletionSound)); }
+        catch (JSException) { }
+    }
+
+    private async Task PreviewQuestionSoundAsync()
+    {
+        try { await JS.InvokeVoidAsync("codeBadgerSounds.play", CompletionSounds.Normalize(Settings.QuestionSound)); }
         catch (JSException) { }
     }
 

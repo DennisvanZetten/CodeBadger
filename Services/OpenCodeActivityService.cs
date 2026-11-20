@@ -5,6 +5,8 @@ namespace CodeBadger.Services;
 
 public sealed class OpenCodeActivityService
 {
+    public sealed record ActivitySnapshot(HashSet<string> ActiveDirectories, HashSet<string> QuestionDirectories);
+
     // Only the managed OpenCode service is queried. Other tools, standalone
     // instances and explicitly selected servers do not expose the same state here.
     public static bool SupportsCommand(string command)
@@ -20,9 +22,10 @@ public sealed class OpenCodeActivityService
             && !arguments.Contains("--server", StringComparison.OrdinalIgnoreCase);
     }
 
-    public async Task<HashSet<string>?> GetActiveDirectoriesAsync(CancellationToken cancellationToken)
+    public async Task<ActivitySnapshot?> GetActivityAsync(CancellationToken cancellationToken)
     {
-        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var activeDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var questionDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         using var active = await RequestAsync("/api/session/active", cancellationToken);
         if (active is null || !active.RootElement.TryGetProperty("data", out var sessions) || sessions.ValueKind != JsonValueKind.Object)
             return null;
@@ -30,26 +33,35 @@ public sealed class OpenCodeActivityService
         var ids = sessions.EnumerateObject().Select(session => session.Name)
             .Where(id => id.StartsWith("ses_", StringComparison.Ordinal) && id.All(c => char.IsAsciiLetterOrDigit(c) || c == '_'))
             .ToArray();
-        var responses = await Task.WhenAll(ids.Select(id => RequestAsync($"/api/session/{id}", cancellationToken)));
+        var responses = await Task.WhenAll(ids.Select(async id =>
+            (Session: await RequestAsync($"/api/session/{id}", cancellationToken),
+             Questions: await RequestAsync($"/api/session/{id}/question", cancellationToken))));
         try
         {
-            foreach (var response in responses)
+            foreach (var (sessionResponse, questionResponse) in responses)
             {
-                if (response is null || !response.RootElement.TryGetProperty("data", out var session)
+                if (sessionResponse is null || !sessionResponse.RootElement.TryGetProperty("data", out var session)
                     || !session.TryGetProperty("location", out var location)
                     || !location.TryGetProperty("directory", out var directory)
                     || directory.ValueKind != JsonValueKind.String
                     || directory.GetString() is not { Length: > 0 } path
                     || NormalizePath(path) is not { } normalized)
                     return null;
-                directories.Add(normalized);
+
+                activeDirectories.Add(normalized);
+                if (questionResponse?.RootElement.TryGetProperty("data", out var questions) == true &&
+                    questions.ValueKind == JsonValueKind.Array && questions.GetArrayLength() > 0)
+                    questionDirectories.Add(normalized);
             }
-            return directories;
+            return new ActivitySnapshot(activeDirectories, questionDirectories);
         }
         finally
         {
-            foreach (var response in responses)
-                response?.Dispose();
+            foreach (var (sessionResponse, questionResponse) in responses)
+            {
+                sessionResponse?.Dispose();
+                questionResponse?.Dispose();
+            }
         }
     }
 

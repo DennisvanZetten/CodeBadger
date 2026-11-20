@@ -6,6 +6,8 @@ public sealed class LauncherSettings
     public string Theme { get; set; } = "midnight";
     public bool CompletionSoundEnabled { get; set; } = true;
     public string CompletionSound { get; set; } = "bell";
+    public bool QuestionSoundEnabled { get; set; } = true;
+    public string QuestionSound { get; set; } = "chime";
     public int ToastDurationSeconds { get; set; } = 1;
     public string DismissedUpdateVersion { get; set; } = string.Empty;
     public string AiProvider { get; set; } = "OpenAI";

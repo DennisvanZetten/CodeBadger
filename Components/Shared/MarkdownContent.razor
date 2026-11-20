@@ -1,0 +1,17 @@
+@using Markdig
+@using Markdig.Extensions
+
+<article class="markdown-content">
+    @((MarkupString)RenderedHtml)
+</article>
+
+@code {
+    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()
+        .DisableHtml()
+        .Build();
+
+    [Parameter] public string Content { get; set; } = string.Empty;
+
+    private string RenderedHtml => Markdown.ToHtml(Content ?? string.Empty, Pipeline);
+}

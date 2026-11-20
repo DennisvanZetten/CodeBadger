@@ -1,0 +1,61 @@
+# CodeBadger-Handbuch
+
+Dieses Handbuch erklärt die Einrichtung von Slack-Benachrichtigungen, das Erstellen der Slack-App sowie Antworten, Agentenwechsel und Stummschaltung.
+
+> **Datenschutz:** Eine Slack-Benachrichtigung enthält eine Zusammenfassung einer OpenCode-Antwort. Verbinden Sie nur einen Slack-Workspace, in dem Sie Projektinformationen teilen dürfen. Halten Sie beide Slack-Tokens geheim.
+
+## 1. Slack-App erstellen
+
+1. Öffnen Sie [api.slack.com/apps](https://api.slack.com/apps) und wählen Sie **Create New App** → **From scratch**.
+2. Geben Sie der App einen Namen, zum Beispiel **CodeBadger**, und wählen Sie den Workspace für die Benachrichtigungen.
+3. Öffnen Sie **OAuth & Permissions**. Fügen Sie unter **Bot Token Scopes** Folgendes hinzu:
+   - `chat:write` — Nachrichten und Thread-Antworten veröffentlichen.
+   - `channels:read` und `channels:history` — öffentliche Kanäle auflisten und deren Nachrichten empfangen.
+   - `groups:read` und `groups:history` — private Kanäle auflisten und deren Nachrichten empfangen, falls Sie einen privaten Kanal verwenden.
+4. Öffnen Sie **Event Subscriptions**, aktivieren Sie Events und abonnieren Sie die Bot-Events `message.channels` und `message.groups` (letzteres gilt für private Kanäle).
+5. Öffnen Sie **Socket Mode** und aktivieren Sie es. CodeBadger verwendet Socket Mode; eine öffentliche Request URL muss daher nicht eingerichtet werden.
+6. Erstellen Sie unter **Basic Information → App-Level Tokens** ein App-Token mit dem Scope `connections:write`. Es beginnt mit `xapp-`.
+7. Kehren Sie zu **OAuth & Permissions** zurück und klicken Sie auf **Install to Workspace** (oder **Reinstall to Workspace**, falls Sie nach der Installation Scopes ergänzt haben). Erteilen Sie die Zustimmung und kopieren Sie das **Bot User OAuth Token**. Es beginnt mit `xoxb-`.
+8. Laden Sie den Bot in den gewünschten Slack-Kanal ein. Geben Sie dort beispielsweise `/invite @CodeBadger` ein. Der Bot kann nur in Kanälen posten, denen er beigetreten ist.
+
+Wenn ein Administrator die App genehmigen oder installieren muss, bitten Sie den Slack-Administrator, die App und die genannten Berechtigungen freizugeben.
+
+## 2. Slack-Mitglieder-ID finden
+
+Öffnen Sie in der Slack-Desktop-App Ihr Profil, wählen Sie **More** und dann **Copy member ID**. Die ID beginnt normalerweise mit `U`. CodeBadger verwendet sie als Sicherheitsprüfung: Nur Antworten dieses Slack-Mitglieds werden an OpenCode weitergeleitet.
+
+## 3. CodeBadger konfigurieren
+
+1. Öffnen Sie **Settings → Notifications**.
+2. Lassen Sie **Slack** als Benachrichtigungskanal ausgewählt.
+3. Fügen Sie das `xoxb-`-Token unter **Slack bot token** und das `xapp-`-Token unter **Slack app-level token** ein. Die Tokens werden sicher auf dem Gerät gespeichert, nicht in der normalen Einstellungsdatei.
+4. Geben Sie Ihre Slack-Mitglieder-ID ein.
+5. Klicken Sie auf **Load Slack channels** und wählen Sie einen Kanal, in dem der Bot Mitglied ist. Kanäle, denen der Bot nicht beigetreten ist, können nicht ausgewählt werden.
+6. Klicken Sie auf **Test Slack connection**. Aktivieren Sie **Send OpenCode completion notifications to Slack** und speichern Sie die Einstellungen.
+
+Der Status in diesem Bereich zeigt, ob CodeBadger über Socket Mode mit Slack verbunden ist.
+
+## 4. Benachrichtigungen und Antworten verwenden
+
+- Wenn eine überwachte OpenCode-Sitzung abgeschlossen ist, veröffentlicht CodeBadger eine kurze Zusammenfassung im ausgewählten Slack-Kanal. Die Meldung nennt Agent und Sitzung.
+- Antworten Sie **im Thread der CodeBadger-Nachricht**, um genau diese OpenCode-Sitzung fortzusetzen. Eine neue Kanalnachricht wird keiner Sitzung zugeordnet.
+- Beginnen Sie Ihre Thread-Antwort mit `!build` oder `!plan`, gefolgt von einem Leerzeichen und Ihrer Anweisung, um den Agenten für diese Antwort zu wechseln. Beispiel: `!plan Vergleiche zwei Implementierungsansätze`. Zuerst wird der Agent gewechselt, anschließend erhält er den Text nach dem Befehl. Weitere Turns verwenden diesen Agenten, bis Sie erneut wechseln.
+- Verwenden Sie `!build` für Implementierungsarbeiten und `!plan` für Planung und Analyse. Senden Sie nicht nur `!build` oder `!plan`; fügen Sie eine Anweisung hinzu.
+
+Die Slack-Antwort muss von der in CodeBadger eingetragenen Mitglieder-ID stammen. CodeBadger muss laufen, um Slack-Antworten zu empfangen und den Abschluss von Sitzungen zu überwachen.
+
+## 5. Repository oder Sitzung stummschalten
+
+Wenn Slack-Benachrichtigungen verbunden sind, öffnen Sie das gewünschte OpenCode-Repository in CodeBadger und verwenden den Bereich **Slack notifications**:
+
+- **Mute repository** verhindert zukünftige automatische Abschlussmeldungen für alle Sitzungen in diesem Repository. Mit **Unmute repository** aktivieren Sie sie wieder.
+- Slack-verknüpfte Sitzungen werden einzeln aufgelistet. **Mute session** deaktiviert zukünftige automatische Meldungen für diese Sitzung; **Unmute session** aktiviert sie wieder.
+
+Die Stummschaltung betrifft nur automatische Abschlussmeldungen. Sie beendet den Agenten nicht, löscht keine Slack-Nachrichten und blockiert keine Antworten im bestehenden Sitzungsthread.
+
+## Hinweise und Einschränkungen
+
+- Die erste Version unterstützt Slack-Abschlussmeldungen für OpenCode-Sitzungen. Andere Agent-Tools werden dafür nicht überwacht.
+- CodeBadger muss laufen, um einen Sitzungsabschluss zu erkennen und Slack-Antworten zu empfangen. Bei vollständig geschlossener App werden keine Meldungen gesendet.
+- Eine Sitzung erscheint in der Stummschaltungsliste, nachdem CodeBadger sie mit einem Slack-Thread verknüpft hat.
+- Zum Widerrufen des Zugriffs deaktivieren Sie den Benachrichtigungsschalter, entfernen die App aus dem Slack-Workspace oder widerrufen die Tokens. Fügen Sie Tokens niemals in Chats ein und committen Sie sie nicht in Git.

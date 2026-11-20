@@ -10,6 +10,10 @@ public sealed class LocalizationService
     private static readonly Dictionary<string, string[]> Texts = new(StringComparer.Ordinal)
     {
         ["Settings"] = ["Settings", "Instellingen", "Einstellungen", "Paramètres"],
+        ["Main navigation"] = ["Main navigation", "Hoofdnavigatie", "Hauptnavigation", "Navigation principale"],
+        ["Manual"] = ["Manual", "Handleiding", "Handbuch", "Manuel"],
+        ["Loading manual..."] = ["Loading manual...", "Handleiding laden...", "Handbuch wird geladen...", "Chargement du manuel..."],
+        ["Could not load the manual: {0}"] = ["Could not load the manual: {0}", "Handleiding laden mislukt: {0}", "Handbuch konnte nicht geladen werden: {0}", "Impossible de charger le manuel : {0}"],
         ["Notifications"] = ["Notifications", "Meldingen", "Benachrichtigungen", "Notifications"],
         ["Session notifications"] = ["Session notifications", "Sessiemeldingen", "Sitzungsbenachrichtigungen", "Notifications de session"],
         ["Notification channel"] = ["Notification channel", "Meldingskanaal", "Benachrichtigungskanal", "Canal de notification"],

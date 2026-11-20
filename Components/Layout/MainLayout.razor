@@ -42,6 +42,19 @@ else
         }
         <MudMainContent Class="@(WindowTitleBar.UsesNativeTitleBar ? "native-titlebar-content" : null)"
                         Style="@(WindowTitleBar.UsesNativeTitleBar ? "padding-top: 0;" : null)">
+            @if (!IsDetachedRepositoryRoute())
+            {
+                <nav class="app-section-nav" aria-label="@L.T("Main navigation")">
+                    <NavLink href="/" Match="NavLinkMatch.All" class="app-section-link">
+                        <MudIcon Icon="@Icons.Material.Filled.FolderOpen" Size="Size.Small" />
+                        <span>@L.T("Repositories")</span>
+                    </NavLink>
+                    <NavLink href="/manual" class="app-section-link">
+                        <MudIcon Icon="@Icons.Material.Filled.MenuBook" Size="Size.Small" />
+                        <span>@L.T("Manual")</span>
+                    </NavLink>
+                </nav>
+            }
             <CascadingValue Value="_startupSettings" IsFixed="true">
                 @Body
             </CascadingValue>

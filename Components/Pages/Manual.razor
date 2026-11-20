@@ -1,0 +1,65 @@
+@page "/manual"
+@inject LocalizationService L
+@implements IDisposable
+
+<PageTitle>@L.T("Manual") - CodeBadger</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="manual-page py-4">
+    @if (_isLoading)
+    {
+        <MudPaper Class="pa-5" Outlined="true" Elevation="0">
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+            <MudText Typo="Typo.body2" Class="mt-3">@L.T("Loading manual...")</MudText>
+        </MudPaper>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@L.T(_error)</MudAlert>
+    }
+    else
+    {
+        <MarkdownContent Content="@_content" />
+    }
+</MudContainer>
+
+@code {
+    private string _content = string.Empty;
+    private string _error = string.Empty;
+    private bool _isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        L.LanguageChanged += HandleLanguageChanged;
+        await LoadManualAsync();
+    }
+
+    private void HandleLanguageChanged() => _ = InvokeAsync(async () =>
+    {
+        await LoadManualAsync();
+        StateHasChanged();
+    });
+
+    private async Task LoadManualAsync()
+    {
+        _isLoading = true;
+        _error = string.Empty;
+        try
+        {
+            var language = LocalizationService.NormalizeLanguage(L.CurrentLanguage);
+            await using var stream = await FileSystem.OpenAppPackageFileAsync($"manual/manual-{language}.md");
+            using var reader = new StreamReader(stream);
+            _content = await reader.ReadToEndAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = "Could not load the manual: {0}";
+            _content = exception.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    public void Dispose() => L.LanguageChanged -= HandleLanguageChanged;
+}

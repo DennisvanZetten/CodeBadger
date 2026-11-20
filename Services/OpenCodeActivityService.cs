@@ -5,7 +5,9 @@ namespace CodeBadger.Services;
 
 public sealed class OpenCodeActivityService
 {
-    public sealed record ActivitySnapshot(HashSet<string> ActiveDirectories, HashSet<string> QuestionDirectories);
+    public sealed record ActiveSession(string Id, string Directory, string Agent, string Title);
+    public sealed record ActivitySnapshot(HashSet<string> ActiveDirectories, HashSet<string> QuestionDirectories,
+        Dictionary<string, ActiveSession> Sessions);
 
     // Only the managed OpenCode service is queried. Other tools, standalone
     // instances and explicitly selected servers do not expose the same state here.
@@ -22,10 +24,12 @@ public sealed class OpenCodeActivityService
             && !arguments.Contains("--server", StringComparison.OrdinalIgnoreCase);
     }
 
-    public async Task<ActivitySnapshot?> GetActivityAsync(CancellationToken cancellationToken)
+    public async Task<ActivitySnapshot?> GetActivityAsync(CancellationToken cancellationToken,
+        IReadOnlyCollection<string>? directories = null)
     {
         var activeDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var questionDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var activeSessions = new Dictionary<string, ActiveSession>(StringComparer.Ordinal);
         using var active = await RequestAsync("/api/session/active", cancellationToken);
         if (active is null || !active.RootElement.TryGetProperty("data", out var sessions) || sessions.ValueKind != JsonValueKind.Object)
             return null;
@@ -34,12 +38,28 @@ public sealed class OpenCodeActivityService
             .Where(id => id.StartsWith("ses_", StringComparison.Ordinal) && id.All(c => char.IsAsciiLetterOrDigit(c) || c == '_'))
             .ToArray();
         var responses = await Task.WhenAll(ids.Select(async id =>
-            (Session: await RequestAsync($"/api/session/{id}", cancellationToken),
-             Questions: await RequestAsync($"/api/session/{id}/question", cancellationToken))));
+        {
+            var sessionResponse = await RequestAsync($"/api/session/{id}", cancellationToken);
+            if (sessionResponse is null || !sessionResponse.RootElement.TryGetProperty("data", out var sessionData) ||
+                !sessionData.TryGetProperty("location", out var sessionLocation) ||
+                !sessionLocation.TryGetProperty("directory", out var sessionDirectory) ||
+                sessionDirectory.ValueKind != JsonValueKind.String || sessionDirectory.GetString() is not { Length: > 0 } path ||
+                NormalizePath(path) is not { } normalized ||
+                (directories is not null && !directories.Any(candidate =>
+                    string.Equals(candidate, normalized, StringComparison.OrdinalIgnoreCase))))
+            {
+                sessionResponse?.Dispose();
+                return (Session: (JsonDocument?)null, Permissions: (JsonDocument?)null, Forms: (JsonDocument?)null);
+            }
+            return (Session: sessionResponse,
+                Permissions: await RequestAsync($"/api/session/{id}/permission", cancellationToken),
+                Forms: await RequestAsync($"/api/session/{id}/form", cancellationToken));
+        }));
         try
         {
-            foreach (var (sessionResponse, questionResponse) in responses)
+            for (var index = 0; index < responses.Length; index++)
             {
+                var (sessionResponse, permissionResponse, formResponse) = responses[index];
                 if (sessionResponse is null || !sessionResponse.RootElement.TryGetProperty("data", out var session)
                     || !session.TryGetProperty("location", out var location)
                     || !location.TryGetProperty("directory", out var directory)
@@ -49,21 +69,106 @@ public sealed class OpenCodeActivityService
                     return null;
 
                 activeDirectories.Add(normalized);
-                if (questionResponse?.RootElement.TryGetProperty("data", out var questions) == true &&
-                    questions.ValueKind == JsonValueKind.Array && questions.GetArrayLength() > 0)
+                var agent = session.TryGetProperty("agent", out var agentValue) && agentValue.ValueKind == JsonValueKind.String
+                    ? agentValue.GetString() ?? string.Empty : string.Empty;
+                var title = session.TryGetProperty("title", out var titleValue) && titleValue.ValueKind == JsonValueKind.String
+                    ? titleValue.GetString() ?? string.Empty : string.Empty;
+                var sessionId = session.TryGetProperty("id", out var idValue) && idValue.ValueKind == JsonValueKind.String
+                    ? idValue.GetString() ?? string.Empty : string.Empty;
+                if (sessionId.Length == 0)
+                    sessionId = ids[index];
+                activeSessions[sessionId] = new ActiveSession(sessionId, normalized, agent, title);
+                if (permissionResponse?.RootElement.TryGetProperty("data", out var permissions) == true &&
+                    permissions.ValueKind == JsonValueKind.Array && permissions.GetArrayLength() > 0)
+                    questionDirectories.Add(normalized);
+                if (formResponse?.RootElement.TryGetProperty("data", out var forms) == true &&
+                    forms.ValueKind == JsonValueKind.Array && forms.GetArrayLength() > 0)
                     questionDirectories.Add(normalized);
             }
-            return new ActivitySnapshot(activeDirectories, questionDirectories);
+            return new ActivitySnapshot(activeDirectories, questionDirectories, activeSessions);
         }
         finally
         {
-            foreach (var (sessionResponse, questionResponse) in responses)
+            foreach (var (sessionResponse, permissionResponse, formResponse) in responses)
             {
                 sessionResponse?.Dispose();
-                questionResponse?.Dispose();
+                permissionResponse?.Dispose();
+                formResponse?.Dispose();
             }
         }
     }
+
+    public async Task<string?> GetLatestCompletedAnswerAsync(string sessionId, string directory, CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId))
+            return null;
+        using var response = await RequestAsync($"/api/session/{sessionId}/message?order=desc&limit=20&type=assistant", cancellationToken,
+            workingDirectory: directory);
+        if (response is null || !response.RootElement.TryGetProperty("data", out var messages) || messages.ValueKind != JsonValueKind.Array)
+            return null;
+
+        foreach (var message in messages.EnumerateArray())
+        {
+            if (!message.TryGetProperty("type", out var type) || type.GetString() != "assistant" ||
+                !message.TryGetProperty("finish", out var finish) || finish.GetString() is not ("stop" or "length") ||
+                !message.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
+                continue;
+
+            var text = string.Join("\n", content.EnumerateArray()
+                .Where(part => part.TryGetProperty("type", out var partType) && partType.GetString() == "text")
+                .Select(part => part.TryGetProperty("text", out var partText) ? partText.GetString() : null)
+                .Where(partText => !string.IsNullOrWhiteSpace(partText))).Trim();
+            if (!string.IsNullOrWhiteSpace(text))
+                return await SummarizeAnswerAsync(sessionId, directory, text, cancellationToken);
+        }
+        return null;
+    }
+
+    private static async Task<string> SummarizeAnswerAsync(string sessionId, string directory, string answer,
+        CancellationToken cancellationToken)
+    {
+        var source = answer.Length > 12000 ? answer[..12000] : answer;
+        var prompt = "Summarize only the assistant's latest completed answer below for a brief Slack notification. " +
+            "Keep important outcomes and actions, use the same language as the answer, and do not add information. " +
+            "Return only the summary.\n\nLatest completed answer:\n" + source;
+        var body = JsonSerializer.Serialize(new { prompt });
+        using var response = await RequestAsync($"/api/session/{sessionId}/generate", cancellationToken,
+            HttpMethod.Post, body, directory);
+        if (response is not null && response.RootElement.TryGetProperty("data", out var data) &&
+            data.TryGetProperty("text", out var summary) && summary.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(summary.GetString()))
+            return summary.GetString()!.Trim();
+        return source.Length > 3500 ? source[..3500] + "\n…" : source;
+    }
+
+    public async Task<bool> HasPendingInteractionAsync(string sessionId, string directory, CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId))
+            return false;
+        using var permissions = await RequestAsync($"/api/session/{sessionId}/permission", cancellationToken, workingDirectory: directory);
+        using var forms = await RequestAsync($"/api/session/{sessionId}/form", cancellationToken, workingDirectory: directory);
+        return HasItems(permissions) || HasItems(forms);
+    }
+
+    private static bool HasItems(JsonDocument? response) => response is not null &&
+        response.RootElement.TryGetProperty("data", out var items) &&
+        items.ValueKind == JsonValueKind.Array && items.GetArrayLength() > 0;
+
+    public async Task SendPromptAsync(string sessionId, string directory, string text, CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId))
+            throw new ArgumentException("Invalid OpenCode session ID.", nameof(sessionId));
+        if (string.IsNullOrWhiteSpace(text) || text.Length > 32000)
+            throw new ArgumentException("Reply must contain 1–32,000 characters.", nameof(text));
+        using var response = await RequestAsync($"/api/session/{sessionId}/prompt", cancellationToken,
+            HttpMethod.Post, JsonSerializer.Serialize(new { text }), directory);
+        if (response is null)
+            throw new InvalidOperationException("Could not submit the reply to the OpenCode session.");
+    }
+
+    private static bool IsValidSessionId(string sessionId) =>
+        sessionId.StartsWith("ses_", StringComparison.Ordinal) &&
+        sessionId.All(character => char.IsAsciiLetterOrDigit(character) || character == '_');
 
     public static string? NormalizePath(string path)
     {
@@ -73,27 +178,39 @@ public sealed class OpenCodeActivityService
         catch (PathTooLongException) { return null; }
     }
 
-    private static async Task<JsonDocument?> RequestAsync(string path, CancellationToken cancellationToken)
+    private static async Task<JsonDocument?> RequestAsync(string path, CancellationToken cancellationToken,
+        HttpMethod? method = null, string? body = null, string? workingDirectory = null)
     {
         if (!OperatingSystem.IsWindows())
             return null;
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        string executable;
+        try { executable = OpenCodeExecutableLocator.Find(); }
+        catch (FileNotFoundException) { return null; }
+        catch (PlatformNotSupportedException) { return null; }
         using var process = new Process
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
+                FileName = executable,
+                WorkingDirectory = !string.IsNullOrWhiteSpace(workingDirectory) && Directory.Exists(workingDirectory)
+                    ? workingDirectory : Environment.CurrentDirectory,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true
             }
         };
-        process.StartInfo.ArgumentList.Add("/d");
-        process.StartInfo.ArgumentList.Add("/c");
-        process.StartInfo.ArgumentList.Add($"opencode api get {path}");
+        process.StartInfo.ArgumentList.Add("api");
+        process.StartInfo.ArgumentList.Add(method == HttpMethod.Post ? "post" : "get");
+        process.StartInfo.ArgumentList.Add(path);
+        if (body is not null)
+        {
+            process.StartInfo.ArgumentList.Add("--data");
+            process.StartInfo.ArgumentList.Add(body);
+        }
         try
         {
             if (!process.Start())

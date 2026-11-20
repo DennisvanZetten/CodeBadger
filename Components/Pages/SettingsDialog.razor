@@ -3,6 +3,7 @@
 @inject AiCommitMessageService AiCommitMessageService
 @inject RepositoryFolderPicker FolderPicker
 @inject AgentConfigService AgentConfigService
+@inject SlackNotificationService SlackNotificationService
 @inject StartupDetectionService StartupDetection
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
@@ -214,6 +215,54 @@
                     </MudButton>
                 </MudStack>
             </MudTabPanel>
+            <MudTabPanel Text="@L.T("Notifications")" Icon="@Icons.Material.Filled.NotificationsActive">
+                <MudStack Spacing="3">
+                    <MudText Typo="Typo.h6">@L.T("Session notifications")</MudText>
+                    <MudSelect T="string" Label="@L.T("Notification channel")" Variant="Variant.Outlined" Margin="Margin.Dense"
+                               @bind-Value="Settings.NotificationChannel">
+                        <MudSelectItem T="string" Value="@("Slack")">Slack</MudSelectItem>
+                    </MudSelect>
+                    @if (Settings.NotificationChannel == "Slack")
+                    {
+                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                            @L.T("Slack uses Socket Mode, so no public webhook is needed. Configure the Slack app as described below; tokens are stored securely on this device.")
+                            <br /><br />
+                            @L.T("Bot scopes: chat:write, channels:read, channels:history, groups:read, groups:history. Subscribe to message.channels and message.groups. Generate an app-level token with connections:write and enable Socket Mode.")
+                            <br />
+                            @L.T("Invite the bot to the channel you choose. Replies in the notification thread are sent to that OpenCode session.")
+                        </MudAlert>
+                        <MudTextField @bind-Value="Settings.SlackBotToken" Label="@L.T("Slack bot token")" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      InputType="InputType.Password" HelperText="@L.T("Starts with xoxb-. Stored securely on this device.")" />
+                        <MudTextField @bind-Value="Settings.SlackAppToken" Label="@L.T("Slack app-level token")" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      InputType="InputType.Password" HelperText="@L.T("Starts with xapp-. Requires the connections:write scope.")" />
+                        <MudTextField @bind-Value="Settings.SlackAllowedUserId" Label="@L.T("Your Slack member ID")" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      HelperText="@L.T("Required for safety: only replies from this Slack user will be sent to OpenCode. Find it in your Slack profile under More → Copy member ID.")" />
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="flex-wrap">
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh"
+                                       OnClick="LoadSlackChannelsAsync" Disabled="@_isLoadingSlackChannels">
+                                @(_isLoadingSlackChannels ? L.T("Loading channels...") : L.T("Load Slack channels"))
+                            </MudButton>
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.WifiTethering"
+                                       OnClick="TestSlackConnectionAsync" Disabled="@_isTestingSlack">
+                                @(_isTestingSlack ? L.T("Testing Slack connection...") : L.T("Test Slack connection"))
+                            </MudButton>
+                        </MudStack>
+                        <MudSelect T="string" @bind-Value="Settings.SlackChannelId" Label="@L.T("Slack channel")"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(_slackChannels.Count == 0)"
+                                   HelperText="@L.T("Public and private channels are listed. Invite the bot first; only channels it joined can be used.")">
+                            @foreach (var channel in _slackChannels)
+                            {
+                                <MudSelectItem T="string" Value="@channel.Id" Disabled="@(!channel.IsMember)">#@channel.Name@(channel.IsMember ? string.Empty : " · " + L.T("Bot not in channel"))</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudSwitch @bind-Value="Settings.SlackNotificationsEnabled" Color="Color.Primary"
+                                   Label="@L.T("Send OpenCode completion notifications to Slack")" />
+                        <MudAlert Severity="@(_slackConnected ? Severity.Success : Severity.Info)" Variant="Variant.Outlined">
+                            @L.T(_slackConnectionStatus)
+                        </MudAlert>
+                    }
+                </MudStack>
+            </MudTabPanel>
             <MudTabPanel Text="Sandbox" Icon="@Icons.Material.Filled.Security">
                 <MudStack Spacing="3">
                     <MudText Typo="Typo.h6">@L.T("General sandbox limits")</MudText>
@@ -268,7 +317,13 @@
 </MudDialog>
 
 @code {
-    protected override void OnInitialized() => L.LanguageChanged += HandleLanguageChanged;
+    protected override void OnInitialized()
+    {
+        L.LanguageChanged += HandleLanguageChanged;
+        SlackNotificationService.ConnectionChanged += HandleSlackConnectionChanged;
+        _slackConnected = SlackNotificationService.IsConnected;
+        _slackConnectionStatus = SlackNotificationService.ConnectionStatus;
+    }
 
     private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);
 
@@ -299,6 +354,11 @@
     private bool _isLoadingAgentConfig;
     private bool _isSavingAgentConfig;
     private bool _agentConfigLoadFailed;
+    private bool _isLoadingSlackChannels;
+    private bool _isTestingSlack;
+    private bool _slackConnected;
+    private string _slackConnectionStatus = "Slack notifications are not connected.";
+    private IReadOnlyList<SlackNotificationService.SlackChannel> _slackChannels = [];
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -494,6 +554,46 @@
         _availableModels = [];
     }
 
+    private async Task LoadSlackChannelsAsync()
+    {
+        _isLoadingSlackChannels = true;
+        try
+        {
+            _slackChannels = await SlackNotificationService.GetChannelsAsync(Settings.SlackBotToken);
+            if (!string.IsNullOrWhiteSpace(Settings.SlackChannelId) &&
+                !_slackChannels.Any(channel => channel.Id == Settings.SlackChannelId))
+                Settings.SlackChannelId = string.Empty;
+            Snackbar.Add(L.T("Loaded {0} Slack channels.", _slackChannels.Count), Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not load Slack channels: {0}", exception.Message), Severity.Error);
+        }
+        finally { _isLoadingSlackChannels = false; }
+    }
+
+    private async Task TestSlackConnectionAsync()
+    {
+        _isTestingSlack = true;
+        try
+        {
+            await SlackNotificationService.TestConnectionAsync(Settings.SlackBotToken, Settings.SlackAppToken);
+            Snackbar.Add(L.T("Slack connection successful."), Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Slack connection failed: {0}", exception.Message), Severity.Error);
+        }
+        finally { _isTestingSlack = false; }
+    }
+
+    private void HandleSlackConnectionChanged(bool connected, string status) => _ = InvokeAsync(() =>
+    {
+        _slackConnected = connected;
+        _slackConnectionStatus = status;
+        StateHasChanged();
+    });
+
     private async Task SaveAsync()
     {
         _isSaving = true;
@@ -512,5 +612,9 @@
 
     private void Cancel() => MudDialog.Cancel();
 
-    public void Dispose() => L.LanguageChanged -= HandleLanguageChanged;
+    public void Dispose()
+    {
+        L.LanguageChanged -= HandleLanguageChanged;
+        SlackNotificationService.ConnectionChanged -= HandleSlackConnectionChanged;
+    }
 }

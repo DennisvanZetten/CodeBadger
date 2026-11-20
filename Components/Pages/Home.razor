@@ -3,6 +3,7 @@
 @inject LocalizationService L
 @inject GitBranchService GitBranchService
 @inject OpenCodeActivityService OpenCodeActivity
+@inject SlackNotificationService SlackNotifications
 @inject StartupDetectionService StartupDetection
 @inject WindowsSandboxSessionService SandboxSessions
 @inject SandboxApprovalService SandboxApprovals
@@ -105,6 +106,7 @@
     private readonly Dictionary<RepositoryEntry, GitRepositorySnapshot> _gitSnapshots = [];
     private readonly HashSet<Guid> _runningSessions = [];
     private readonly HashSet<Guid> _questionSessions = [];
+    private readonly Dictionary<string, OpenCodeActivityService.ActiveSession> _runningOpenCodeSessions = new(StringComparer.Ordinal);
     private bool _activityNeedsBaseline = true;
     private bool _isRefreshingBranches;
     private bool _isDockDragActive;
@@ -123,6 +125,7 @@
         try { await WindowsRepositoryAccessGuardian.RecoverPendingAsync(FileSystem.AppDataDirectory, FileSystem.OpenAppPackageFileAsync); }
         catch (Exception error) { Snackbar.Add("Repository access recovery failed: " + error.Message, Severity.Error); }
         SettingsService.SettingsSaved += HandleSettingsSaved;
+        SlackNotifications.ReplyReceived += HandleSlackReplyReceived;
         SandboxApprovals.Requested += HandleSandboxApproval;
         SandboxSessions.StateChanged += HandleSandboxState;
         DetachedWindows.StateChanged += HandleDetachedWindowsChanged;
@@ -130,6 +133,7 @@
         DetachedWindows.DockDragChanged += HandleDockDragChanged;
         L.LanguageChanged += HandleLanguageChanged;
         SyncRepositories();
+        await SlackNotifications.ConfigureAsync(_settings);
         if (_activeRepositories.Count > 0)
         {
             var lastRepositoryId = Preferences.Default.Get(LastRepositoryPreferenceKey, string.Empty);
@@ -201,6 +205,7 @@
                 ? dockedRepositories[_activeTabIndex].Id
                 : (Guid?)null;
             _settings = await SettingsService.LoadAsync();
+            await SlackNotifications.ConfigureAsync(_settings);
             SyncRepositories();
             _runningSessions.Clear();
             _questionSessions.Clear();
@@ -497,12 +502,15 @@
             do
             {
                 var supported = _activeRepositories.Any(repository => AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode);
-                var activity = supported ? await OpenCodeActivity.GetActivityAsync(cancellationToken) : null;
+                var monitoredDirectories = _activeRepositories
+                    .Where(repository => AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
+                    .Select(repository => OpenCodeActivityService.NormalizePath(repository.Path))
+                    .Where(path => path is not null).Cast<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                var activity = supported ? await OpenCodeActivity.GetActivityAsync(cancellationToken, monitoredDirectories) : null;
                 await InvokeAsync(async () =>
                 {
                     if (activity is null)
                     {
-                        _activityNeedsBaseline = true;
                         if (_runningSessions.Count > 0 || _questionSessions.Count > 0)
                         {
                             _runningSessions.Clear();
@@ -521,9 +529,21 @@
                         .Where(repository => !string.IsNullOrWhiteSpace(repository.Path) &&
                             OpenCodeActivityService.NormalizePath(repository.Path) is { } path && activity.QuestionDirectories.Contains(path))
                         .Select(repository => repository.Id).ToHashSet();
-                    var finished = !_activityNeedsBaseline && _runningSessions.Except(running).Any();
+                    var activeOpenCodeSessions = activity.Sessions.Values
+                        .Where(session => _activeRepositories.Any(repository =>
+                            AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode &&
+                            !string.IsNullOrWhiteSpace(repository.Path) &&
+                            OpenCodeActivityService.NormalizePath(repository.Path) is { } path &&
+                            string.Equals(path, session.Directory, StringComparison.OrdinalIgnoreCase)))
+                        .ToDictionary(session => session.Id, StringComparer.Ordinal);
+                    var completedSessions = _activityNeedsBaseline
+                        ? []
+                        : _runningOpenCodeSessions.Where(pair => !activeOpenCodeSessions.ContainsKey(pair.Key))
+                            .Select(pair => pair.Value).ToArray();
                     var asked = !_activityNeedsBaseline && questions.Except(_questionSessions).Any();
                     _activityNeedsBaseline = false;
+                    foreach (var pair in activeOpenCodeSessions)
+                        _runningOpenCodeSessions[pair.Key] = pair.Value;
                     var changed = !_runningSessions.SetEquals(running) || !_questionSessions.SetEquals(questions);
                     _runningSessions.Clear();
                     _runningSessions.UnionWith(running);
@@ -531,7 +551,7 @@
                     _questionSessions.UnionWith(questions);
                     if (changed)
                         StateHasChanged();
-                    if (finished && _settings.CompletionSoundEnabled)
+                    if (completedSessions.Length > 0 && _settings.CompletionSoundEnabled)
                     {
                         try { await JS.InvokeVoidAsync("codeBadgerSounds.play", CompletionSounds.Normalize(_settings.CompletionSound)); }
                         catch (JSException) { }
@@ -541,12 +561,61 @@
                         try { await JS.InvokeVoidAsync("codeBadgerSounds.play", CompletionSounds.Normalize(_settings.QuestionSound)); }
                         catch (JSException) { }
                     }
+                    if (_settings.SlackNotificationsEnabled)
+                    {
+                        foreach (var session in completedSessions)
+                        {
+                            try
+                            {
+                                if (await OpenCodeActivity.HasPendingInteractionAsync(session.Id, session.Directory, cancellationToken))
+                                    continue;
+                                var answer = await OpenCodeActivity.GetLatestCompletedAnswerAsync(session.Id, session.Directory, cancellationToken);
+                                if (!string.IsNullOrWhiteSpace(answer))
+                                {
+                                    await SlackNotifications.PublishCompletionAsync(session, answer, cancellationToken);
+                                    _runningOpenCodeSessions.Remove(session.Id);
+                                }
+                            }
+                            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+                            catch (Exception exception)
+                            {
+                                Logger.LogWarning(exception, "Could not publish the completed OpenCode session {SessionId} to Slack.", session.Id);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        foreach (var session in completedSessions)
+                            _runningOpenCodeSessions.Remove(session.Id);
+                    }
                 });
             } while (await timer.WaitForNextTickAsync(cancellationToken));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (ObjectDisposedException) { }
     }
+
+    private void HandleSlackReplyReceived(OpenCodeActivityService.ActiveSession session, string text) => _ = Task.Run(async () =>
+    {
+        try
+        {
+            await OpenCodeActivity.SendPromptAsync(session.Id, session.Directory, text, _statusMonitorCancellation.Token);
+        }
+        catch (Exception exception) when (!_statusMonitorCancellation.IsCancellationRequested)
+        {
+            Logger.LogWarning(exception, "Could not route a Slack reply to OpenCode session {SessionId}.", session.Id);
+            try
+            {
+                await SlackNotifications.PublishReplyStatusAsync(session.Id,
+                    "⚠️ Could not send this reply to the linked OpenCode session: " + exception.Message,
+                    _statusMonitorCancellation.Token);
+            }
+            catch (Exception statusException)
+            {
+                Logger.LogWarning(statusException, "Could not report Slack reply routing failure for session {SessionId}.", session.Id);
+            }
+        }
+    });
 
     private string BranchLabel(RepositoryEntry repository)
     {
@@ -571,6 +640,7 @@
         _statusMonitorCancellation.Cancel();
         _statusMonitorCancellation.Dispose();
         SettingsService.SettingsSaved -= HandleSettingsSaved;
+        SlackNotifications.ReplyReceived -= HandleSlackReplyReceived;
         L.LanguageChanged -= HandleLanguageChanged;
         _selfReference?.Dispose();
         if (_tabsModule is not null)

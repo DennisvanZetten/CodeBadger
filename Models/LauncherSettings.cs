@@ -17,6 +17,14 @@ public sealed class LauncherSettings
     public string AiCustomInstruction { get; set; } = string.Empty;
     public int SandboxMaxFileMb { get; set; } = 64;
     public int SandboxMaxTotalMb { get; set; } = 1024;
+    public bool SlackNotificationsEnabled { get; set; }
+    public string NotificationChannel { get; set; } = "Slack";
+    public string SlackChannelId { get; set; } = string.Empty;
+    public string SlackAllowedUserId { get; set; } = string.Empty;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string SlackBotToken { get; set; } = string.Empty;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string SlackAppToken { get; set; } = string.Empty;
     [System.Text.Json.Serialization.JsonIgnore]
     public string AiApiKey { get; set; } = string.Empty;
     public List<RepositoryEntry> Repositories { get; set; } = [];

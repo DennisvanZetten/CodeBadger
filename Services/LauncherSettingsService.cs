@@ -10,6 +10,8 @@ public sealed class LauncherSettingsService
     private readonly LocalizationService _localization;
     private readonly SemaphoreSlim _settingsLock = new(1, 1);
     private const string AiApiKeyStorageKey = "codebadger-ai-api-key";
+    private const string SlackBotTokenStorageKey = "codebadger-slack-bot-token";
+    private const string SlackAppTokenStorageKey = "codebadger-slack-app-token";
     public event Action? SettingsSaved;
 
     public LauncherSettingsService(LocalizationService localization) => _localization = localization;
@@ -45,6 +47,9 @@ public sealed class LauncherSettingsService
             foreach (var repository in settings.Repositories)
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
             settings.AiApiKey = await SecureStorage.Default.GetAsync(AiApiKeyStorageKey) ?? string.Empty;
+            settings.SlackBotToken = await SecureStorage.Default.GetAsync(SlackBotTokenStorageKey) ?? string.Empty;
+            settings.SlackAppToken = await SecureStorage.Default.GetAsync(SlackAppTokenStorageKey) ?? string.Empty;
+            settings.SlackAllowedUserId ??= string.Empty;
             return settings;
         }
         finally
@@ -67,6 +72,7 @@ public sealed class LauncherSettingsService
             settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);
             foreach (var repository in settings.Repositories)
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
+            settings.NotificationChannel = "Slack";
             Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
             await using (var stream = File.Create(_settingsPath))
                 await JsonSerializer.SerializeAsync(stream, settings, JsonOptions);
@@ -75,6 +81,16 @@ public sealed class LauncherSettingsService
                 SecureStorage.Default.Remove(AiApiKeyStorageKey);
             else
                 await SecureStorage.Default.SetAsync(AiApiKeyStorageKey, settings.AiApiKey);
+
+            if (string.IsNullOrWhiteSpace(settings.SlackBotToken))
+                SecureStorage.Default.Remove(SlackBotTokenStorageKey);
+            else
+                await SecureStorage.Default.SetAsync(SlackBotTokenStorageKey, settings.SlackBotToken);
+
+            if (string.IsNullOrWhiteSpace(settings.SlackAppToken))
+                SecureStorage.Default.Remove(SlackAppTokenStorageKey);
+            else
+                await SecureStorage.Default.SetAsync(SlackAppTokenStorageKey, settings.SlackAppToken);
 
             _localization.SetLanguage(settings.Language);
         }

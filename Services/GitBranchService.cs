@@ -187,6 +187,33 @@ public sealed class GitBranchService
             .ToList();
     }
 
+    public async Task<IReadOnlyList<GitStashEntry>> GetStashesAsync(string path)
+    {
+        var result = await RunGitAsync(path, "stash", "list", "--format=%gd%x1f%gs%x1f%ci");
+        if (!result.Success)
+            return [];
+
+        return result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r').Split('\u001f'))
+            .Where(parts => parts.Length == 3)
+            .Select(parts => new GitStashEntry(parts[0], parts[1], parts[2]))
+            .ToList();
+    }
+
+    public async Task<GitOperationResult> StashChangesAsync(string path)
+    {
+        var status = await RunGitAsync(path, "status", "--porcelain=v1", "-uall");
+        if (!status.Success)
+            return status;
+        if (string.IsNullOrWhiteSpace(status.Output))
+            return new GitOperationResult(false, _localization.T("No changes to stash."), string.Empty);
+
+        return await RunGitAsync(path, "stash", "push", "--include-untracked", "--message", "CodeBadger stash");
+    }
+
+    public Task<GitOperationResult> PopStashAsync(string path, string stashReference) =>
+        RunGitAsync(path, "stash", "pop", stashReference);
+
     public async Task<GitRepositoryStatus> GetRepositoryStatusAsync(string path)
     {
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
@@ -883,6 +910,7 @@ public sealed record GitFileChange(string Path, bool IsStaged, bool IsUnstaged, 
 {
     public bool IsUntracked => Status == "??";
 }
+public sealed record GitStashEntry(string Reference, string Message, string Date);
 public sealed record GitOperationResult(bool Success, string Message, string Output, int ExitCode = 0);
 public sealed record GitCommitBranchCheck(bool? IsOnCurrentBranch, string? Error);
 public sealed record GitBranchMergeCheck(bool CanMerge, string? Error);

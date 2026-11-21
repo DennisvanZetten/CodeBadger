@@ -127,6 +127,30 @@
                                         }
                                     </div>
                                 </details>
+                                <section class="git-branch-group git-stash-group">
+                                    <div class="git-stash-header">
+                                        <MudText Typo="Typo.body2">@L.T("Stashes")</MudText>
+                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.SaveAlt"
+                                                       aria-label="@L.T("Stash all changes")" title="@L.T("Stash all changes")"
+                                                       Disabled="@(_isOperating || _files.Count == 0)" OnClick="StashChangesAsync" />
+                                    </div>
+                                    <div class="git-dialog-list git-branch-list git-stash-list">
+                                        @if (_stashes.Count == 0)
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No stashes.")</MudText>
+                                        }
+                                        @foreach (var stash in _stashes)
+                                        {
+                                            <div @key="stash.Reference" class="git-stash-item" role="button" tabindex="0"
+                                                 title="@L.T("Double-click to pop this stash")"
+                                                 @ondblclick="@(() => PopStashAsync(stash))"
+                                                 @onkeydown="@(args => HandleStashKeyDownAsync(args, stash))">
+                                                <MudText Typo="Typo.body2" Class="git-stash-message">@stash.Message</MudText>
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary">@FormatDate(stash.Date)</MudText>
+                                            </div>
+                                        }
+                                    </div>
+                                </section>
                             </div>
                             <div class="git-branch-collapsed-rail">
                                 <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" aria-label="@L.T("Expand branch panel")" OnClick="ToggleBranchPanel" />
@@ -462,6 +486,7 @@
 
     private GitRepositorySnapshot? _snapshot;
     private IReadOnlyList<GitFileChange> _files = [];
+    private IReadOnlyList<GitStashEntry> _stashes = [];
     private GitFileChange? _selectedFile;
     private bool _selectedFileIsStaged;
     private string _selectedDiff = string.Empty;
@@ -556,6 +581,7 @@
             _snapshot = await GitBranchService.GetRepositorySnapshotAsync(RepositoryPath, fetch, ReportSnapshotProgressAsync);
             _shouldScrollToCurrentBranch = _snapshot?.IsValid == true && _snapshot.Branch is not null;
             _files = await GitBranchService.GetFileChangesAsync(RepositoryPath);
+            _stashes = await GitBranchService.GetStashesAsync(RepositoryPath);
             _selectedUnstagedFilePaths.IntersectWith(UnstagedFiles.Select(file => file.Path));
             if (_snapshot?.IsValid == true && _files.Count > 0)
                 _view = GitView.Commit;
@@ -835,6 +861,44 @@
             return Icons.Material.Filled.Remove;
         return Icons.Material.Filled.Edit;
     }
+
+    private async Task StashChangesAsync()
+    {
+        _isOperating = true;
+        try
+        {
+            var result = await GitBranchService.StashChangesAsync(RepositoryPath);
+            Snackbar.Add(result.Success ? L.T("Changes stashed.") : result.Message,
+                result.Success ? Severity.Success : Severity.Error);
+            await RefreshAsync();
+        }
+        finally
+        {
+            _isOperating = false;
+        }
+    }
+
+    private async Task PopStashAsync(GitStashEntry stash)
+    {
+        if (_isOperating)
+            return;
+
+        _isOperating = true;
+        try
+        {
+            var result = await GitBranchService.PopStashAsync(RepositoryPath, stash.Reference);
+            Snackbar.Add(result.Success ? L.T("Stash popped.") : L.T("Could not pop stash: {0}", result.Message),
+                result.Success ? Severity.Success : Severity.Error);
+            await RefreshAsync();
+        }
+        finally
+        {
+            _isOperating = false;
+        }
+    }
+
+    private Task HandleStashKeyDownAsync(KeyboardEventArgs args, GitStashEntry stash) =>
+        args.Key is "Enter" or " " ? PopStashAsync(stash) : Task.CompletedTask;
 
     private static Color GetFileStatusColor(GitFileChange file)
     {

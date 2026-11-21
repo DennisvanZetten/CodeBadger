@@ -793,7 +793,7 @@ h1:focus {
 
 .git-branch-groups {
     display: grid;
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: repeat(3, minmax(0, 1fr));
     gap: 0.5rem;
     height: calc(100% - 2rem);
     overflow: hidden;
@@ -873,6 +873,40 @@ h1:focus {
     max-height: none;
     overflow-y: auto;
     padding: 0 0.15rem 0.5rem;
+}
+
+.git-stash-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: var(--branch-group-header-height, 2.5rem);
+    padding: 0 0.25rem;
+    font-weight: 600;
+}
+
+.git-stash-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.git-stash-item {
+    padding: 0.4rem 0.45rem;
+    border-radius: 0.35rem;
+    cursor: pointer;
+    overflow: hidden;
+}
+
+.git-stash-item:hover,
+.git-stash-item:focus-visible {
+    background: var(--mud-palette-action-default-hover);
+    outline: none;
+}
+
+.git-stash-message {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .git-history-workspace > .mud-grid-item:first-child > .mud-paper {
@@ -2053,7 +2087,7 @@ h1:focus {
 .git-history-workspace .git-branch-groups {
     display: grid;
     flex: 1 1 0;
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: repeat(3, minmax(0, 1fr));
     height: auto;
     min-height: 0;
     overflow: hidden;
@@ -2069,6 +2103,19 @@ h1:focus {
 
 .git-history-workspace .git-branch-group > summary {
     height: var(--branch-group-header-height);
+}
+
+.git-history-workspace .git-stash-header {
+    height: var(--branch-group-header-height);
+}
+
+.git-history-workspace .git-stash-list {
+    position: absolute;
+    inset: var(--branch-group-header-height) 0 0;
+    box-sizing: border-box;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
 }
 
 .git-history-workspace .git-branch-group > summary > span:first-of-type {

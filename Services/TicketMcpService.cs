@@ -8,6 +8,10 @@ namespace CodeBadger.Services;
 
 public sealed class TicketMcpService
 {
+    private readonly AgentConfigService _agentConfig;
+
+    public TicketMcpService(AgentConfigService agentConfig) => _agentConfig = agentConfig;
+
     public async Task<string> CreateTicketAsync(RepositoryEntry repository, string title, string description,
         CancellationToken cancellationToken = default)
     {
@@ -15,21 +19,27 @@ public sealed class TicketMcpService
             string.IsNullOrWhiteSpace(repository.TicketMcpServerName))
             throw new InvalidOperationException("Configure a ticket system and MCP server for this repository first.");
 
-        var configPath = new OpenCodeRepositoryConfigService().GetProjectConfigPath(repository.Path);
+        var agentTool = AgentTools.Normalize(repository.AgentTool);
+        var configPath = _agentConfig.GetConfigPath(agentTool);
         if (!File.Exists(configPath))
-            throw new InvalidOperationException("The repository OpenCode config containing the MCP server was not found.");
+            throw new InvalidOperationException($"The {AgentTools.GetDisplayName(agentTool)} config containing the MCP server was not found.");
 
-        var configText = await File.ReadAllTextAsync(configPath, cancellationToken);
+        var configText = await _agentConfig.LoadAsync(agentTool);
         var config = JsonNode.Parse(configText, documentOptions: new JsonDocumentOptions
         {
             AllowTrailingCommas = true,
             CommentHandling = JsonCommentHandling.Skip
-        }) as JsonObject ?? throw new InvalidOperationException("The OpenCode config is not a JSON object.");
-        var servers = (config["mcp"] as JsonObject)?["servers"] as JsonObject;
+        }) as JsonObject ?? throw new InvalidOperationException($"The {AgentTools.GetDisplayName(agentTool)} config is not a JSON object.");
+        var isClaude = agentTool == AgentTools.ClaudeCode;
+        var servers = isClaude
+            ? config["mcpServers"] as JsonObject
+            : (config["mcp"] as JsonObject)?["servers"] as JsonObject;
         var server = servers?[repository.TicketMcpServerName] as JsonObject
             ?? throw new InvalidOperationException("The configured ticket MCP server was not found.");
         if (server["disabled"]?.GetValue<bool>() == true)
             throw new InvalidOperationException("The configured ticket MCP server is disabled.");
+        if (server["url"] is JsonValue)
+            throw new InvalidOperationException("Ticket creation through remote HTTP MCP servers is not supported yet; configure a local stdio MCP server.");
         if (server["command"] is not JsonArray command || command.Count == 0 || command[0]?.GetValue<string>() is not { Length: > 0 } executable)
             throw new InvalidOperationException("Ticket creation currently requires a local stdio MCP server with a command.");
 

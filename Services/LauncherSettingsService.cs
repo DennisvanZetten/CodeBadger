@@ -52,6 +52,7 @@ public sealed class LauncherSettingsService
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
                 repository.TicketSystem = TicketSystems.Normalize(repository.TicketSystem);
                 repository.TicketMcpServerName ??= string.Empty;
+                ClearLegacyTicketMcpServer(repository);
                 repository.TaskStoryTemplate ??= RepositoryEntry.DefaultTaskStoryTemplate;
             }
             settings.AiApiKey = await SecureStorage.Default.GetAsync(AiApiKeyStorageKey) ?? string.Empty;
@@ -84,6 +85,7 @@ public sealed class LauncherSettingsService
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
                 repository.TicketSystem = TicketSystems.Normalize(repository.TicketSystem);
                 repository.TicketMcpServerName = repository.TicketMcpServerName?.Trim() ?? string.Empty;
+                ClearLegacyTicketMcpServer(repository);
                 repository.TaskStoryTemplate ??= RepositoryEntry.DefaultTaskStoryTemplate;
             }
             settings.NotificationChannel = "Slack";
@@ -129,21 +131,15 @@ public sealed class LauncherSettingsService
                 repository["TicketRequired"] = !string.Equals(legacyTicketSystem, "None", StringComparison.OrdinalIgnoreCase);
             }
 
-            if (legacyTicketSystem is not null && !repository.ContainsKey("TicketMcpServerName"))
-            {
-                repository["TicketSystem"] = legacyTicketSystem;
-                var legacyServerName = legacyTicketSystem switch
-                {
-                    "Jira" => "codebadger-jira",
-                    "GitHub Issues" => "codebadger-github",
-                    _ => string.Empty
-                };
-                if (!string.IsNullOrEmpty(legacyServerName))
-                    repository["TicketMcpServerName"] = legacyServerName;
-            }
             repository.Remove("JiraMcpHosting");
             repository.Remove("JiraMcpUrl");
         }
+    }
+
+    private static void ClearLegacyTicketMcpServer(RepositoryEntry repository)
+    {
+        if (repository.TicketMcpServerName is "codebadger-jira" or "codebadger-github")
+            repository.TicketMcpServerName = string.Empty;
     }
 
     private static string NormalizeBranchPrefix(string? value)

@@ -25,7 +25,7 @@ Select **New branch** to start from `HEAD`, or right-click a commit and select *
 
 ### Conflicts
 
-If Git reports conflicts, the module lists the conflicting files. Use **Compare in VS Code** to open a conflict file there and resolve it. Then complete the merge or rebase according to your Git workflow.
+If Git reports conflicts, the module lists the conflicting files. Select **Resolve conflict** to open the built-in editor: compare the current version on the left with the incoming version on the right, choose a side for each conflicting line, and edit the result below. **Take all left/right** selects an entire side. **Save and mark resolved** saves and stages the result. **Open in VS Code** remains available as an alternative. Then complete the merge or rebase according to your Git workflow.
 
 ## Review and stage changes
 

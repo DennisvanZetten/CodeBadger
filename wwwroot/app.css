@@ -1275,6 +1275,111 @@ h1:focus {
     color: #d2a8ff;
 }
 
+.git-conflict-dialog {
+    width: min(96vw, 1800px) !important;
+    max-width: 96vw !important;
+    height: min(92vh, 1200px);
+    max-height: 92vh;
+}
+
+.git-conflict-dialog .mud-dialog-content {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.git-conflict-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 100%;
+    min-height: 0;
+}
+
+.git-conflict-toolbar { flex: 0 0 auto; }
+
+.git-conflict-sides {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.75rem;
+    flex: 1 1 35%;
+    min-height: 8rem;
+}
+
+.git-conflict-side,
+.git-conflict-choices,
+.git-conflict-result {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 4px;
+}
+
+.git-conflict-side > header,
+.git-conflict-block > header {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    background: var(--mud-palette-background-grey);
+}
+
+.git-conflict-side > pre {
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 0;
+    padding: 0.6rem;
+    overflow: auto;
+    font: 0.75rem/1.45 Consolas, 'Courier New', monospace;
+    white-space: pre;
+}
+
+.git-conflict-choices {
+    flex: 1 1 40%;
+    overflow: auto;
+    padding: 0.5rem;
+}
+
+.git-conflict-context-line,
+.git-conflict-choice-source {
+    min-width: 0;
+    padding: 0.1rem 0.35rem;
+    font: 0.73rem/1.4 Consolas, 'Courier New', monospace;
+    white-space: pre;
+    overflow-x: auto;
+}
+
+.git-conflict-block {
+    margin: 0.35rem 0;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--mud-palette-warning) 5%, var(--mud-palette-surface));
+}
+
+.git-conflict-choice-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 2rem 2rem minmax(0, 1fr);
+    align-items: center;
+    min-height: 1.8rem;
+}
+
+.git-conflict-choice-source.chosen { background: color-mix(in srgb, var(--mud-palette-primary) 16%, transparent); }
+.git-conflict-result { flex: 0 1 30%; padding: 0.5rem; }
+.git-conflict-result-input { flex: 1 1 auto; min-height: 0; }
+.git-conflict-result-input .mud-input-control,
+.git-conflict-result-input .mud-input-control-input-container,
+.git-conflict-result-input textarea { height: 100%; min-height: 7rem; }
+
+@media (max-width: 760px) {
+    .git-conflict-sides { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(7rem, 1fr) minmax(7rem, 1fr); }
+}
+
 .git-diff-panel {
     display: flex;
     flex-direction: column;

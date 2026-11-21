@@ -25,7 +25,7 @@ Klik op **New branch** om vanaf `HEAD` te beginnen, of klik met de rechtermuiskn
 
 ### Conflicten
 
-Als Git conflicten rapporteert, toont de module de conflicterende bestanden. Gebruik **Compare in VS Code** om een conflictbestand daar te openen en op te lossen. Voltooi daarna de merge/rebase volgens je Git-workflow.
+Als Git conflicten rapporteert, toont de module de conflicterende bestanden. Kies **Conflict oplossen** voor een ingebouwde editor: vergelijk de huidige versie links met de binnenkomende versie rechts, kies per conflicterende regel een kant en bewerk het resultaat onderaan. **Alles van links/rechts** kiest een hele kant. Met **Opslaan en als opgelost markeren** wordt het resultaat opgeslagen en gestaged. **Openen in VS Code** blijft beschikbaar als alternatief. Voltooi daarna de merge/rebase volgens je Git-workflow.
 
 ## Wijzigingen bekijken en stagen
 

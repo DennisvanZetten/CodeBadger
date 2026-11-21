@@ -25,7 +25,7 @@ Sélectionnez **New branch** pour partir de `HEAD`, ou faites un clic droit sur 
 
 ### Conflits
 
-Si Git signale des conflits, le module affiche les fichiers concernés. Utilisez **Compare in VS Code** pour ouvrir et résoudre un fichier en conflit dans VS Code. Terminez ensuite le merge ou le rebase selon votre procédure Git.
+Si Git signale des conflits, le module affiche les fichiers concernés. Sélectionnez **Resolve conflict** pour ouvrir l’éditeur intégré : comparez la version actuelle à gauche avec la version entrante à droite, choisissez un côté pour chaque ligne en conflit et modifiez le résultat en dessous. **Take all left/right** reprend un côté entier. **Save and mark resolved** enregistre et indexe le résultat. **Open in VS Code** reste disponible en alternative. Terminez ensuite le merge ou le rebase selon votre procédure Git.
 
 ## Examiner et indexer les modifications
 

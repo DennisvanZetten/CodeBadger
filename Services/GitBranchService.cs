@@ -845,6 +845,80 @@ public sealed class GitBranchService
         }
     }
 
+    public async Task<(GitConflictVersions? Versions, GitOperationResult Result)> GetConflictVersionsAsync(string repositoryPath, string relativePath)
+    {
+        if (!TryGetConflictFilePath(repositoryPath, relativePath, out var fullPath))
+            return (null, new GitOperationResult(false, _localization.T("Invalid conflict file."), string.Empty));
+
+        var unmerged = await RunGitAsync(repositoryPath, "ls-files", "-u", "--", relativePath);
+        if (!unmerged.Success || string.IsNullOrWhiteSpace(unmerged.Output))
+            return (null, new GitOperationResult(false, _localization.T("This file is no longer marked as conflicted."), string.Empty));
+
+        var ours = await RunGitAsync(repositoryPath, "show", $":2:{relativePath}");
+        var theirs = await RunGitAsync(repositoryPath, "show", $":3:{relativePath}");
+        if (!ours.Success || !theirs.Success)
+            return (null, new GitOperationResult(false, _localization.T("Conflict versions could not be read from Git (possibly a new file)."), string.Empty));
+
+        try
+        {
+            var workingBytes = await File.ReadAllBytesAsync(fullPath);
+            var workingContent = Encoding.UTF8.GetString(workingBytes);
+            if (ours.Output.Contains('\0') || theirs.Output.Contains('\0') || workingContent.Contains('\0'))
+                return (null, new GitOperationResult(false, _localization.T("Binary conflict files cannot be edited here."), string.Empty));
+
+            var fingerprint = Convert.ToHexString(SHA256.HashData(workingBytes));
+            var lineEnding = workingContent.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+            var hasUtf8Bom = workingBytes.AsSpan().StartsWith(Encoding.UTF8.GetPreamble());
+            if (hasUtf8Bom && workingContent.Length > 0 && workingContent[0] == '\uFEFF')
+                workingContent = workingContent[1..];
+            return (new GitConflictVersions(ours.Output, theirs.Output, workingContent, fingerprint, lineEnding, hasUtf8Bom), new GitOperationResult(true, string.Empty, string.Empty));
+        }
+        catch (IOException exception)
+        {
+            return (null, new GitOperationResult(false, exception.Message, string.Empty));
+        }
+    }
+
+    public async Task<GitOperationResult> SaveResolvedConflictAsync(string repositoryPath, string relativePath, string content, string expectedFingerprint, string lineEnding, bool hasUtf8Bom)
+    {
+        if (!TryGetConflictFilePath(repositoryPath, relativePath, out var fullPath))
+            return new GitOperationResult(false, _localization.T("Invalid conflict file."), string.Empty);
+
+        try
+        {
+            var unmerged = await RunGitAsync(repositoryPath, "ls-files", "-u", "--", relativePath);
+            if (!unmerged.Success || string.IsNullOrWhiteSpace(unmerged.Output))
+                return new GitOperationResult(false, _localization.T("This file is no longer marked as conflicted."), string.Empty);
+
+            var currentBytes = await File.ReadAllBytesAsync(fullPath);
+            var currentFingerprint = Convert.ToHexString(SHA256.HashData(currentBytes));
+            if (!string.Equals(currentFingerprint, expectedFingerprint, StringComparison.Ordinal))
+                return new GitOperationResult(false, _localization.T("The conflict file changed while the editor was open. Reload it before saving."), string.Empty);
+
+            var normalizedContent = content.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\n", lineEnding, StringComparison.Ordinal);
+            var encodedContent = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(normalizedContent);
+            if (hasUtf8Bom)
+                encodedContent = Encoding.UTF8.GetPreamble().Concat(encodedContent).ToArray();
+            await File.WriteAllBytesAsync(fullPath, encodedContent);
+            return await RunGitAsync(repositoryPath, "add", "--", relativePath);
+        }
+        catch (IOException exception)
+        {
+            return new GitOperationResult(false, exception.Message, string.Empty);
+        }
+    }
+
+    private static bool TryGetConflictFilePath(string repositoryPath, string relativePath, out string fullPath)
+    {
+        fullPath = string.Empty;
+        if (string.IsNullOrWhiteSpace(repositoryPath) || string.IsNullOrWhiteSpace(relativePath))
+            return false;
+
+        var root = Path.GetFullPath(repositoryPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        fullPath = Path.GetFullPath(Path.Combine(root, relativePath));
+        return fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase) && File.Exists(fullPath);
+    }
+
     public async Task<GitBranchInfo> GetCurrentBranchAsync(string path)
     {
         var result = await RunGitAsync(path, "rev-parse", "--abbrev-ref", "HEAD");
@@ -931,6 +1005,7 @@ public sealed record GitFileChange(string Path, bool IsStaged, bool IsUnstaged, 
 }
 public sealed record GitStashEntry(string Reference, string Message, string Date);
 public sealed record GitOperationResult(bool Success, string Message, string Output, int ExitCode = 0);
+public sealed record GitConflictVersions(string Ours, string Theirs, string WorkingContent, string Fingerprint, string LineEnding, bool HasUtf8Bom);
 public sealed record GitCommitBranchCheck(bool? IsOnCurrentBranch, string? Error);
 public sealed record GitBranchMergeCheck(bool CanMerge, string? Error);
 public sealed record GitBranchEntry(string Name, bool IsCurrent, bool IsRemote, string TipHash);

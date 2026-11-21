@@ -45,33 +45,49 @@ export function attachHistorySplitter() {
         const branchGroupSplitter = splitter.classList.contains("git-branch-group-splitter");
         if (branchGroupSplitter) {
             const groups = splitter.closest(".git-branch-groups");
-            if (!groups || attachedSplitters.has(splitter))
+            if (!groups)
+                continue;
+
+            const sectionCount = groups.querySelectorAll(":scope > .git-branch-group").length;
+            if (groups.dataset.splitterSectionCount !== String(sectionCount)) {
+                for (const property of ["--git-branch-local-height", "--git-branch-remote-height", "--git-branch-stash-height"])
+                    groups.style.removeProperty(property);
+                groups.dataset.splitterSectionCount = String(sectionCount);
+            }
+            if (attachedSplitters.has(splitter))
                 continue;
 
             const boundary = Number(splitter.dataset.branchGroupSplitter);
             let dragging = false;
-            const setBoundary = coordinate => {
-                const sections = [...groups.querySelectorAll(":scope > .git-branch-group")];
-                if (sections.length !== 3)
+            let pointerOffset = 0;
+            const sections = () => [...groups.querySelectorAll(":scope > .git-branch-group")];
+            const heightProperties = ["--git-branch-local-height", "--git-branch-remote-height", "--git-branch-stash-height"];
+            const freezeSectionHeights = () => {
+                for (const [index, section] of sections().entries())
+                    groups.style.setProperty(heightProperties[index], `${section.getBoundingClientRect().height}px`);
+            };
+            const setBoundary = boundaryCenter => {
+                const sectionItems = sections();
+                if (sectionItems.length < boundary + 2)
                     return;
 
-                const firstIndex = boundary;
-                const secondIndex = boundary + 1;
-                const firstBounds = sections[firstIndex].getBoundingClientRect();
-                const secondBounds = sections[secondIndex].getBoundingClientRect();
+                const firstBounds = sectionItems[boundary].getBoundingClientRect();
+                const secondBounds = sectionItems[boundary + 1].getBoundingClientRect();
+                const splitterBounds = splitter.getBoundingClientRect();
                 const pairStart = firstBounds.top;
                 const pairEnd = secondBounds.bottom;
                 const minimum = 80;
-                const firstSize = Math.max(minimum, Math.min(pairEnd - pairStart - minimum - 6, coordinate - pairStart));
-                const secondSize = pairEnd - pairStart - 6 - firstSize;
-                const firstProperty = boundary === 0 ? "--git-branch-local-height" : "--git-branch-remote-height";
-                const secondProperty = boundary === 0 ? "--git-branch-remote-height" : "--git-branch-stash-height";
-                groups.style.setProperty(firstProperty, `${firstSize}px`);
-                groups.style.setProperty(secondProperty, `${secondSize}px`);
+                const splitterSize = splitterBounds.height;
+                const gridGap = parseFloat(getComputedStyle(groups).rowGap) || 0;
+                const pairSize = pairEnd - pairStart - splitterSize - 2 * gridGap;
+                const firstSize = Math.max(minimum, Math.min(pairSize - minimum, boundaryCenter - pairStart - splitterSize / 2));
+                const secondSize = pairSize - firstSize;
+                groups.style.setProperty(heightProperties[boundary], `${firstSize}px`);
+                groups.style.setProperty(heightProperties[boundary + 1], `${secondSize}px`);
             };
             const onPointerMove = event => {
                 if (dragging)
-                    setBoundary(event.clientY);
+                    setBoundary(event.clientY + pointerOffset);
             };
             const stopDragging = () => {
                 if (!dragging)
@@ -86,6 +102,9 @@ export function attachHistorySplitter() {
                 if (event.button !== 0)
                     return;
                 event.preventDefault();
+                freezeSectionHeights();
+                const splitterBounds = splitter.getBoundingClientRect();
+                pointerOffset = (splitterBounds.top + splitterBounds.bottom) / 2 - event.clientY;
                 dragging = true;
                 document.body.classList.add("git-branch-groups-resizing");
                 window.addEventListener("pointermove", onPointerMove);
@@ -98,9 +117,10 @@ export function attachHistorySplitter() {
                 if (!decrease && !increase)
                     return;
                 event.preventDefault();
-                const firstSection = groups.querySelectorAll(":scope > .git-branch-group")[boundary];
-                const current = firstSection.getBoundingClientRect().height;
-                setBoundary(firstSection.getBoundingClientRect().top + current + (increase ? 20 : -20));
+                freezeSectionHeights();
+                const splitterBounds = splitter.getBoundingClientRect();
+                const currentCenter = (splitterBounds.top + splitterBounds.bottom) / 2;
+                setBoundary(currentCenter + (increase ? 20 : -20));
             };
 
             splitter.addEventListener("pointerdown", startDragging);

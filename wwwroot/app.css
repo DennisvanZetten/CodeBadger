@@ -2098,6 +2098,13 @@ h1:focus {
     overflow: hidden;
 }
 
+.git-history-workspace .git-branch-groups-without-stashes {
+    grid-template-rows:
+        minmax(80px, var(--git-branch-local-height, 1fr))
+        6px
+        minmax(80px, var(--git-branch-remote-height, 1fr));
+}
+
 .git-history-workspace .git-branch-group {
     --branch-group-header-height: 2.5rem;
     display: block;

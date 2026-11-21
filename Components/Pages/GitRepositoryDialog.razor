@@ -104,7 +104,7 @@
                                 <MudIconButton Class="git-branch-collapse-button" Icon="@Icons.Material.Filled.ChevronLeft"
                                                aria-label="@L.T("Collapse branch panel")" OnClick="ToggleBranchPanel" />
                             </div>
-                            <div class="git-branch-groups">
+                            <div class="git-branch-groups @(_stashes.Count > 0 ? "git-branch-groups-with-stashes" : "git-branch-groups-without-stashes")">
                                 <details class="git-branch-group" open>
                                     <summary><span>@L.T("Local branches")</span><span class="git-branch-count">@LocalBranches.Count</span></summary>
                                     <div class="git-dialog-list git-branch-list">
@@ -133,29 +133,28 @@
                                         }
                                     </div>
                                 </details>
-                                <div class="git-history-splitter git-branch-group-splitter" data-branch-group-splitter="1"
-                                     role="separator" aria-orientation="horizontal" aria-label="@L.T("Resize remote branches and stashes")" tabindex="0"></div>
-                                <section class="git-branch-group git-stash-group">
-                                    <div class="git-stash-header">
-                                        <MudText Typo="Typo.body2">@L.T("Stashes")</MudText>
-                                    </div>
-                                    <div class="git-dialog-list git-branch-list git-stash-list">
-                                        @if (_stashes.Count == 0)
-                                        {
-                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No stashes.")</MudText>
-                                        }
-                                        @foreach (var stash in _stashes)
-                                        {
-                                            <div @key="stash.Reference" class="git-stash-item" role="button" tabindex="0"
-                                                 title="@L.T("Double-click to pop this stash")"
-                                                 @ondblclick="@(() => PopStashAsync(stash))"
-                                                 @onkeydown="@(args => HandleStashKeyDownAsync(args, stash))">
-                                                <MudText Typo="Typo.body2" Class="git-stash-message">@stash.Message</MudText>
-                                                <MudText Typo="Typo.caption" Color="Color.Secondary">@FormatDate(stash.Date)</MudText>
-                                            </div>
-                                        }
-                                    </div>
-                                </section>
+                                @if (_stashes.Count > 0)
+                                {
+                                    <div class="git-history-splitter git-branch-group-splitter" data-branch-group-splitter="1"
+                                         role="separator" aria-orientation="horizontal" aria-label="@L.T("Resize remote branches and stashes")" tabindex="0"></div>
+                                    <section class="git-branch-group git-stash-group">
+                                        <div class="git-stash-header">
+                                            <MudText Typo="Typo.body2">@L.T("Stashes")</MudText>
+                                        </div>
+                                        <div class="git-dialog-list git-branch-list git-stash-list">
+                                            @foreach (var stash in _stashes)
+                                            {
+                                                <div @key="stash.Reference" class="git-stash-item" role="button" tabindex="0"
+                                                     title="@L.T("Double-click to pop this stash")"
+                                                     @ondblclick="@(() => PopStashAsync(stash))"
+                                                     @onkeydown="@(args => HandleStashKeyDownAsync(args, stash))">
+                                                    <MudText Typo="Typo.body2" Class="git-stash-message">@stash.Message</MudText>
+                                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@FormatDate(stash.Date)</MudText>
+                                                </div>
+                                            }
+                                        </div>
+                                    </section>
+                                }
                             </div>
                             <div class="git-branch-collapsed-rail">
                                 <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" aria-label="@L.T("Expand branch panel")" OnClick="ToggleBranchPanel" />

@@ -69,16 +69,22 @@ public sealed class OpenCodeRepositoryConfigService
         await SaveWithBackupAsync(GetProjectConfigPath(repositoryPath), json);
     }
 
-    public async Task ConfigureTicketSystemAsync(string repositoryPath, string ticketSystem)
+    public async Task ConfigureTicketSystemAsync(string repositoryPath, string ticketSystem, string jiraMcpHosting, string jiraMcpUrl)
     {
         var normalized = TicketSystems.Normalize(ticketSystem);
+        var normalizedHosting = JiraMcpHostings.Normalize(jiraMcpHosting);
+        var jiraUrl = normalized != TicketSystems.Jira
+            ? string.Empty
+            : normalizedHosting == JiraMcpHostings.AtlassianCloud
+                ? "https://mcp.atlassian.com/v2/mcp"
+                : ValidateMcpUrl(jiraMcpUrl);
         var root = ParseObject(await LoadProjectConfigAsync(repositoryPath));
         var mcp = root["mcp"] as JsonObject ?? new JsonObject();
         root["mcp"] = mcp;
         var servers = mcp["servers"] as JsonObject ?? new JsonObject();
         mcp["servers"] = servers;
 
-        ConfigureRemoteServer(servers, JiraMcpServerName, "https://mcp.atlassian.com/v2/mcp", normalized == TicketSystems.Jira);
+        ConfigureRemoteServer(servers, JiraMcpServerName, jiraUrl, normalized == TicketSystems.Jira);
         ConfigureRemoteServer(servers, GitHubMcpServerName, "https://api.githubcopilot.com/mcp/", normalized == TicketSystems.GitHub);
 
         if (servers.Count == 0)
@@ -87,6 +93,13 @@ public sealed class OpenCodeRepositoryConfigService
             root.Remove("mcp");
 
         await SaveProjectConfigAsync(repositoryPath, root.ToJsonString(JsonOptions));
+    }
+
+    private static string ValidateMcpUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+            throw new InvalidOperationException("Enter a valid HTTPS URL for your company's Jira MCP endpoint.");
+        return uri.AbsoluteUri;
     }
 
     private static void ConfigureRemoteServer(JsonObject servers, string name, string url, bool enabled)
@@ -101,9 +114,13 @@ public sealed class OpenCodeRepositoryConfigService
             server["url"] = url;
             servers[name] = server;
         }
-        else if (!string.Equals(server["url"]?.GetValue<string>(), url, StringComparison.OrdinalIgnoreCase))
+        else
         {
-            throw new InvalidOperationException($"The MCP server name '{name}' is already used by a different server. Rename or remove that entry before configuring the ticket system.");
+            if (enabled)
+            {
+                server["type"] = "remote";
+                server["url"] = url;
+            }
         }
 
         if (enabled)

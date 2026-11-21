@@ -90,8 +90,25 @@
                                         <MudSelectItem T="string" Value="@TicketSystems.Jira">Jira</MudSelectItem>
                                         <MudSelectItem T="string" Value="@TicketSystems.GitHub">GitHub Issues</MudSelectItem>
                                     </MudSelect>
+                                    @if (TicketSystems.Normalize(repository.TicketSystem) == TicketSystems.Jira)
+                                    {
+                                        <MudSelect T="string" Value="@JiraMcpHostings.Normalize(repository.JiraMcpHosting)"
+                                                   ValueChanged="@(value => repository.JiraMcpHosting = value)"
+                                                   Label="@L.T("Jira MCP hosting")" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                            <MudSelectItem T="string" Value="@JiraMcpHostings.Custom">@L.T("Company-hosted MCP")</MudSelectItem>
+                                            <MudSelectItem T="string" Value="@JiraMcpHostings.AtlassianCloud">@L.T("Atlassian Cloud MCP")</MudSelectItem>
+                                        </MudSelect>
+                                        @if (JiraMcpHostings.Normalize(repository.JiraMcpHosting) == JiraMcpHostings.Custom)
+                                        {
+                                            <MudTextField T="string" @bind-Value="repository.JiraMcpUrl"
+                                                          Label="@L.T("Jira MCP endpoint URL")"
+                                                          Placeholder="https://jira.hosted-tools.com/<mcp-endpoint>"
+                                                          HelperText="@L.T("Enter the MCP endpoint, not the Jira website or login page.")"
+                                                          Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                        }
+                                    }
                                     <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Link"
-                                               Disabled="@(string.IsNullOrWhiteSpace(repository.Path) || IsRepositoryConfigReadOnly(repository) || _configuringTicketSystem == repository.Id)"
+                                               Disabled="@(string.IsNullOrWhiteSpace(repository.Path) || IsRepositoryConfigReadOnly(repository) || _configuringTicketSystem == repository.Id || (TicketSystems.Normalize(repository.TicketSystem) == TicketSystems.Jira && JiraMcpHostings.Normalize(repository.JiraMcpHosting) == JiraMcpHostings.Custom && string.IsNullOrWhiteSpace(repository.JiraMcpUrl)))"
                                                OnClick="@(() => ConfigureTicketSystemAsync(repository))">
                                         @(_configuringTicketSystem == repository.Id ? L.T("Configuring...") : L.T("Configure MCP"))
                                     </MudButton>
@@ -478,7 +495,8 @@
         _configuringTicketSystem = repository.Id;
         try
         {
-            await OpenCodeConfigService.ConfigureTicketSystemAsync(repository.Path, repository.TicketSystem);
+            await OpenCodeConfigService.ConfigureTicketSystemAsync(repository.Path, repository.TicketSystem,
+                repository.JiraMcpHosting, repository.JiraMcpUrl);
             Snackbar.Add(L.T("Ticket system MCP configured. Sign in through OpenCode's MCP menu if prompted."), Severity.Success);
         }
         catch (Exception exception)

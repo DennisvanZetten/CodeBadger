@@ -80,7 +80,7 @@ export function attachHistorySplitter() {
                 const splitterSize = splitterBounds.height;
                 const gridGap = parseFloat(getComputedStyle(groups).rowGap) || 0;
                 const pairSize = pairEnd - pairStart - splitterSize - 2 * gridGap;
-                const firstSize = Math.max(minimum, Math.min(pairSize - minimum, boundaryCenter - pairStart - splitterSize / 2));
+                const firstSize = Math.max(minimum, Math.min(pairSize - minimum, boundaryCenter - pairStart - gridGap - splitterSize / 2));
                 const secondSize = pairSize - firstSize;
                 groups.style.setProperty(heightProperties[boundary], `${firstSize}px`);
                 groups.style.setProperty(heightProperties[boundary + 1], `${secondSize}px`);

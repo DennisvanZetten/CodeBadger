@@ -609,8 +609,21 @@ public sealed class SlackNotificationService : IAsyncDisposable
         if (text.Equals("!help", StringComparison.OrdinalIgnoreCase))
         {
             await PostMessageAsync(_botToken, _channelId,
-                "*Session commands*\n• `!build <task>` — switch to Build and send the task.\n• `!plan <task>` — switch to Plan and send the task.\n• `!allow <id>` / `!always <id>` / `!deny <id> [reason]` — answer an OpenCode permission request.\n• `!answer <id> key=value; key2=value` — answer an OpenCode form. Use `|` between multiselect values.\n• `!commit` — stage and commit all repository changes.\n• `!push` — push using the same safe up-to-date check as the Git dialog.\n• `!help` — show this command list.\n\nAny other reply is sent to the current session.",
+                "*Session commands*\n• `!status` — check whether OpenCode is currently working.\n• `!build <task>` — switch to Build and send the task.\n• `!plan <task>` — switch to Plan and send the task.\n• `!allow <id>` / `!always <id>` / `!deny <id> [reason]` — answer an OpenCode permission request.\n• `!answer <id> key=value; key2=value` — answer an OpenCode form. Use `|` between multiselect values.\n• `!commit` — stage and commit all repository changes.\n• `!push` — push using the same safe up-to-date check as the Git dialog.\n• `!help` — show this command list.\n\nAny other reply is sent to the current session.",
                 threadTs, cancellationToken);
+            return;
+        }
+        if (text.Equals("!status", StringComparison.OrdinalIgnoreCase))
+        {
+            var active = await _openCodeActivity.IsSessionActiveAsync(linkedSession.Key,
+                linkedSession.Value.Directory, cancellationToken);
+            var status = active switch
+            {
+                true => "⏳ OpenCode is momenteel bezig met deze sessie.",
+                false => "✅ OpenCode is momenteel niet bezig; de sessie is idle.",
+                _ => "⚠️ De actuele status van OpenCode kon niet worden opgehaald."
+            };
+            await PostMessageAsync(_botToken, _channelId, status, threadTs, cancellationToken);
             return;
         }
         if (await HandlePendingInteractionReplyAsync(threadTs, text, cancellationToken))

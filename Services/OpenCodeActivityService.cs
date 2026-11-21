@@ -207,6 +207,17 @@ public sealed class OpenCodeActivityService
         return HasItems(permissions) || HasItems(forms);
     }
 
+    public async Task<bool?> IsSessionActiveAsync(string sessionId, string directory, CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId))
+            return null;
+        using var response = await RequestAsync("/api/session/active", cancellationToken, workingDirectory: directory);
+        if (response is null || !response.RootElement.TryGetProperty("data", out var sessions) ||
+            sessions.ValueKind != JsonValueKind.Object)
+            return null;
+        return sessions.TryGetProperty(sessionId, out _);
+    }
+
     public async Task ReplyToPermissionAsync(string sessionId, string directory, string requestId, string decision,
         string? message, CancellationToken cancellationToken)
     {

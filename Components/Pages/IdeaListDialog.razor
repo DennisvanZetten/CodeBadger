@@ -1,6 +1,9 @@
 @inject IdeaListService Ideas
 @inject LocalizationService L
 @inject IDialogService Dialogs
+@inject LauncherSettingsService SettingsService
+@inject OpenCodeActivityService OpenCodeActivity
+@inject ISnackbar Snackbar
 
 <MudDialog Class="idea-list-dialog">
     <TitleContent>
@@ -41,6 +44,33 @@
                                     {
                                         <MudText Typo="Typo.body2" Color="Color.Secondary">@item.Description</MudText>
                                     }
+                                    @if (item.Type == IdeaType.Task)
+                                    {
+                                        @if (_repositories.Count > 0)
+                                        {
+                                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-1">
+                                                <MudSelect T="Guid" Value="GetSelectedRepositoryId(item)"
+                                                           ValueChanged="@(id => SelectRepository(item, id))"
+                                                           Label="@L.T("Repository")" Dense="true" Margin="Margin.Dense"
+                                                           Disabled="@_startingTasks.Contains(item.Id)" Class="idea-repository-select">
+                                                    @foreach (var repository in _repositories)
+                                                    {
+                                                        <MudSelectItem Value="repository.Id">@RepositoryName(repository)</MudSelectItem>
+                                                    }
+                                                </MudSelect>
+                                                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                                                           StartIcon="@Icons.Material.Filled.PlayArrow"
+                                                           Disabled="@(!CanStartTask(item))"
+                                                           OnClick="@(() => StartTaskAsync(item))">
+                                                    @(_startingTasks.Contains(item.Id) ? L.T("Starting...") : L.T("Start in new session"))
+                                                </MudButton>
+                                            </MudStack>
+                                        }
+                                        else
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No eligible OpenCode repositories are available.")</MudText>
+                                        }
+                                    }
                                     <MudSelect T="IdeaStatus" Value="item.Status" ValueChanged="@(status => UpdateStatusAsync(item, status))" Dense="true" Margin="Margin.Dense" Class="idea-status-select">
                                         <MudSelectItem Value="IdeaStatus.Open">@L.T("Open")</MudSelectItem>
                                         <MudSelectItem Value="IdeaStatus.InProgress">@L.T("In progress")</MudSelectItem>
@@ -64,11 +94,22 @@
 @code {
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
     private List<IdeaItem> _items = [];
+    private List<RepositoryEntry> _repositories = [];
+    private readonly Dictionary<Guid, Guid> _selectedRepositories = [];
+    private readonly HashSet<Guid> _startingTasks = [];
     private bool _loading = true;
 
     protected override async Task OnInitializedAsync()
     {
         _items = (await Ideas.GetAllAsync()).ToList();
+        var settings = await SettingsService.LoadAsync();
+        _repositories = settings.Repositories
+            .Where(repository => repository.IsActive && !repository.OpenCodeSandboxEnabled &&
+                AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && Directory.Exists(repository.Path))
+            .OrderBy(RepositoryName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        foreach (var item in _items)
+            _selectedRepositories[item.Id] = Guid.Empty;
         _loading = false;
     }
 
@@ -78,8 +119,51 @@
             options: new DialogOptions { CloseButton = true, CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true });
         var result = await dialog.Result;
         if (result is { Canceled: false, Data: IdeaItem item })
+        {
             _items.Add(item);
+            _selectedRepositories[item.Id] = Guid.Empty;
+        }
     }
+
+    private Guid GetSelectedRepositoryId(IdeaItem item) => _selectedRepositories.GetValueOrDefault(item.Id);
+
+    private void SelectRepository(IdeaItem item, Guid repositoryId) => _selectedRepositories[item.Id] = repositoryId;
+
+    private bool CanStartTask(IdeaItem item) => !_startingTasks.Contains(item.Id) &&
+        _selectedRepositories.TryGetValue(item.Id, out var repositoryId) &&
+        _repositories.Any(repository => repository.Id == repositoryId);
+
+    private async Task StartTaskAsync(IdeaItem item)
+    {
+        if (!CanStartTask(item) || !_startingTasks.Add(item.Id))
+            return;
+
+        try
+        {
+            var repository = _repositories.First(candidate => candidate.Id == _selectedRepositories[item.Id]);
+            var session = await OpenCodeActivity.CreateSessionAsync(repository.Path, CancellationToken.None);
+            var prompt = string.IsNullOrWhiteSpace(item.Description)
+                ? item.Title
+                : $"{item.Title}\n\n{item.Description}";
+            await OpenCodeActivity.SendPromptAsync(session.Id, session.Directory, prompt, CancellationToken.None, "plan");
+            if (await Ideas.UpdateStatusAsync(item.Id, IdeaStatus.InProgress))
+                item.Status = IdeaStatus.InProgress;
+            await InvokeAsync(StateHasChanged);
+            Snackbar.Add(L.T("Task started in a new session."), Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not start the task: {0}", exception.Message), Severity.Error);
+        }
+        finally
+        {
+            _startingTasks.Remove(item.Id);
+        }
+    }
+
+    private string RepositoryName(RepositoryEntry repository) => string.IsNullOrWhiteSpace(repository.Name)
+        ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path))
+        : repository.Name;
 
     private async Task UpdateStatusAsync(IdeaItem item, IdeaStatus status)
     {

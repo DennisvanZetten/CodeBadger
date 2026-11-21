@@ -41,7 +41,7 @@ public sealed class WindowTitleBarService
         {
             WidthRequest = 36,
             HeightRequest = 36,
-            Margin = new Thickness(0, 0, 2, 0),
+            Margin = new Thickness(0, 0, 12, 0),
             Padding = 0,
             BackgroundColor = Colors.Transparent,
             Source = new FontImageSource { FontFamily = "Segoe MDL2 Assets", Glyph = "\uE8FD", Size = 18 }

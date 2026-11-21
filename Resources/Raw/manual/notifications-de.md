@@ -46,6 +46,7 @@ Der Status in diesem Bereich zeigt, ob CodeBadger über Socket Mode mit Slack ve
 - OpenCode-Berechtigungsanfragen erscheinen im Sitzungsthread. Antworten Sie mit `!allow <id>` für eine einmalige Genehmigung, `!always <id>` für eine dauerhafte Genehmigung oder `!deny <id> [Grund]` zum Ablehnen.
 - OpenCode-Formulare erscheinen ebenfalls im Thread. Antworten Sie mit `!answer <id> key=value; key2=value`, verwenden Sie die angezeigten Feldschlüssel und trennen Sie Mehrfachauswahlen mit `|`.
 - Senden Sie `!new` als eigenständige Kanalnachricht, um eine neue Sitzung zu starten. Antworten Sie im von CodeBadger erstellten Thread mit der Nummer eines Repositorys und senden Sie anschließend Ihre Aufgabe als nächste Thread-Antwort. Es werden nur aktive, nicht sandboxgeschützte OpenCode-Repositorys angezeigt.
+- Senden Sie `!todos` im Kanal oder in einem Sitzungsthread, um offene Punkte aufzulisten. Bei mehr als zehn Einträgen zeigt CodeBadger die zehn neuesten nach Erstellungsdatum.
 - Verwenden Sie `!build` für Implementierungsarbeiten und `!plan` für Planung und Analyse. Senden Sie nicht nur `!build` oder `!plan`; fügen Sie eine Anweisung hinzu.
 
 Die Slack-Antwort muss von der in CodeBadger eingetragenen Mitglieder-ID stammen. CodeBadger muss laufen, um Slack-Antworten und OpenCode-Fragen zu empfangen und den Abschluss von Sitzungen zu überwachen.

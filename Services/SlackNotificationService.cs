@@ -546,12 +546,19 @@ public sealed class SlackNotificationService : IAsyncDisposable
             if (text.Equals("!help", StringComparison.OrdinalIgnoreCase))
             {
                 await PostMessageAsync(_botToken, _channelId,
-                "*Slack commands*\n• `!new` — start a new OpenCode session; then choose a repository and send a task in its thread.\n• `!todo <title>` — add an item to the CodeBadger ideas and tasks list. Optional type prefixes: `idea:`, `wish:`, `task:`, or `bug:`.\n• `!help` — show this command list.",
+                "*Slack commands*\n• `!new` — start a new OpenCode session; then choose a repository and send a task in its thread.\n• `!todo <title>` — add an item to the CodeBadger ideas and tasks list. Optional type prefixes: `idea:`, `wish:`, `task:`, or `bug:`.\n• `!todos` — list up to 10 most recently created open items.\n• `!help` — show this command list.",
                     null, cancellationToken);
                 return;
             }
 
-            if (text.StartsWith("!todo", StringComparison.OrdinalIgnoreCase))
+            if (text.Equals("!todos", StringComparison.OrdinalIgnoreCase))
+            {
+                await ListOpenIdeasFromSlackAsync(null, cancellationToken);
+                return;
+            }
+
+            if (text.Equals("!todo", StringComparison.OrdinalIgnoreCase) ||
+                text.StartsWith("!todo ", StringComparison.OrdinalIgnoreCase))
             {
                 await AddIdeaFromSlackAsync(text, null, cancellationToken);
                 return;
@@ -581,7 +588,14 @@ public sealed class SlackNotificationService : IAsyncDisposable
             return;
         }
 
-        if (text.StartsWith("!todo", StringComparison.OrdinalIgnoreCase))
+        if (text.Equals("!todos", StringComparison.OrdinalIgnoreCase))
+        {
+            await ListOpenIdeasFromSlackAsync(threadTs, cancellationToken);
+            return;
+        }
+
+        if (text.Equals("!todo", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("!todo ", StringComparison.OrdinalIgnoreCase))
         {
             await AddIdeaFromSlackAsync(text, threadTs, cancellationToken);
             return;
@@ -651,6 +665,28 @@ public sealed class SlackNotificationService : IAsyncDisposable
         await PostMessageAsync(_botToken, _channelId,
             $"✅ Added *{EscapeSlack(item.Title)}* to the CodeBadger ideas and tasks list ({type.ToString().ToLowerInvariant()}).",
             threadTs, cancellationToken);
+    }
+
+    private async Task ListOpenIdeasFromSlackAsync(string? threadTs, CancellationToken cancellationToken)
+    {
+        var openItems = (await _ideaListService.GetAllAsync(cancellationToken))
+            .Where(item => item.Status == IdeaStatus.Open)
+            .OrderByDescending(item => item.CreatedAt)
+            .ThenBy(item => item.Id)
+            .ToArray();
+        if (openItems.Length == 0)
+        {
+            await PostMessageAsync(_botToken, _channelId, "✅ Er zijn geen open punten.", threadTs, cancellationToken);
+            return;
+        }
+
+        var selected = openItems.Take(10).ToArray();
+        var lines = selected.Select(item =>
+            $"• *{EscapeSlack(item.Title)}* — {item.Type.ToString().ToLowerInvariant()}, {item.CreatedAt.ToLocalTime():yyyy-MM-dd}");
+        var heading = openItems.Length > selected.Length
+            ? $"*Open punten (10 nieuwste van {openItems.Length}, nieuwste eerst)*\n"
+            : $"*Open punten ({openItems.Length}, nieuwste eerst)*\n";
+        await PostMessageAsync(_botToken, _channelId, heading + string.Join("\n", lines), threadTs, cancellationToken);
     }
 
     private async Task PushSessionAsync(ThreadLink thread, string threadTs, CancellationToken cancellationToken)

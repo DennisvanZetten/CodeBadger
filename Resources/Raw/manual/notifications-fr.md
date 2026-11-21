@@ -46,6 +46,7 @@ L’état affiché dans ce panneau indique si CodeBadger est connecté à Slack 
 - Les demandes d’autorisation OpenCode apparaissent dans le fil de session. Répondez `!allow <id>` pour autoriser une fois, `!always <id>` pour mémoriser l’autorisation ou `!deny <id> [motif]` pour refuser.
 - Les formulaires OpenCode apparaissent également dans le fil. Répondez `!answer <id> clé=valeur; clé2=valeur`, avec les clés affichées dans la question et `|` entre les choix multiples.
 - Envoyez `!new` comme message autonome dans le canal pour démarrer une nouvelle session. Dans le fil créé par CodeBadger, répondez avec le numéro d’un dépôt, puis envoyez votre tâche dans la réponse suivante du fil. Seuls les dépôts OpenCode actifs sans sandbox sont affichés.
+- Envoyez `!todos` dans le canal ou un fil de session pour lister les éléments ouverts. S’il y en a plus de dix, CodeBadger affiche les dix plus récents par date de création.
 - Utilisez `!build` pour le travail d’implémentation et `!plan` pour la planification et l’analyse. N’envoyez pas uniquement `!build` ou `!plan` : ajoutez une instruction.
 
 La réponse Slack doit provenir de l’identifiant de membre configuré dans CodeBadger. CodeBadger doit être ouvert pour recevoir les réponses Slack et les questions OpenCode, et détecter la fin des sessions.

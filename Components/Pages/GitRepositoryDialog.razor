@@ -875,6 +875,12 @@
             Snackbar.Add(result.Success ? L.T("Changes stashed.") : result.Message,
                 result.Success ? Severity.Success : Severity.Error);
             await RefreshAsync();
+            await RefreshStashesAsync();
+            if (result.Success)
+            {
+                _view = GitView.History;
+                await InvokeAsync(StateHasChanged);
+            }
         }
         finally
         {
@@ -898,6 +904,7 @@
             Snackbar.Add(result.Success ? L.T("Stash popped.") : L.T("Could not pop stash: {0}", result.Message),
                 result.Success ? Severity.Success : Severity.Error);
             await RefreshAsync();
+            await RefreshStashesAsync();
         }
         finally
         {
@@ -907,6 +914,12 @@
 
     private Task HandleStashKeyDownAsync(KeyboardEventArgs args, GitStashEntry stash) =>
         args.Key is "Enter" or " " ? PopStashAsync(stash) : Task.CompletedTask;
+
+    private async Task RefreshStashesAsync()
+    {
+        _stashes = await GitBranchService.GetStashesAsync(RepositoryPath);
+        await InvokeAsync(StateHasChanged);
+    }
 
     private static Color GetFileStatusColor(GitFileChange file)
     {

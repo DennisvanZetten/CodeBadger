@@ -6,8 +6,12 @@ namespace CodeBadger.Services;
 public sealed class OpenCodeActivityService
 {
     public sealed record ActiveSession(string Id, string Directory, string Agent, string Title);
+    public sealed record FormField(string Key, string Title, string Description, string Type, bool Required,
+        IReadOnlyList<(string Value, string Label)> Options);
+    public sealed record PendingInteraction(string Id, string Kind, string Title, string Details,
+        IReadOnlyList<FormField> Fields, IReadOnlyList<string> Resources);
     public sealed record ActivitySnapshot(HashSet<string> ActiveDirectories, HashSet<string> QuestionDirectories,
-        Dictionary<string, ActiveSession> Sessions);
+        Dictionary<string, ActiveSession> Sessions, Dictionary<string, IReadOnlyList<PendingInteraction>> PendingInteractions);
 
     // Only the managed OpenCode service is queried. Other tools, standalone
     // instances and explicitly selected servers do not expose the same state here.
@@ -30,6 +34,7 @@ public sealed class OpenCodeActivityService
         var activeDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var questionDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var activeSessions = new Dictionary<string, ActiveSession>(StringComparer.Ordinal);
+        var pendingInteractions = new Dictionary<string, IReadOnlyList<PendingInteraction>>(StringComparer.Ordinal);
         using var active = await RequestAsync("/api/session/active", cancellationToken);
         if (active is null || !active.RootElement.TryGetProperty("data", out var sessions) || sessions.ValueKind != JsonValueKind.Object)
             return null;
@@ -78,14 +83,67 @@ public sealed class OpenCodeActivityService
                 if (sessionId.Length == 0)
                     sessionId = ids[index];
                 activeSessions[sessionId] = new ActiveSession(sessionId, normalized, agent, title);
+                var interactions = new List<PendingInteraction>();
                 if (permissionResponse?.RootElement.TryGetProperty("data", out var permissions) == true &&
-                    permissions.ValueKind == JsonValueKind.Array && permissions.GetArrayLength() > 0)
-                    questionDirectories.Add(normalized);
+                    permissions.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var permission in permissions.EnumerateArray())
+                    {
+                        var id = GetString(permission, "id");
+                        if (string.IsNullOrWhiteSpace(id))
+                            continue;
+                        var action = GetString(permission, "action");
+                        var message = GetString(permission, "message");
+                        var resources = GetStringArray(permission, "resources");
+                        var details = string.IsNullOrWhiteSpace(message) ? action : $"{action}: {message}";
+                        interactions.Add(new PendingInteraction(id, "permission", "Permission requested",
+                            details, [], resources));
+                    }
+                }
                 if (formResponse?.RootElement.TryGetProperty("data", out var forms) == true &&
-                    forms.ValueKind == JsonValueKind.Array && forms.GetArrayLength() > 0)
+                    forms.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var form in forms.EnumerateArray())
+                    {
+                        var id = GetString(form, "id");
+                        if (string.IsNullOrWhiteSpace(id))
+                            continue;
+                        var fields = new List<FormField>();
+                        if (form.TryGetProperty("fields", out var formFields) && formFields.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var field in formFields.EnumerateArray())
+                            {
+                                var key = GetString(field, "key");
+                                if (string.IsNullOrWhiteSpace(key) ||
+                                    field.TryGetProperty("hidden", out var hidden) && hidden.ValueKind == JsonValueKind.True)
+                                    continue;
+                                var options = new List<(string Value, string Label)>();
+                                if (field.TryGetProperty("options", out var optionValues) && optionValues.ValueKind == JsonValueKind.Array)
+                                {
+                                    foreach (var option in optionValues.EnumerateArray())
+                                    {
+                                        var value = GetString(option, "value");
+                                        var label = GetString(option, "label");
+                                        if (!string.IsNullOrWhiteSpace(value))
+                                            options.Add((value, string.IsNullOrWhiteSpace(label) ? value : label));
+                                    }
+                                }
+                                fields.Add(new FormField(key, GetString(field, "title"), GetString(field, "description"),
+                                    GetString(field, "type"), field.TryGetProperty("required", out var required) && required.ValueKind == JsonValueKind.True,
+                                    options));
+                            }
+                        }
+                        interactions.Add(new PendingInteraction(id, "form", GetString(form, "title"), string.Empty,
+                            fields, []));
+                    }
+                }
+                if (interactions.Count > 0)
+                {
                     questionDirectories.Add(normalized);
+                    pendingInteractions[sessionId] = interactions;
+                }
             }
-            return new ActivitySnapshot(activeDirectories, questionDirectories, activeSessions);
+            return new ActivitySnapshot(activeDirectories, questionDirectories, activeSessions, pendingInteractions);
         }
         finally
         {
@@ -148,6 +206,46 @@ public sealed class OpenCodeActivityService
         using var forms = await RequestAsync($"/api/session/{sessionId}/form", cancellationToken, workingDirectory: directory);
         return HasItems(permissions) || HasItems(forms);
     }
+
+    public async Task ReplyToPermissionAsync(string sessionId, string directory, string requestId, string decision,
+        string? message, CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId) || string.IsNullOrWhiteSpace(requestId) ||
+            requestId.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '_'))
+            throw new ArgumentException("Invalid OpenCode permission request ID.", nameof(requestId));
+        if (decision is not ("once" or "always" or "reject"))
+            throw new ArgumentException("Permission decision must be once, always, or reject.", nameof(decision));
+        var payload = JsonSerializer.Serialize(new { decision, message });
+        using var response = await RequestAsync($"/api/session/{sessionId}/permission/{requestId}/reply",
+            cancellationToken, HttpMethod.Post, payload, directory);
+        if (response is null)
+            throw new InvalidOperationException("Could not submit the permission decision to OpenCode.");
+    }
+
+    public async Task ReplyToFormAsync(string sessionId, string directory, string formId, JsonElement answers,
+        CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId) || string.IsNullOrWhiteSpace(formId) ||
+            formId.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '_'))
+            throw new ArgumentException("Invalid OpenCode form ID.", nameof(formId));
+        if (answers.ValueKind != JsonValueKind.Object)
+            throw new ArgumentException("Form answers must be a JSON object.", nameof(answers));
+        var payload = JsonSerializer.Serialize(new { answer = answers });
+        using var response = await RequestAsync($"/api/session/{sessionId}/form/{formId}/reply",
+            cancellationToken, HttpMethod.Post, payload, directory);
+        if (response is null)
+            throw new InvalidOperationException("Could not submit the form answer to OpenCode.");
+    }
+
+    private static string GetString(JsonElement element, string property) =>
+        element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? string.Empty : string.Empty;
+
+    private static IReadOnlyList<string> GetStringArray(JsonElement element, string property) =>
+        element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Array
+            ? value.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.String)
+                .Select(item => item.GetString() ?? string.Empty).Where(item => item.Length > 0).ToArray()
+            : [];
 
     private static bool HasItems(JsonDocument? response) => response is not null &&
         response.RootElement.TryGetProperty("data", out var items) &&

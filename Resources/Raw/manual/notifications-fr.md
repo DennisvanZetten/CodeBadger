@@ -42,10 +42,12 @@ L’état affiché dans ce panneau indique si CodeBadger est connecté à Slack 
 - Pour changer d’agent pour une réponse, commencez votre réponse au fil par `!build` ou `!plan`, suivi d’un espace et de votre instruction. Exemple : `!plan Compare deux approches d’implémentation`. L’agent est d’abord changé, puis reçoit le texte après la commande. Les tours suivants continuent avec cet agent jusqu’au prochain changement.
 - Envoyez `!commit` dans un fil de session pour indexer et valider toutes les modifications du dépôt. Si les messages de commit par IA sont configurés, CodeBadger génère automatiquement le message. Sinon, CodeBadger demande un titre ; envoyez-le dans la réponse suivante du fil, avec éventuellement la description à la ligne suivante.
 - Envoyez `!help` comme message autonome dans le canal pour afficher les commandes du canal, ou dans un fil de session pour afficher les commandes de session. Dans le fil de sélection `!new`, `!help` explique comment choisir un dépôt et envoyer la tâche.
+- Les demandes d’autorisation OpenCode apparaissent dans le fil de session. Répondez `!allow <id>` pour autoriser une fois, `!always <id>` pour mémoriser l’autorisation ou `!deny <id> [motif]` pour refuser.
+- Les formulaires OpenCode apparaissent également dans le fil. Répondez `!answer <id> clé=valeur; clé2=valeur`, avec les clés affichées dans la question et `|` entre les choix multiples.
 - Envoyez `!new` comme message autonome dans le canal pour démarrer une nouvelle session. Dans le fil créé par CodeBadger, répondez avec le numéro d’un dépôt, puis envoyez votre tâche dans la réponse suivante du fil. Seuls les dépôts OpenCode actifs sans sandbox sont affichés.
 - Utilisez `!build` pour le travail d’implémentation et `!plan` pour la planification et l’analyse. N’envoyez pas uniquement `!build` ou `!plan` : ajoutez une instruction.
 
-La réponse Slack doit provenir de l’identifiant de membre configuré dans CodeBadger. CodeBadger doit être ouvert pour recevoir les réponses Slack et détecter la fin des sessions.
+La réponse Slack doit provenir de l’identifiant de membre configuré dans CodeBadger. CodeBadger doit être ouvert pour recevoir les réponses Slack et les questions OpenCode, et détecter la fin des sessions.
 
 ## 5. Mettre en sourdine un dépôt ou une session
 

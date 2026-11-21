@@ -150,6 +150,7 @@
         SettingsService.SettingsSaved += HandleSettingsSaved;
         SlackNotifications.ReplyReceived += HandleSlackReplyReceived;
         SlackNotifications.SessionStarted += HandleSlackSessionStarted;
+        SlackNotifications.SessionLinked += HandleSlackSessionLinked;
         SlackNotifications.SessionNotificationsChanged += HandleSlackSessionNotificationsChanged;
         SandboxApprovals.Requested += HandleSandboxApproval;
         SandboxSessions.StateChanged += HandleSandboxState;
@@ -681,6 +682,19 @@
                     _questionSessions.UnionWith(questions);
                     if (changed)
                         StateHasChanged();
+                    if (_settings.SlackNotificationsEnabled && SlackNotifications.CanSendNotifications)
+                    {
+                        try
+                        {
+                            await SlackNotifications.UpdatePendingInteractionsAsync(activeOpenCodeSessions,
+                                activity.PendingInteractions, cancellationToken);
+                        }
+                        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+                        catch (Exception exception)
+                        {
+                            Logger.LogWarning(exception, "Could not publish pending OpenCode questions to Slack.");
+                        }
+                    }
                     if (completedSessions.Length > 0 && _settings.CompletionSoundEnabled)
                     {
                         try { await JS.InvokeVoidAsync("codeBadgerSounds.play", CompletionSounds.Normalize(_settings.CompletionSound)); }
@@ -785,6 +799,9 @@
 
     private void HandleSlackSessionNotificationsChanged() => _ = InvokeAsync(StateHasChanged);
 
+    private void HandleSlackSessionLinked(OpenCodeActivityService.ActiveSession session) =>
+        _slackStartedSessions.Add(session.Id);
+
     private void HandleSlackSessionStarted(OpenCodeActivityService.ActiveSession session) => _ = InvokeAsync(() =>
     {
         var repository = _activeRepositories.FirstOrDefault(candidate =>
@@ -835,6 +852,7 @@
         SettingsService.SettingsSaved -= HandleSettingsSaved;
         SlackNotifications.ReplyReceived -= HandleSlackReplyReceived;
         SlackNotifications.SessionStarted -= HandleSlackSessionStarted;
+        SlackNotifications.SessionLinked -= HandleSlackSessionLinked;
         SlackNotifications.SessionNotificationsChanged -= HandleSlackSessionNotificationsChanged;
         L.LanguageChanged -= HandleLanguageChanged;
         _selfReference?.Dispose();

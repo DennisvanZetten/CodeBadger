@@ -22,6 +22,8 @@ public sealed class SlackNotificationService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, ThreadLink> _sessionThreads = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, PendingNewSession> _pendingNewSessions = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, PendingCommitMessage> _pendingCommitMessages = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, PendingInteractionThread> _pendingInteractionThreads = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, byte> _announcedInteractions = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _seenReplies = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _mutedSessions = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _configurationGate = new(1, 1);
@@ -46,6 +48,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
 
     public event Action<OpenCodeActivityService.ActiveSession, string>? ReplyReceived;
     public event Action<OpenCodeActivityService.ActiveSession>? SessionStarted;
+    public event Action<OpenCodeActivityService.ActiveSession>? SessionLinked;
     public event Action<bool, string>? ConnectionChanged;
     public event Action? SessionNotificationsChanged;
     public bool IsConnected { get; private set; }
@@ -60,6 +63,8 @@ public sealed class SlackNotificationService : IAsyncDisposable
         public RepositoryEntry? SelectedRepository { get; set; }
     }
     private sealed record PendingCommitMessage(string SessionId, string Directory, string Title, string Description);
+    private sealed record PendingInteractionThread(OpenCodeActivityService.ActiveSession Session,
+        IReadOnlyList<OpenCodeActivityService.PendingInteraction> Interactions);
 
     public async Task<IReadOnlyList<SlackChannel>> GetChannelsAsync(string botToken, CancellationToken cancellationToken = default)
     {
@@ -239,6 +244,196 @@ public sealed class SlackNotificationService : IAsyncDisposable
         await PostMessageAsync(_botToken, link.ChannelId, text, link.ThreadTs, cancellationToken);
     }
 
+    public async Task UpdatePendingInteractionsAsync(
+        IReadOnlyDictionary<string, OpenCodeActivityService.ActiveSession> sessions,
+        IReadOnlyDictionary<string, IReadOnlyList<OpenCodeActivityService.PendingInteraction>> interactions,
+        CancellationToken cancellationToken = default)
+    {
+        if (!CanSendNotifications)
+            return;
+
+        var activeKeys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var pair in interactions)
+        {
+            if (!sessions.TryGetValue(pair.Key, out var session))
+                continue;
+
+            if (!_sessionThreads.TryGetValue(pair.Key, out var link) || link.ChannelId != _channelId)
+            {
+                var title = string.IsNullOrWhiteSpace(session.Title) ? "OpenCode session" : session.Title;
+                var threadTs = await PostMessageAsync(_botToken, _channelId,
+                    $"⏳ *OpenCode wacht op je antwoord: {EscapeSlack(title)}*\n" +
+                    $"Agent: `{EscapeSlack(session.Agent)}` · Sessie: `{EscapeSlack(session.Id)}`",
+                    null, cancellationToken);
+                link = new ThreadLink(threadTs, _channelId, session.Directory, session.Agent, title, DateTime.UtcNow);
+                _sessionThreads[session.Id] = link;
+                await SaveThreadLinksAsync();
+                SessionNotificationsChanged?.Invoke();
+                SessionLinked?.Invoke(session);
+            }
+
+            var current = pair.Value;
+            _pendingInteractionThreads[link.ThreadTs] = new PendingInteractionThread(session, current);
+            foreach (var interaction in current)
+            {
+                var key = pair.Key + ":" + interaction.Kind + ":" + interaction.Id;
+                activeKeys.Add(key);
+                if (!_announcedInteractions.TryAdd(key, 0))
+                    continue;
+                try
+                {
+                    await PostMessageAsync(_botToken, link.ChannelId,
+                        FormatPendingInteraction(interaction), link.ThreadTs, cancellationToken);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    _announcedInteractions.TryRemove(key, out _);
+                    _logger.LogWarning(exception, "Could not publish OpenCode interaction {InteractionId} for session {SessionId} to Slack.",
+                        interaction.Id, pair.Key);
+                }
+            }
+        }
+
+        foreach (var key in _announcedInteractions.Keys)
+            if (!activeKeys.Contains(key))
+                _announcedInteractions.TryRemove(key, out _);
+        foreach (var pair in _pendingInteractionThreads)
+        {
+            var sessionId = pair.Value.Session.Id;
+            if (!sessions.ContainsKey(sessionId))
+            {
+                _pendingInteractionThreads.TryRemove(pair.Key, out _);
+                continue;
+            }
+            if (interactions.TryGetValue(sessionId, out var current) && current.Count > 0)
+                _pendingInteractionThreads[pair.Key] = pair.Value with { Interactions = current };
+            else
+                _pendingInteractionThreads.TryRemove(pair.Key, out _);
+        }
+    }
+
+    private static string FormatPendingInteraction(OpenCodeActivityService.PendingInteraction interaction)
+    {
+        if (interaction.Kind == "permission")
+        {
+            var resources = interaction.Resources.Count == 0 ? string.Empty :
+                "\nResources:\n" + string.Join("\n", interaction.Resources.Select(resource => "• " + EscapeSlack(resource)));
+            return $"⏸️ *OpenCode vraagt toestemming:* {EscapeSlack(interaction.Details)}\n" +
+                $"Request ID: `{EscapeSlack(interaction.Id)}`{resources}\n" +
+                $"Antwoord met `!allow {EscapeSlack(interaction.Id)}` (eenmalig), `!always {EscapeSlack(interaction.Id)}` (altijd) " +
+                $"of `!deny {EscapeSlack(interaction.Id)} [reden]`.";
+        }
+
+        var fields = interaction.Fields.Count == 0 ? "(geen zichtbare velden)" : string.Join("\n", interaction.Fields.Select(field =>
+        {
+            var options = field.Options.Count == 0 ? string.Empty : " Opties: " +
+                string.Join(", ", field.Options.Select(option => $"{EscapeSlack(option.Value)} ({EscapeSlack(option.Label)})"));
+            return $"• `{EscapeSlack(field.Key)}` — {EscapeSlack(string.IsNullOrWhiteSpace(field.Title) ? field.Key : field.Title)}" +
+                (field.Required ? " (verplicht)" : string.Empty) + options;
+        }));
+        return $"❓ *OpenCode vraagt om informatie:* {EscapeSlack(interaction.Title)}\n{fields}\n" +
+            $"Antwoord met `!answer {EscapeSlack(interaction.Id)} sleutel=waarde; sleutel2=waarde`. " +
+            "Meerdere antwoorden scheid je met puntkomma's; meerkeuzevelden accepteren waarden gescheiden door `|`.";
+    }
+
+    private async Task<bool> HandlePendingInteractionReplyAsync(string threadTs, string text,
+        CancellationToken cancellationToken)
+    {
+        if (!_pendingInteractionThreads.TryGetValue(threadTs, out var pending))
+            return false;
+
+        var match = System.Text.RegularExpressions.Regex.Match(text,
+            "^!(allow|always|deny|answer)\\s+(\\S+)(?:\\s+(.*))?$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+        if (!match.Success)
+            return false;
+
+        var command = match.Groups[1].Value.ToLowerInvariant();
+        var id = match.Groups[2].Value;
+        var body = match.Groups[3].Value.Trim();
+        var kind = command == "answer" ? "form" : "permission";
+        var interaction = pending.Interactions.FirstOrDefault(item => item.Kind == kind && item.Id == id);
+        if (interaction is null)
+        {
+            await PostMessageAsync(_botToken, _channelId,
+                "⚠️ Die vraag is niet meer open, of de ID hoort niet bij deze thread. Gebruik de ID uit de meest recente vraag.",
+                threadTs, cancellationToken);
+            return true;
+        }
+
+        try
+        {
+            if (kind == "permission")
+            {
+                var decision = command switch { "allow" => "once", "always" => "always", _ => "reject" };
+                await _openCodeActivity.ReplyToPermissionAsync(pending.Session.Id, pending.Session.Directory,
+                    id, decision, body, cancellationToken);
+                await PostMessageAsync(_botToken, _channelId,
+                    decision == "reject" ? "✅ Toestemmingsverzoek afgewezen." :
+                        decision == "always" ? "✅ Toestemming altijd verleend." : "✅ Eenmalige toestemming verleend.",
+                    threadTs, cancellationToken);
+                return true;
+            }
+
+            var answers = ParseFormAnswers(body, interaction.Fields);
+            await _openCodeActivity.ReplyToFormAsync(pending.Session.Id, pending.Session.Directory,
+                id, answers, cancellationToken);
+            await PostMessageAsync(_botToken, _channelId, "✅ Antwoord naar OpenCode verzonden.", threadTs, cancellationToken);
+            return true;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(exception, "Could not submit Slack answer for OpenCode interaction {InteractionId}.", id);
+            await PostMessageAsync(_botToken, _channelId,
+                "⚠️ Antwoord niet verwerkt: " + EscapeSlack(exception.Message), threadTs, cancellationToken);
+            return true;
+        }
+    }
+
+    private static JsonElement ParseFormAnswers(string text, IReadOnlyList<OpenCodeActivityService.FormField> fields)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            throw new InvalidOperationException("Gebruik `!answer <id> sleutel=waarde; sleutel2=waarde`.");
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal);
+        var fieldMap = fields.ToDictionary(field => field.Key, StringComparer.Ordinal);
+        foreach (var entry in text.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            var separator = entry.IndexOf('=');
+            if (separator <= 0)
+                throw new InvalidOperationException($"Ongeldig antwoord '{entry}'. Gebruik sleutel=waarde.");
+            var key = entry[..separator].Trim();
+            var value = entry[(separator + 1)..].Trim();
+            if (!fieldMap.TryGetValue(key, out var field))
+                throw new InvalidOperationException($"Onbekend veld '{key}'. Gebruik de veldnamen uit de vraag.");
+            object parsed = field.Type switch
+            {
+                "boolean" when bool.TryParse(value, out var boolean) => boolean,
+                "integer" when long.TryParse(value, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out var integer) => integer,
+                "number" when double.TryParse(value, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var number) => number,
+                "multiselect" => value.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
+                _ => value
+            };
+            if (field.Type is "boolean" or "integer" or "number" && parsed is string)
+                throw new InvalidOperationException($"Ongeldige waarde voor veld '{key}'.");
+            if (field.Options.Count > 0)
+            {
+                var permitted = field.Type == "multiselect" && parsed is string[] selected
+                    ? selected : parsed is string single ? [single] : [];
+                foreach (var selectedValue in permitted)
+                    if (!field.Options.Any(option => option.Value == selectedValue))
+                        throw new InvalidOperationException($"'{selectedValue}' is geen geldige optie voor '{key}'.");
+            }
+            values[key] = parsed;
+        }
+        foreach (var field in fields.Where(field => field.Required))
+            if (!values.ContainsKey(field.Key))
+                throw new InvalidOperationException($"Verplicht veld '{field.Key}' ontbreekt.");
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(values));
+        return document.RootElement.Clone();
+    }
+
     public async Task UpdateSessionAgentAsync(string sessionId, string agent)
     {
         if (agent is not ("build" or "plan") || !_sessionThreads.TryGetValue(sessionId, out var link))
@@ -351,7 +546,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
             if (text.Equals("!help", StringComparison.OrdinalIgnoreCase))
             {
                 await PostMessageAsync(_botToken, _channelId,
-                    "*Slack commands*\n• `!new` — start a new OpenCode session; then choose a repository and send a task in its thread.\n• `!todo <title>` — add an item to the CodeBadger ideas and tasks list. Optional type prefixes: `idea:`, `wish:`, `task:`, or `bug:`.\n• `!help` — show this command list.",
+                "*Slack commands*\n• `!new` — start a new OpenCode session; then choose a repository and send a task in its thread.\n• `!todo <title>` — add an item to the CodeBadger ideas and tasks list. Optional type prefixes: `idea:`, `wish:`, `task:`, or `bug:`.\n• `!help` — show this command list.",
                     null, cancellationToken);
                 return;
             }
@@ -398,10 +593,12 @@ public sealed class SlackNotificationService : IAsyncDisposable
         if (text.Equals("!help", StringComparison.OrdinalIgnoreCase))
         {
             await PostMessageAsync(_botToken, _channelId,
-                "*Session commands*\n• `!build <task>` — switch to Build and send the task.\n• `!plan <task>` — switch to Plan and send the task.\n• `!commit` — stage and commit all repository changes.\n• `!help` — show this command list.\n\nAny other reply is sent to the current session.",
+                "*Session commands*\n• `!build <task>` — switch to Build and send the task.\n• `!plan <task>` — switch to Plan and send the task.\n• `!allow <id>` / `!always <id>` / `!deny <id> [reason]` — answer an OpenCode permission request.\n• `!answer <id> key=value; key2=value` — answer an OpenCode form. Use `|` between multiselect values.\n• `!commit` — stage and commit all repository changes.\n• `!help` — show this command list.\n\nAny other reply is sent to the current session.",
                 threadTs, cancellationToken);
             return;
         }
+        if (await HandlePendingInteractionReplyAsync(threadTs, text, cancellationToken))
+            return;
         if (_pendingCommitMessages.TryGetValue(threadTs, out var pendingCommit))
         {
             await CompletePendingCommitAsync(threadTs, pendingCommit, text, cancellationToken);

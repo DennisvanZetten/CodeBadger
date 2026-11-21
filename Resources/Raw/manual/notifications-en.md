@@ -43,9 +43,11 @@ The status shown in this panel reports whether CodeBadger is connected to Slack 
 - To switch agent for a reply, start the thread reply with `!build` or `!plan`, followed by a space and your instruction. For example: `!plan Compare two implementation approaches`. The agent switches first, then receives the text after the command. Future turns keep using the selected agent until you switch again.
 - Send `!commit` in a session thread to stage and commit all repository changes. If AI commit messages are configured, CodeBadger generates the message automatically. Otherwise, CodeBadger asks for a title; send it as the next thread reply, optionally followed by the description on the next line.
 - Send `!help` as a standalone channel message to see channel commands, or in a session thread to see session commands. In the `!new` selection thread, `!help` explains repository selection and sending the task.
+- OpenCode permission requests appear in the session thread. Reply with `!allow <id>` for one-time approval, `!always <id>` to remember approval, or `!deny <id> [reason]` to reject.
+- OpenCode forms also appear in the thread. Reply with `!answer <id> key=value; key2=value`, using the field keys shown in the question and `|` between multiselect values.
 - Use `!build` for implementation work and `!plan` for planning and analysis. Do not send only `!build` or `!plan`; include an instruction after it.
 
-The channel reply must come from the Slack member ID configured in CodeBadger. CodeBadger must be running to receive Slack replies and monitor session completion.
+The channel reply must come from the Slack member ID configured in CodeBadger. CodeBadger must be running to receive Slack replies and OpenCode questions and monitor session completion.
 
 ## 5. Mute a repository or session
 

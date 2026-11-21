@@ -42,10 +42,12 @@ Der Status in diesem Bereich zeigt, ob CodeBadger über Socket Mode mit Slack ve
 - Beginnen Sie Ihre Thread-Antwort mit `!build` oder `!plan`, gefolgt von einem Leerzeichen und Ihrer Anweisung, um den Agenten für diese Antwort zu wechseln. Beispiel: `!plan Vergleiche zwei Implementierungsansätze`. Zuerst wird der Agent gewechselt, anschließend erhält er den Text nach dem Befehl. Weitere Turns verwenden diesen Agenten, bis Sie erneut wechseln.
 - Senden Sie `!commit` in einem Sitzungsthread, um alle Repository-Änderungen zu stagen und zu committen. Wenn KI-Commitnachrichten konfiguriert sind, erstellt CodeBadger die Nachricht automatisch. Andernfalls fragt CodeBadger nach einem Titel; senden Sie ihn als nächste Thread-Antwort, optional mit der Beschreibung in der folgenden Zeile.
 - Senden Sie `!help` als eigenständige Kanalnachricht, um die Kanalbefehle anzuzeigen, oder in einem Sitzungsthread für die Sitzungsbefehle. Im Auswahldialog von `!new` erklärt `!help` die Repositoryauswahl und das Senden der Aufgabe.
+- OpenCode-Berechtigungsanfragen erscheinen im Sitzungsthread. Antworten Sie mit `!allow <id>` für eine einmalige Genehmigung, `!always <id>` für eine dauerhafte Genehmigung oder `!deny <id> [Grund]` zum Ablehnen.
+- OpenCode-Formulare erscheinen ebenfalls im Thread. Antworten Sie mit `!answer <id> key=value; key2=value`, verwenden Sie die angezeigten Feldschlüssel und trennen Sie Mehrfachauswahlen mit `|`.
 - Senden Sie `!new` als eigenständige Kanalnachricht, um eine neue Sitzung zu starten. Antworten Sie im von CodeBadger erstellten Thread mit der Nummer eines Repositorys und senden Sie anschließend Ihre Aufgabe als nächste Thread-Antwort. Es werden nur aktive, nicht sandboxgeschützte OpenCode-Repositorys angezeigt.
 - Verwenden Sie `!build` für Implementierungsarbeiten und `!plan` für Planung und Analyse. Senden Sie nicht nur `!build` oder `!plan`; fügen Sie eine Anweisung hinzu.
 
-Die Slack-Antwort muss von der in CodeBadger eingetragenen Mitglieder-ID stammen. CodeBadger muss laufen, um Slack-Antworten zu empfangen und den Abschluss von Sitzungen zu überwachen.
+Die Slack-Antwort muss von der in CodeBadger eingetragenen Mitglieder-ID stammen. CodeBadger muss laufen, um Slack-Antworten und OpenCode-Fragen zu empfangen und den Abschluss von Sitzungen zu überwachen.
 
 ## 5. Repository oder Sitzung stummschalten
 

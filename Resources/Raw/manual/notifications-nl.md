@@ -43,9 +43,11 @@ De status in dit paneel geeft aan of CodeBadger via Socket Mode met Slack is ver
 - Begin je thread-reply met `!build` of `!plan`, gevolgd door een spatie en je instructie, om voor die reply van agent te wisselen. Bijvoorbeeld: `!plan Vergelijk twee implementatieopties`. Eerst wordt de agent gewisseld; daarna ontvangt die de tekst na het commando. Volgende beurten blijven die agent gebruiken totdat je opnieuw wisselt.
 - Stuur `!commit` in een sessiethread om alle repositorywijzigingen te stage'n en te committen. Als AI-commitberichten zijn geconfigureerd, genereert CodeBadger het bericht automatisch. Anders vraagt CodeBadger om een titel; stuur die als volgende threadreply, eventueel met de beschrijving op de volgende regel.
 - Stuur `!help` als los kanaalbericht voor de kanaalcommando's, of in een sessiethread voor de sessiecommando's. In de `!new`-keuzethread toont `!help` uitleg over het kiezen van een repository en het sturen van de opdracht.
+- OpenCode-toestemmingsvragen verschijnen in de sessiethread. Antwoord met `!allow <id>` voor eenmalige toestemming, `!always <id>` om toestemming te onthouden of `!deny <id> [reden]` om te weigeren.
+- OpenCode-formulieren verschijnen eveneens in de thread. Antwoord met `!answer <id> sleutel=waarde; sleutel2=waarde`; gebruik de veldnamen uit de vraag en scheid meerkeuze-antwoorden met `|`.
 - Gebruik `!build` voor implementatiewerk en `!plan` voor planning en analyse. Stuur niet alleen `!build` of `!plan`; voeg er een instructie aan toe.
 
-De Slack-reply moet komen van de Slack-lid-ID die in CodeBadger is ingesteld. CodeBadger moet actief zijn om Slack-replies te ontvangen en het afronden van sessies te bewaken.
+De Slack-reply moet komen van de Slack-lid-ID die in CodeBadger is ingesteld. CodeBadger moet actief zijn om Slack-replies en OpenCode-vragen te ontvangen en het afronden van sessies te bewaken.
 
 ## 5. Dempen per repository of sessie
 

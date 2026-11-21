@@ -152,14 +152,16 @@ public sealed class SlackNotificationService : IAsyncDisposable
         var title = string.IsNullOrWhiteSpace(session.Title) ? "OpenCode session" : session.Title;
         if (_sessionThreads.TryGetValue(session.Id, out var existingThread))
             title = string.IsNullOrWhiteSpace(existingThread.Title) ? title : existingThread.Title;
-        var safeAnswer = answer.Replace("```", "'''");
-        safeAnswer = safeAnswer.Length > 3500 ? safeAnswer[..3500] + "\n…" : safeAnswer;
-        var message = $"✅ *OpenCode klaar: {EscapeSlack(title)}*\n" +
-            $"Agent: `{EscapeSlack(session.Agent)}` · Sessie: `{EscapeSlack(session.Id)}`\n" +
-            $"```\n{safeAnswer}\n```";
         string? threadTs = null;
         if (_sessionThreads.TryGetValue(session.Id, out var previous))
             threadTs = previous.ThreadTs;
+        var safeAnswer = answer.Length > 3500 ? answer[..3500] + "\n…" : answer;
+        var heading = threadTs is null
+            ? $"✅ *OpenCode klaar: {EscapeSlack(title)}*\n"
+            : "✅ *OpenCode klaar*\n";
+        var message = heading +
+            $"Agent: `{EscapeSlack(session.Agent)}` · Sessie: `{EscapeSlack(session.Id)}`\n" +
+            EscapeSlack(safeAnswer);
         try
         {
             var result = await PostMessageAsync(_botToken, _channelId, message, threadTs, cancellationToken);

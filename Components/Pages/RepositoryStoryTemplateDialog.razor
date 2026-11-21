@@ -1,0 +1,42 @@
+@inject LocalizationService L
+
+<MudDialog Class="repository-story-template-dialog">
+    <TitleContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icons.Material.Filled.EditNote" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">@L.T("AI story template")</MudText>
+        </MudStack>
+    </TitleContent>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                @L.T("Describe the sections and format the AI should use when shaping a task into a story.")
+            </MudText>
+            <MudTextField T="string" @bind-Value="_template" Lines="16" Sizing="InputSizing.Fixed"
+                          MaxLength="12000" Counter="12000"
+                          Placeholder="@L.T("Describe the sections and format the AI should use when shaping a task into a story.")"
+                          Variant="Variant.Outlined" />
+            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                @L.T("Included in the initial prompt when a task is started in this repository.")
+            </MudText>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">@L.T("Cancel")</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Save"
+                   OnClick="Save">@L.T("Save template")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public string Template { get; set; } = string.Empty;
+
+    private string _template = string.Empty;
+
+    protected override void OnInitialized() => _template = Template;
+
+    private void Save() => MudDialog.Close(DialogResult.Ok(_template));
+
+    private void Cancel() => MudDialog.Cancel();
+}

@@ -563,6 +563,20 @@ h1:focus {
     margin-left: 0.25rem;
 }
 
+.repository-story-template-dialog .mud-dialog-content {
+    min-width: min(70vw, 42rem);
+}
+
+.repository-story-template-dialog .mud-input-control,
+.repository-story-template-dialog textarea {
+    width: 100%;
+}
+
+.repository-story-template-dialog textarea {
+    min-height: 20rem;
+    resize: vertical;
+}
+
 .repository-sandbox-toggle .mud-switch,
 .repository-notifications-toggle .mud-switch {
     margin: 0;
@@ -701,6 +715,10 @@ h1:focus {
     .repository-ticket-controls > .mud-input-control:not(:first-child) {
         flex: 1 1 auto;
         width: 100%;
+        min-width: 0;
+    }
+
+    .repository-story-template-dialog .mud-dialog-content {
         min-width: 0;
     }
 

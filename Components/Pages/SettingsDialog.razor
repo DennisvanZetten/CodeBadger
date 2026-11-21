@@ -131,22 +131,18 @@
                                     </MudText>
                                 }
                                 else if (TicketSystems.Normalize(repository.TicketSystem) != TicketSystems.None &&
-                                         !GetRepositoryMcpOptions(repository).IsLoading &&
-                                         GetRepositoryMcpOptions(repository).Servers.Count == 0)
+                                          !GetRepositoryMcpOptions(repository).IsLoading &&
+                                          GetRepositoryMcpOptions(repository).Servers.Count == 0)
                                 {
                                     <MudText Typo="Typo.caption" Color="Color.Secondary" Class="repository-ticket-mcp-status">
                                         @L.T("No MCP servers found in this repository's OpenCode config.")
                                     </MudText>
                                 }
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.EditNote"
+                                           OnClick="@(() => OpenStoryTemplateAsync(repository))">
+                                    @L.T("AI story template")
+                                </MudButton>
                             </div>
-                            </fieldset>
-                            <fieldset class="repository-story-template">
-                                <legend>@L.T("AI story template")</legend>
-                                <MudTextField T="string" @bind-Value="repository.TaskStoryTemplate"
-                                              Lines="7" Sizing="InputSizing.Auto" MaxLines="18"
-                                              Placeholder="@L.T("Describe the sections and format the AI should use when shaping a task into a story.")"
-                                              HelperText="@L.T("Included in the initial prompt when a task is started in this repository.")"
-                                              Variant="Variant.Outlined" Margin="Margin.Dense" />
                             </fieldset>
                             @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
                             {
@@ -631,6 +627,20 @@
         await DialogService.ShowAsync<SandboxSettingsDialog>(L.T("Sandbox settings"),
             new DialogParameters<SandboxSettingsDialog> { { dialog => dialog.Repository, repository } },
             new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Medium, CloseButton = true });
+    }
+
+    private async Task OpenStoryTemplateAsync(RepositoryEntry repository)
+    {
+        var dialog = await DialogService.ShowAsync<RepositoryStoryTemplateDialog>(
+            L.T("AI story template — {0}", string.IsNullOrWhiteSpace(repository.Name) ? repository.Path : repository.Name),
+            new DialogParameters<RepositoryStoryTemplateDialog>
+            {
+                { component => component.Template, repository.TaskStoryTemplate }
+            },
+            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Medium, CloseButton = true, CloseOnEscapeKey = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string template })
+            repository.TaskStoryTemplate = template;
     }
 
     private async Task OpenCodexRepositoryConfigAsync(RepositoryEntry repository)

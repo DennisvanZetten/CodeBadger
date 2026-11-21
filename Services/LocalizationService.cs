@@ -495,6 +495,8 @@ public sealed class LocalizationService
         ["No commits found."] = ["No commits found.", "Geen commits gevonden.", "Keine Commits gefunden.", "Aucun commit trouvé."],
         ["Stashes"] = ["Stashes", "Stashes", "Stashes", "Stashes"],
         ["Stash all changes"] = ["Stash all changes", "Alle wijzigingen stashen", "Alle Änderungen stashen", "Stasher toutes les modifications"],
+        ["Stash"] = ["Stash", "Stash", "Stash", "Stash"],
+        ["Pop"] = ["Pop", "Pop", "Pop", "Pop"],
         ["No stashes."] = ["No stashes.", "Geen stashes.", "Keine Stashes.", "Aucun stash."],
         ["Double-click to pop this stash"] = ["Double-click to pop this stash", "Dubbelklik om deze stash te poppen", "Doppelklicken, um diesen Stash anzuwenden", "Double-cliquez pour appliquer ce stash"],
         ["No changes to stash."] = ["No changes to stash.", "Geen wijzigingen om te stashen.", "Keine Änderungen zum Stashen.", "Aucune modification à stasher."],

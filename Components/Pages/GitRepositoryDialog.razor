@@ -48,7 +48,11 @@
                                    Disabled="@_isOperating" OnClick="PullAsync">@L.T("Pull ({0})", _snapshot.Behind)</MudButton>
                         <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Upload"
                                    Disabled="@_isOperating" OnClick="PushAsync">@L.T("Push ({0})", _snapshot.Ahead)</MudButton>
-                                    <MudIconButton Icon="@Icons.Material.Filled.Refresh" aria-label="@L.T("Refresh Git status")"
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SaveAlt"
+                                   Disabled="@(_isOperating || _files.Count == 0)" OnClick="StashChangesAsync">@L.T("Stash")</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Unarchive"
+                                   Disabled="@(_isOperating || _stashes.Count == 0)" OnClick="PopLatestStashAsync">@L.T("Pop")</MudButton>
+                        <MudIconButton Icon="@Icons.Material.Filled.Refresh" aria-label="@L.T("Refresh Git status")"
                                        Disabled="@_isOperating" OnClick="@(() => RefreshAsync(fetch: true))" />
                                     <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="@L.T("Close")" OnClick="Close" />
                     </MudStack>
@@ -134,9 +138,6 @@
                                 <section class="git-branch-group git-stash-group">
                                     <div class="git-stash-header">
                                         <MudText Typo="Typo.body2">@L.T("Stashes")</MudText>
-                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.SaveAlt"
-                                                       aria-label="@L.T("Stash all changes")" title="@L.T("Stash all changes")"
-                                                       Disabled="@(_isOperating || _files.Count == 0)" OnClick="StashChangesAsync" />
                                     </div>
                                     <div class="git-dialog-list git-branch-list git-stash-list">
                                         @if (_stashes.Count == 0)
@@ -881,6 +882,10 @@
             _isOperating = false;
         }
     }
+
+    private Task PopLatestStashAsync() => _stashes.Count > 0
+        ? PopStashAsync(_stashes[0])
+        : Task.CompletedTask;
 
     private async Task PopStashAsync(GitStashEntry stash)
     {

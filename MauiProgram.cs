@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+using MudBlazor;
 using MudBlazor.Services;
 using CodeBadger.Services;
 
@@ -19,6 +20,7 @@ public static class MauiProgram
 		builder.Services.AddMauiBlazorWebView();
 		builder.Services.AddMudServices(configuration =>
 		{
+			configuration.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomLeft;
 			configuration.SnackbarConfiguration.VisibleStateDuration = 1000;
 			configuration.SnackbarConfiguration.HideTransitionDuration = 150;
 		});

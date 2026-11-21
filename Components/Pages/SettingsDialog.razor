@@ -5,6 +5,7 @@
 @inject AgentConfigService AgentConfigService
 @inject SlackNotificationService SlackNotificationService
 @inject StartupDetectionService StartupDetection
+@inject OpenCodeRepositoryConfigService OpenCodeConfigService
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @inject IDialogService DialogService
@@ -97,13 +98,47 @@
                                     </MudSelect>
                                     @if (TicketSystems.Normalize(repository.TicketSystem) != TicketSystems.None)
                                     {
-                                        <MudTextField T="string" @bind-Value="repository.TicketMcpServerName"
-                                                      Label="@L.T("MCP server name")"
-                                                      Placeholder="@L.T("Exact name from OpenCode config")"
-                                                      HelperText="@(string.IsNullOrWhiteSpace(repository.TicketMcpServerName) ? L.T("Enter the exact MCP server name configured for this repository.") : L.T("Use the MCP server name configured for this repository in OpenCode."))"
-                                                      Variant="Variant.Outlined" Margin="Margin.Dense" />
-                                    }
-                                </div>
+                                    <MudSelect T="string" @bind-Value="repository.TicketMcpServerName"
+                                               Label="@L.T("MCP server")"
+                                               HelperText="@L.T("Select an MCP server configured for this repository in OpenCode.")"
+                                               Variant="Variant.Outlined" Margin="Margin.Dense"
+                                               Disabled="@GetRepositoryMcpOptions(repository).IsLoading">
+                                        @if (!string.IsNullOrWhiteSpace(repository.TicketMcpServerName) &&
+                                             !GetRepositoryMcpOptions(repository).Servers.Any(server => server.Name == repository.TicketMcpServerName))
+                                        {
+                                            <MudSelectItem T="string" Value="@repository.TicketMcpServerName">
+                                                @repository.TicketMcpServerName (@L.T("not found in this repository config"))
+                                            </MudSelectItem>
+                                        }
+                                        @foreach (var server in GetRepositoryMcpOptions(repository).Servers)
+                                        {
+                                            <MudSelectItem T="string" Value="@server.Name" Disabled="@(!server.Enabled)">
+                                                @(server.Enabled ? server.Name : $"{server.Name} ({L.T("disabled")})")
+                                            </MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                    <MudTooltip Text="@L.T("Refresh MCP list")">
+                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Refresh"
+                                                       aria-label="@L.T("Refresh MCP list")"
+                                                       Disabled="@(string.IsNullOrWhiteSpace(repository.Path) || GetRepositoryMcpOptions(repository).IsLoading)"
+                                                       OnClick="@(() => LoadRepositoryMcpServersAsync(repository))" />
+                                    </MudTooltip>
+                                }
+                                @if (GetRepositoryMcpOptions(repository).Error is { } mcpError)
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Error" Class="repository-ticket-mcp-status">
+                                        @L.T("Could not load MCP servers: {0}", mcpError)
+                                    </MudText>
+                                }
+                                else if (TicketSystems.Normalize(repository.TicketSystem) != TicketSystems.None &&
+                                         !GetRepositoryMcpOptions(repository).IsLoading &&
+                                         GetRepositoryMcpOptions(repository).Servers.Count == 0)
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="repository-ticket-mcp-status">
+                                        @L.T("No MCP servers found in this repository's OpenCode config.")
+                                    </MudText>
+                                }
+                            </div>
                             </fieldset>
                             @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
                             {
@@ -353,12 +388,14 @@
 </MudDialog>
 
 @code {
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         L.LanguageChanged += HandleLanguageChanged;
         SlackNotificationService.ConnectionChanged += HandleSlackConnectionChanged;
         _slackConnected = SlackNotificationService.IsConnected;
         _slackConnectionStatus = SlackNotificationService.ConnectionStatus;
+        foreach (var repository in Settings.Repositories.Where(repository => !string.IsNullOrWhiteSpace(repository.Path)))
+            await LoadRepositoryMcpServersAsync(repository);
     }
 
     private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);
@@ -396,6 +433,36 @@
     private bool _slackConnected;
     private string _slackConnectionStatus = "Slack notifications are not connected.";
     private IReadOnlyList<SlackNotificationService.SlackChannel> _slackChannels = [];
+    private readonly Dictionary<Guid, RepositoryMcpOptions> _repositoryMcpOptions = [];
+
+    private sealed record RepositoryMcpOptions(
+        bool IsLoading,
+        IReadOnlyList<OpenCodeProjectMcpServer> Servers,
+        string? Error = null);
+
+    private RepositoryMcpOptions GetRepositoryMcpOptions(RepositoryEntry repository) =>
+        _repositoryMcpOptions.GetValueOrDefault(repository.Id, new RepositoryMcpOptions(false, []));
+
+    private async Task LoadRepositoryMcpServersAsync(RepositoryEntry repository)
+    {
+        if (string.IsNullOrWhiteSpace(repository.Path))
+        {
+            _repositoryMcpOptions[repository.Id] = new RepositoryMcpOptions(false, []);
+            return;
+        }
+
+        _repositoryMcpOptions[repository.Id] = new RepositoryMcpOptions(true, GetRepositoryMcpOptions(repository).Servers);
+        try
+        {
+            var config = await OpenCodeConfigService.LoadProjectConfigAsync(repository.Path);
+            var servers = await OpenCodeConfigService.GetMcpServersAsync(config);
+            _repositoryMcpOptions[repository.Id] = new RepositoryMcpOptions(false, servers);
+        }
+        catch (Exception exception)
+        {
+            _repositoryMcpOptions[repository.Id] = new RepositoryMcpOptions(false, [], exception.Message);
+        }
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -575,6 +642,7 @@
         repository.Path = path;
         if (string.IsNullOrWhiteSpace(repository.Name) || IsDefaultRepositoryName(repository.Name))
             repository.Name = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
+        await LoadRepositoryMcpServersAsync(repository);
     }
 
     private static bool IsDefaultRepositoryName(string name) =>

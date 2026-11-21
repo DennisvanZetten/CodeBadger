@@ -558,6 +558,11 @@ h1:focus {
     min-width: 0;
 }
 
+.repository-ticket-mcp-status {
+    flex: 1 0 100%;
+    margin-left: 0.25rem;
+}
+
 .repository-sandbox-toggle .mud-switch,
 .repository-notifications-toggle .mud-switch {
     margin: 0;

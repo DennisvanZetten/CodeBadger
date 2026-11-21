@@ -85,10 +85,11 @@
                     <ChildContent>
                          <RepositoryWorkspace Repository="repository"
                                               RepositoryTitle="@RepositoryTitle(repository)"
-                                              RepositoryExists="@Directory.Exists(repository.Path)"
-                                              AgentAvailable="@StartupDetection.IsAgentAvailable(repository.AgentTool)"
-                                              IsVisible="@(DockedRepositories.IndexOf(repository) == _activeTabIndex)"
-                                              GitBranchLabel="@BranchLabel(repository)"
+                                               RepositoryExists="@Directory.Exists(repository.Path)"
+                                               AgentAvailable="@StartupDetection.IsAgentAvailable(repository.AgentTool)"
+                                               IsVisible="@(DockedRepositories.IndexOf(repository) == _activeTabIndex)"
+                                               OpenCodeSessionId="@SelectedOpenCodeSession(repository)"
+                                               GitBranchLabel="@BranchLabel(repository)"
                                               GitSnapshot="@(_gitSnapshots.TryGetValue(repository, out var workspaceSnapshot) ? workspaceSnapshot : null)"
                                               OnOpenGitOverview="@(() => OpenGitDialogAsync(repository))" />
                     </ChildContent>
@@ -124,6 +125,7 @@
     private readonly Dictionary<string, OpenCodeActivityService.ActiveSession> _runningOpenCodeSessions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTime> _pendingSlackCompletions = new(StringComparer.Ordinal);
     private readonly HashSet<string> _slackStartedSessions = new(StringComparer.Ordinal);
+    private readonly Dictionary<Guid, string> _selectedOpenCodeSessions = [];
     private bool _activityNeedsBaseline = true;
     private bool _isRefreshingBranches;
     private bool _isDockDragActive;
@@ -735,10 +737,28 @@
 
     private void HandleSlackSessionStarted(OpenCodeActivityService.ActiveSession session) => _ = InvokeAsync(() =>
     {
+        var repository = _activeRepositories.FirstOrDefault(candidate =>
+            AgentTools.Normalize(candidate.AgentTool) == AgentTools.OpenCode &&
+            OpenCodeActivityService.NormalizePath(candidate.Path) is { } repositoryPath &&
+            string.Equals(repositoryPath, session.Directory, StringComparison.OrdinalIgnoreCase));
+        if (repository is not null)
+        {
+            var index = DockedRepositories.FindIndex(candidate => candidate.Id == repository.Id);
+            if (index >= 0)
+            {
+                _selectedOpenCodeSessions[repository.Id] = session.Id;
+                _activeTabIndex = index;
+                Preferences.Default.Set(LastRepositoryPreferenceKey, repository.Id.ToString());
+            }
+        }
         _runningOpenCodeSessions[session.Id] = session;
         _slackStartedSessions.Add(session.Id);
         _pendingSlackCompletions.Remove(session.Id);
+        StateHasChanged();
     });
+
+    private string? SelectedOpenCodeSession(RepositoryEntry repository) =>
+        _selectedOpenCodeSessions.TryGetValue(repository.Id, out var sessionId) ? sessionId : null;
 
     private string BranchLabel(RepositoryEntry repository)
     {

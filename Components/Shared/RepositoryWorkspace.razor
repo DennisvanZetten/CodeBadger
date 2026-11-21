@@ -24,6 +24,7 @@
                 <RepositoryTerminal @key="TerminalKey" SessionId="Repository.Id" RepositoryPath="@Repository.Path"
                                     Command="@AgentTools.GetCommand(Repository.AgentTool)"
                                     OpenCodeSandboxEnabled="@(AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode && Repository.OpenCodeSandboxEnabled)"
+                                    OpenCodeSessionId="@OpenCodeSessionId"
                                     IsVisible="@IsVisible" />
             }
             else
@@ -70,10 +71,11 @@
     [Parameter] public bool IsVisible { get; set; }
     [Parameter] public string GitBranchLabel { get; set; } = string.Empty;
     [Parameter] public GitRepositorySnapshot? GitSnapshot { get; set; }
+    [Parameter] public string? OpenCodeSessionId { get; set; }
     [Parameter, EditorRequired] public EventCallback OnOpenGitOverview { get; set; }
 
     private string TerminalKey =>
-        $"{Repository.Id}:{Repository.Path}:{AgentTools.Normalize(Repository.AgentTool)}:{Repository.OpenCodeSandboxEnabled}:{Repository.OpenCodeSandboxModel}:{Repository.OpenCodeSandboxFiles}";
+        $"{Repository.Id}:{Repository.Path}:{AgentTools.Normalize(Repository.AgentTool)}:{Repository.OpenCodeSandboxEnabled}:{Repository.OpenCodeSandboxModel}:{Repository.OpenCodeSandboxFiles}:{OpenCodeSessionId}";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

@@ -12,6 +12,7 @@
     [Parameter, EditorRequired] public string Command { get; set; } = "opencode";
     [Parameter] public bool OpenCodeSandboxEnabled { get; set; }
     [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public string? OpenCodeSessionId { get; set; }
 
     private ElementReference _terminalElement;
     private DotNetObjectReference<RepositoryTerminal>? _selfReference;
@@ -36,7 +37,8 @@
                 foreach (var output in TerminalService.GetRecentOutput(SessionId))
                     await _module.InvokeVoidAsync("write", SessionId.ToString(), output);
                 if (!TerminalService.IsRunning(SessionId))
-                    await TerminalService.StartAsync(SessionId, RepositoryPath, Command, openCodeSandboxEnabled: OpenCodeSandboxEnabled);
+                    await TerminalService.StartAsync(SessionId, RepositoryPath, Command,
+                        openCodeSandboxEnabled: OpenCodeSandboxEnabled, openCodeSessionId: OpenCodeSessionId);
             }
             catch (Exception exception)
             {

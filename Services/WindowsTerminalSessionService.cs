@@ -40,7 +40,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
     }
 
     public async Task StartAsync(Guid id, string workingDirectory, string commandLine, int columns = 120, int rows = 30,
-        bool openCodeSandboxEnabled = false)
+        bool openCodeSandboxEnabled = false, string? openCodeSessionId = null)
     {
         var gate = _startGates.GetOrAdd(id, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync();
@@ -56,6 +56,14 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
                 throw new InvalidOperationException(_localization.T("Configure an application or command in Settings first."));
             if (openCodeSandboxEnabled)
                 throw new InvalidOperationException(_localization.T("OpenCode sandbox is enabled, but isolated execution is not available yet. OpenCode was not started."));
+
+            if (!string.IsNullOrWhiteSpace(openCodeSessionId))
+            {
+                if (!openCodeSessionId.StartsWith("ses_", StringComparison.Ordinal) ||
+                    !openCodeSessionId.All(character => char.IsAsciiLetterOrDigit(character) || character == '_'))
+                    throw new ArgumentException("Invalid OpenCode session ID.", nameof(openCodeSessionId));
+                commandLine = $"{commandLine} --session {openCodeSessionId}";
+            }
 
             var session = CreateSession(workingDirectory, commandLine, Math.Max(columns, 1), Math.Max(rows, 1));
             lock (_sessionsLock)

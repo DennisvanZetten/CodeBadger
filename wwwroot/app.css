@@ -2087,7 +2087,12 @@ h1:focus {
 .git-history-workspace .git-branch-groups {
     display: grid;
     flex: 1 1 0;
-    grid-template-rows: repeat(3, minmax(0, 1fr));
+    grid-template-rows:
+        minmax(80px, var(--git-branch-local-height, 1fr))
+        6px
+        minmax(80px, var(--git-branch-remote-height, 1fr))
+        6px
+        minmax(80px, var(--git-branch-stash-height, 1fr));
     height: auto;
     min-height: 0;
     overflow: hidden;
@@ -2103,6 +2108,15 @@ h1:focus {
 
 .git-history-workspace .git-branch-group > summary {
     height: var(--branch-group-header-height);
+}
+
+.git-history-workspace .git-branch-group-splitter {
+    cursor: ns-resize !important;
+}
+
+.git-history-workspace .git-branch-group-splitter:hover,
+.git-history-workspace .git-branch-group-splitter:focus-visible {
+    cursor: ns-resize !important;
 }
 
 .git-history-workspace .git-stash-header {
@@ -2329,6 +2343,12 @@ body.git-history-resizing * {
     user-select: none !important;
 }
 
+body.git-branch-groups-resizing,
+body.git-branch-groups-resizing * {
+    cursor: ns-resize !important;
+    user-select: none !important;
+}
+
 body.git-commit-resizing,
 body.git-commit-resizing * {
     cursor: ew-resize !important;
@@ -2360,6 +2380,10 @@ body.git-commit-resizing * {
 
     .git-history-splitter {
         margin: 0;
+        cursor: ns-resize !important;
+    }
+
+    .git-history-workspace .git-branch-group-splitter {
         cursor: ns-resize !important;
     }
 

@@ -501,6 +501,8 @@ public sealed class LocalizationService
         ["Changes stashed."] = ["Changes stashed.", "Wijzigingen gestasht.", "Änderungen gestasht.", "Modifications stashées."],
         ["Stash popped."] = ["Stash popped.", "Stash gepopt.", "Stash angewendet.", "Stash appliqué."],
         ["Could not pop stash: {0}"] = ["Could not pop stash: {0}", "Stash kon niet worden gepopt: {0}", "Stash konnte nicht angewendet werden: {0}", "Impossible d’appliquer le stash : {0}"],
+        ["Resize local branches and remote branches"] = ["Resize local branches and remote branches", "Hoogte van lokale en remote branches aanpassen", "Höhe der lokalen und Remote-Branches anpassen", "Redimensionner les branches locales et distantes"],
+        ["Resize remote branches and stashes"] = ["Resize remote branches and stashes", "Hoogte van remote branches en stashes aanpassen", "Höhe der Remote-Branches und Stashes anpassen", "Redimensionner les branches distantes et les stashes"],
         ["Commit files"] = ["Commit files", "Commitbestanden", "Commit-Dateien", "Fichiers du commit"],
         ["Select a commit to view its files."] = ["Select a commit to view its files.", "Selecteer een commit om de bestanden te bekijken.", "Wählen Sie einen Commit aus, um seine Dateien anzuzeigen.", "Sélectionnez un commit pour afficher ses fichiers."],
         ["No files changed in this commit."] = ["No files changed in this commit.", "Geen bestanden gewijzigd in deze commit.", "Keine Dateien in diesem Commit geändert.", "Aucun fichier modifié dans ce commit."],

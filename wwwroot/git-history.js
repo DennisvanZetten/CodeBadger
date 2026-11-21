@@ -42,6 +42,78 @@ export function attachHistorySplitter() {
     }
 
     for (const splitter of document.querySelectorAll(".git-history-workspace .git-history-splitter, .git-commit-workspace .git-commit-splitter")) {
+        const branchGroupSplitter = splitter.classList.contains("git-branch-group-splitter");
+        if (branchGroupSplitter) {
+            const groups = splitter.closest(".git-branch-groups");
+            if (!groups || attachedSplitters.has(splitter))
+                continue;
+
+            const boundary = Number(splitter.dataset.branchGroupSplitter);
+            let dragging = false;
+            const setBoundary = coordinate => {
+                const sections = [...groups.querySelectorAll(":scope > .git-branch-group")];
+                if (sections.length !== 3)
+                    return;
+
+                const firstIndex = boundary;
+                const secondIndex = boundary + 1;
+                const firstBounds = sections[firstIndex].getBoundingClientRect();
+                const secondBounds = sections[secondIndex].getBoundingClientRect();
+                const pairStart = firstBounds.top;
+                const pairEnd = secondBounds.bottom;
+                const minimum = 80;
+                const firstSize = Math.max(minimum, Math.min(pairEnd - pairStart - minimum - 6, coordinate - pairStart));
+                const secondSize = pairEnd - pairStart - 6 - firstSize;
+                const firstProperty = boundary === 0 ? "--git-branch-local-height" : "--git-branch-remote-height";
+                const secondProperty = boundary === 0 ? "--git-branch-remote-height" : "--git-branch-stash-height";
+                groups.style.setProperty(firstProperty, `${firstSize}px`);
+                groups.style.setProperty(secondProperty, `${secondSize}px`);
+            };
+            const onPointerMove = event => {
+                if (dragging)
+                    setBoundary(event.clientY);
+            };
+            const stopDragging = () => {
+                if (!dragging)
+                    return;
+                dragging = false;
+                document.body.classList.remove("git-branch-groups-resizing");
+                window.removeEventListener("pointermove", onPointerMove);
+                window.removeEventListener("pointerup", stopDragging);
+                window.removeEventListener("pointercancel", stopDragging);
+            };
+            const startDragging = event => {
+                if (event.button !== 0)
+                    return;
+                event.preventDefault();
+                dragging = true;
+                document.body.classList.add("git-branch-groups-resizing");
+                window.addEventListener("pointermove", onPointerMove);
+                window.addEventListener("pointerup", stopDragging);
+                window.addEventListener("pointercancel", stopDragging);
+            };
+            const onKeyDown = event => {
+                const decrease = event.key === "ArrowUp" || event.key === "ArrowLeft";
+                const increase = event.key === "ArrowDown" || event.key === "ArrowRight";
+                if (!decrease && !increase)
+                    return;
+                event.preventDefault();
+                const firstSection = groups.querySelectorAll(":scope > .git-branch-group")[boundary];
+                const current = firstSection.getBoundingClientRect().height;
+                setBoundary(firstSection.getBoundingClientRect().top + current + (increase ? 20 : -20));
+            };
+
+            splitter.addEventListener("pointerdown", startDragging);
+            splitter.addEventListener("keydown", onKeyDown);
+            activeSplitters.add(splitter);
+            attachedSplitters.set(splitter, () => {
+                stopDragging();
+                splitter.removeEventListener("pointerdown", startDragging);
+                splitter.removeEventListener("keydown", onKeyDown);
+            });
+            continue;
+        }
+
         const isCommitSplitter = splitter.classList.contains("git-commit-splitter");
         const workspace = splitter.closest(isCommitSplitter ? ".git-commit-workspace" : ".git-history-workspace");
         if (!workspace || attachedSplitters.has(splitter))

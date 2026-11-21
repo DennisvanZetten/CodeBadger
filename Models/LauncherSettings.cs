@@ -40,7 +40,22 @@ public sealed class RepositoryEntry
     public bool OpenCodeSandboxEnabled { get; set; }
     public string OpenCodeSandboxModel { get; set; } = "bonzai/gpt-6-luna";
     public string OpenCodeSandboxFiles { get; set; } = string.Empty;
+    public string TicketSystem { get; set; } = TicketSystems.None;
     public bool SlackNotificationsMuted { get; set; }
+}
+
+public static class TicketSystems
+{
+    public const string None = "None";
+    public const string Jira = "Jira";
+    public const string GitHub = "GitHub Issues";
+
+    public static string Normalize(string? ticketSystem) => ticketSystem switch
+    {
+        Jira => Jira,
+        GitHub => GitHub,
+        _ => None
+    };
 }
 
 public static class AgentTools

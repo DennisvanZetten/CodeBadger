@@ -45,7 +45,10 @@ public sealed class LauncherSettingsService
             settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
             settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);
             foreach (var repository in settings.Repositories)
+            {
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
+                repository.TicketSystem = TicketSystems.Normalize(repository.TicketSystem);
+            }
             settings.AiApiKey = await SecureStorage.Default.GetAsync(AiApiKeyStorageKey) ?? string.Empty;
             settings.SlackBotToken = await SecureStorage.Default.GetAsync(SlackBotTokenStorageKey) ?? string.Empty;
             settings.SlackAppToken = await SecureStorage.Default.GetAsync(SlackAppTokenStorageKey) ?? string.Empty;
@@ -71,7 +74,10 @@ public sealed class LauncherSettingsService
             settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
             settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);
             foreach (var repository in settings.Repositories)
+            {
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
+                repository.TicketSystem = TicketSystems.Normalize(repository.TicketSystem);
+            }
             settings.NotificationChannel = "Slack";
             Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
             await using (var stream = File.Create(_settingsPath))

@@ -5,6 +5,7 @@
 @inject AgentConfigService AgentConfigService
 @inject SlackNotificationService SlackNotificationService
 @inject StartupDetectionService StartupDetection
+@inject OpenCodeRepositoryConfigService OpenCodeConfigService
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @inject IDialogService DialogService
@@ -79,6 +80,23 @@
                                                    OnClick="@(() => OpenCodexRepositoryConfigAsync(repository))" />
                                 }
                             </div>
+                            @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
+                            {
+                                <div class="repository-ticket-system-control">
+                                    <MudSelect T="string" Value="@TicketSystems.Normalize(repository.TicketSystem)"
+                                               ValueChanged="@(value => repository.TicketSystem = value)"
+                                               Label="@L.T("Ticket system")" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                        <MudSelectItem T="string" Value="@TicketSystems.None">@L.T("None")</MudSelectItem>
+                                        <MudSelectItem T="string" Value="@TicketSystems.Jira">Jira</MudSelectItem>
+                                        <MudSelectItem T="string" Value="@TicketSystems.GitHub">GitHub Issues</MudSelectItem>
+                                    </MudSelect>
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Link"
+                                               Disabled="@(string.IsNullOrWhiteSpace(repository.Path) || IsRepositoryConfigReadOnly(repository) || _configuringTicketSystem == repository.Id)"
+                                               OnClick="@(() => ConfigureTicketSystemAsync(repository))">
+                                        @(_configuringTicketSystem == repository.Id ? L.T("Configuring...") : L.T("Configure MCP"))
+                                    </MudButton>
+                                </div>
+                            }
                             @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
                             {
                                 <fieldset class="repository-sandbox-toggle">
@@ -355,6 +373,7 @@
     private bool _isTestingAi;
     private bool _isSaving;
     private bool _isSavingRepositorySlackSetting;
+    private Guid? _configuringTicketSystem;
     private bool _hasTestedConnection;
     private IReadOnlyList<string> _availableModels = [];
     private static readonly string[] AiProviders = ["OpenAI", "Azure OpenAI", "Anthropic", "Google Gemini", "Ollama", "Custom URL"];
@@ -450,6 +469,27 @@
     }
 
     private void AddRepository() => Settings.Repositories.Add(new RepositoryEntry());
+
+    private async Task ConfigureTicketSystemAsync(RepositoryEntry repository)
+    {
+        if (string.IsNullOrWhiteSpace(repository.Path) || IsRepositoryConfigReadOnly(repository))
+            return;
+
+        _configuringTicketSystem = repository.Id;
+        try
+        {
+            await OpenCodeConfigService.ConfigureTicketSystemAsync(repository.Path, repository.TicketSystem);
+            Snackbar.Add(L.T("Ticket system MCP configured. Sign in through OpenCode's MCP menu if prompted."), Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not configure ticket system: {0}", exception.Message), Severity.Error);
+        }
+        finally
+        {
+            _configuringTicketSystem = null;
+        }
+    }
 
     private async Task SetRepositorySlackMutedAsync(RepositoryEntry repository, bool muted)
     {

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using CodeBadger.Models;
 
 namespace CodeBadger.Services;
 
@@ -9,6 +10,8 @@ public sealed record OpenCodeProjectSkill(string Id, string RelativePath);
 public sealed class OpenCodeRepositoryConfigService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    private const string JiraMcpServerName = "codebadger-jira";
+    private const string GitHubMcpServerName = "codebadger-github";
 
     public string GetProjectConfigPath(string repositoryPath)
     {
@@ -64,6 +67,49 @@ public sealed class OpenCodeRepositoryConfigService
     {
         _ = ParseObject(json);
         await SaveWithBackupAsync(GetProjectConfigPath(repositoryPath), json);
+    }
+
+    public async Task ConfigureTicketSystemAsync(string repositoryPath, string ticketSystem)
+    {
+        var normalized = TicketSystems.Normalize(ticketSystem);
+        var root = ParseObject(await LoadProjectConfigAsync(repositoryPath));
+        var mcp = root["mcp"] as JsonObject ?? new JsonObject();
+        root["mcp"] = mcp;
+        var servers = mcp["servers"] as JsonObject ?? new JsonObject();
+        mcp["servers"] = servers;
+
+        ConfigureRemoteServer(servers, JiraMcpServerName, "https://mcp.atlassian.com/v2/mcp", normalized == TicketSystems.Jira);
+        ConfigureRemoteServer(servers, GitHubMcpServerName, "https://api.githubcopilot.com/mcp/", normalized == TicketSystems.GitHub);
+
+        if (servers.Count == 0)
+            mcp.Remove("servers");
+        if (mcp.Count == 0)
+            root.Remove("mcp");
+
+        await SaveProjectConfigAsync(repositoryPath, root.ToJsonString(JsonOptions));
+    }
+
+    private static void ConfigureRemoteServer(JsonObject servers, string name, string url, bool enabled)
+    {
+        var server = servers[name] as JsonObject;
+        if (server is null)
+        {
+            if (!enabled)
+                return;
+            server = new JsonObject();
+            server["type"] = "remote";
+            server["url"] = url;
+            servers[name] = server;
+        }
+        else if (!string.Equals(server["url"]?.GetValue<string>(), url, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"The MCP server name '{name}' is already used by a different server. Rename or remove that entry before configuring the ticket system.");
+        }
+
+        if (enabled)
+            server.Remove("disabled");
+        else
+            server["disabled"] = true;
     }
 
     public string GetSkillsDirectory(string repositoryPath) => Path.Combine(repositoryPath, ".opencode", "skills");

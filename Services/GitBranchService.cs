@@ -309,6 +309,26 @@ public sealed class GitBranchService
         return await RunGitAsync(path, "switch", "--create", branchName, startPointResult.Output.Trim());
     }
 
+    public async Task<IReadOnlyList<string>> GetLocalBranchNamesAsync(string path)
+    {
+        var result = await RunGitAsync(path, "for-each-ref", "--format=%(refname:short)", "refs/heads");
+        return result.Success
+            ? result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(name => name.TrimEnd('\r')).OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray()
+            : [];
+    }
+
+    public async Task<string?> GetDevelopmentStartPointAsync(string path)
+    {
+        foreach (var reference in new[] { "refs/heads/development", "refs/remotes/origin/development" })
+        {
+            var result = await RunGitAsync(path, "show-ref", "--verify", "--quiet", reference);
+            if (result.Success)
+                return reference.StartsWith("refs/heads/", StringComparison.Ordinal) ? "development" : "origin/development";
+        }
+        return null;
+    }
+
     public async Task<GitBranchMergeCheck> CheckBranchCanMergeAsync(string path, string sourceBranch)
     {
         var sourceResult = await RunGitAsync(path, "show-ref", "--verify", "--quiet", $"refs/heads/{sourceBranch}");

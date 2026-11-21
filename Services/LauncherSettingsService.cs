@@ -46,6 +46,7 @@ public sealed class LauncherSettingsService
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
             settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
             settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);
+            settings.TaskBranchPrefix = NormalizeBranchPrefix(settings.TaskBranchPrefix);
             foreach (var repository in settings.Repositories)
             {
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
@@ -76,6 +77,7 @@ public sealed class LauncherSettingsService
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
             settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
             settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);
+            settings.TaskBranchPrefix = NormalizeBranchPrefix(settings.TaskBranchPrefix);
             foreach (var repository in settings.Repositories)
             {
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
@@ -140,5 +142,11 @@ public sealed class LauncherSettingsService
             repository.Remove("JiraMcpHosting");
             repository.Remove("JiraMcpUrl");
         }
+    }
+
+    private static string NormalizeBranchPrefix(string? value)
+    {
+        var prefix = (value ?? string.Empty).Trim().Trim('/');
+        return string.IsNullOrWhiteSpace(prefix) ? "feature" : prefix;
     }
 }

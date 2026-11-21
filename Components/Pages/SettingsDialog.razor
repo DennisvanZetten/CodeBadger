@@ -347,6 +347,9 @@
                 <MudStack Spacing="3">
                     <MudText Typo="Typo.h6">@L.T("Other settings")</MudText>
                     <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Settings are stored locally. API keys are stored securely.")</MudText>
+                    <MudTextField @bind-Value="Settings.TaskBranchPrefix" Label="@L.T("Task branch prefix")"
+                                  HelperText="@L.T("New task branches use this prefix, for example feature/PROJ-123-task-title.")"
+                                  Margin="Margin.Dense" Variant="Variant.Outlined" />
                     <MudSelect T="string" Label="@L.T("Language")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.Language">
                         <MudSelectItem T="string" Value="@("en")">@L.T("English")</MudSelectItem>
                         <MudSelectItem T="string" Value="@("nl")">@L.T("Dutch")</MudSelectItem>

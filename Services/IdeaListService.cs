@@ -72,7 +72,24 @@ public sealed class IdeaListService
         }
     }
 
+    public async Task<bool> SaveTicketAsync(Guid id, string ticketNumber, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var items = await ReadAllCoreAsync(cancellationToken);
+            var item = items.FirstOrDefault(candidate => candidate.Id == id);
+            if (item is null)
+                return false;
+            item.TicketNumber = ticketNumber.Trim();
+            await SaveCoreAsync(items, cancellationToken);
+            return true;
+        }
+        finally { _gate.Release(); }
+    }
+
     public async Task<bool> LinkSessionAsync(Guid id, RepositoryEntry repository, string sessionId, string sessionTitle,
+        string ticketNumber, string branchName,
         CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
@@ -90,6 +107,8 @@ public sealed class IdeaListService
             item.RepositoryPath = repository.Path;
             item.SessionId = sessionId;
             item.SessionTitle = sessionTitle;
+            item.TicketNumber = ticketNumber;
+            item.BranchName = branchName;
             item.Status = IdeaStatus.InProgress;
             await SaveCoreAsync(items, cancellationToken);
             return true;

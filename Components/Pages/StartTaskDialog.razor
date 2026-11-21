@@ -1,0 +1,122 @@
+@inject LocalizationService L
+@inject GitBranchService Git
+@inject TicketMcpService Tickets
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">@L.T("Prepare task start")</MudText></TitleContent>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.body2">@L.T("Task: {0}", Task.Title)</MudText>
+            @if (TicketRequired)
+            {
+                <MudText Typo="Typo.subtitle2">@L.T("Ticket choice")</MudText>
+                <MudRadioGroup T="string" @bind-Value="_ticketMode">
+                    <MudRadio T="string" Value="@("new-branch-existing-ticket")">@L.T("Use an existing ticket and create a branch")</MudRadio>
+                    <MudRadio T="string" Value="@("new-ticket")">@L.T("Create a ticket and create a branch")</MudRadio>
+                    <MudRadio T="string" Value="@("existing-ticket-branch")">@L.T("Use an existing ticket and branch")</MudRadio>
+                </MudRadioGroup>
+                @if (_ticketMode is "new-branch-existing-ticket" or "existing-ticket-branch")
+                {
+                    <MudTextField @bind-Value="_ticketNumber" Label="@L.T("Ticket number")" Placeholder="PROJ-123" Required="true" />
+                }
+                @if (_ticketMode == "new-ticket" && string.IsNullOrWhiteSpace(_ticketNumber))
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@L.T("A ticket will be created from the task title and description using the configured MCP server.")</MudAlert>
+                }
+            }
+            @if (TicketRequired && _ticketMode == "existing-ticket-branch")
+            {
+                <MudSelect T="string" @bind-Value="_existingBranch" Label="@L.T("Existing branch")" Required="true">
+                    @foreach (var branch in _branches)
+                    {
+                        <MudSelectItem T="string" Value="@branch">@branch</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            else
+            {
+                <MudText Typo="Typo.subtitle2">@L.T("Create branch from")</MudText>
+                <MudRadioGroup T="string" @bind-Value="_branchBase">
+                    <MudRadio T="string" Value="@("current")">@L.T("Current branch ({0})", _currentBranch ?? L.T("unavailable"))</MudRadio>
+                    @if (_developmentBranch is not null)
+                    {
+                        <MudRadio T="string" Value="@("development")">@L.T("development branch")</MudRadio>
+                    }
+                </MudRadioGroup>
+            }
+            @if (!TicketRequired)
+            {
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Ticket handling is optional for this repository; the task will start without a ticket.")</MudText>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_working">@L.T("Cancel")</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(!CanContinue)" OnClick="ContinueAsync">
+            @(_working ? L.T("Preparing...") : L.T("Continue"))
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter, EditorRequired] public IdeaItem Task { get; set; } = new();
+    [Parameter, EditorRequired] public RepositoryEntry Repository { get; set; } = new();
+    [Parameter] public bool TicketRequired { get; set; }
+
+    private string _ticketMode = "new-branch-existing-ticket";
+    private string _ticketNumber = string.Empty;
+    private string _branchBase = "current";
+    private string? _currentBranch;
+    private string? _developmentBranch;
+    private string _existingBranch = string.Empty;
+    private IReadOnlyList<string> _branches = [];
+    private bool _working;
+    private bool CanContinue => !_working && (!TicketRequired || _ticketMode switch
+    {
+        "new-branch-existing-ticket" => !string.IsNullOrWhiteSpace(_ticketNumber),
+        "new-ticket" => true,
+        "existing-ticket-branch" => !string.IsNullOrWhiteSpace(_ticketNumber) && !string.IsNullOrWhiteSpace(_existingBranch),
+        _ => false
+    });
+
+    protected override async Task OnInitializedAsync()
+    {
+        _currentBranch = (await Git.GetCurrentBranchAsync(Repository.Path)).Branch;
+        _developmentBranch = await Git.GetDevelopmentStartPointAsync(Repository.Path);
+        _branches = await Git.GetLocalBranchNamesAsync(Repository.Path);
+        if (_branches.Count > 0)
+            _existingBranch = _branches.FirstOrDefault(branch => branch == _currentBranch) ?? _branches[0];
+        if (_currentBranch is null)
+            _branchBase = "development";
+    }
+
+    private async Task ContinueAsync()
+    {
+        if (!CanContinue)
+            return;
+        _working = true;
+        try
+        {
+            if (TicketRequired && _ticketMode == "new-ticket")
+                _ticketNumber = await Tickets.CreateTicketAsync(Repository, Task.Title, Task.Description);
+
+            var existingBranch = TicketRequired && _ticketMode == "existing-ticket-branch" ? _existingBranch : null;
+            var startPoint = _branchBase == "development" ? _developmentBranch : _currentBranch;
+            if (existingBranch is null && string.IsNullOrWhiteSpace(startPoint))
+                throw new InvalidOperationException(L.T("The selected branch starting point is unavailable."));
+
+            MudDialog.Close(DialogResult.Ok(new TaskStartPlan(_ticketNumber.Trim(), existingBranch, startPoint)));
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not prepare the task: {0}", exception.Message), Severity.Error);
+        }
+        finally { _working = false; }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    public sealed record TaskStartPlan(string TicketNumber, string? ExistingBranch, string? StartPoint);
+}

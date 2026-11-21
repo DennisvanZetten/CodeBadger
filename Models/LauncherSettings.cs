@@ -17,6 +17,7 @@ public sealed class LauncherSettings
     public string AiCustomInstruction { get; set; } = string.Empty;
     public int SandboxMaxFileMb { get; set; } = 64;
     public int SandboxMaxTotalMb { get; set; } = 1024;
+    public string TaskBranchPrefix { get; set; } = "feature";
     public bool SlackNotificationsEnabled { get; set; }
     public string NotificationChannel { get; set; } = "Slack";
     public string SlackChannelId { get; set; } = string.Empty;

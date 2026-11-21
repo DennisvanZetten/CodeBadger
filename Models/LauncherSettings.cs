@@ -33,6 +33,8 @@ public sealed class LauncherSettings
 
 public sealed class RepositoryEntry
 {
+    public const string DefaultTaskStoryTemplate = "User story: As a [role], I want [goal], so that [value].\n\nContext\n- [Relevant context]\n\nAcceptance criteria\n- Given [context], when [action], then [outcome]\n\nTechnical notes\n- [Implementation considerations]\n\nOut of scope\n- [Explicit exclusions]";
+
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = string.Empty;
     public string Path { get; set; } = string.Empty;
@@ -44,6 +46,7 @@ public sealed class RepositoryEntry
     public bool TicketRequired { get; set; }
     public string TicketSystem { get; set; } = TicketSystems.None;
     public string TicketMcpServerName { get; set; } = string.Empty;
+    public string TaskStoryTemplate { get; set; } = DefaultTaskStoryTemplate;
     public bool SlackNotificationsMuted { get; set; }
 }
 

@@ -52,6 +52,7 @@ public sealed class LauncherSettingsService
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
                 repository.TicketSystem = TicketSystems.Normalize(repository.TicketSystem);
                 repository.TicketMcpServerName ??= string.Empty;
+                repository.TaskStoryTemplate ??= RepositoryEntry.DefaultTaskStoryTemplate;
             }
             settings.AiApiKey = await SecureStorage.Default.GetAsync(AiApiKeyStorageKey) ?? string.Empty;
             settings.SlackBotToken = await SecureStorage.Default.GetAsync(SlackBotTokenStorageKey) ?? string.Empty;
@@ -83,6 +84,7 @@ public sealed class LauncherSettingsService
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
                 repository.TicketSystem = TicketSystems.Normalize(repository.TicketSystem);
                 repository.TicketMcpServerName = repository.TicketMcpServerName?.Trim() ?? string.Empty;
+                repository.TaskStoryTemplate ??= RepositoryEntry.DefaultTaskStoryTemplate;
             }
             settings.NotificationChannel = "Slack";
             Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);

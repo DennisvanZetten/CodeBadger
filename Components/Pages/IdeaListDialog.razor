@@ -199,7 +199,12 @@
 
             var session = await OpenCodeActivity.CreateSessionAsync(repository.Path, CancellationToken.None);
             var ticketContext = string.IsNullOrWhiteSpace(plan.TicketNumber) ? string.Empty : $"Ticket: {plan.TicketNumber}\n";
-            var prompt = $"{ticketContext}Branch: {branchName}\n\n{item.Title}" +
+            var storyTemplate = string.IsNullOrWhiteSpace(repository.TaskStoryTemplate)
+                ? RepositoryEntry.DefaultTaskStoryTemplate
+                : repository.TaskStoryTemplate.Trim();
+            var prompt = $"{ticketContext}Branch: {branchName}\n\n" +
+                $"{L.T("Shape the requested work as a story using the repository's template below. Preserve its sections and fill them with details grounded in the task.")}\n\n" +
+                $"{L.T("Story template:")}\n{storyTemplate}\n\n{L.T("Task:")}\n{item.Title}" +
                 (string.IsNullOrWhiteSpace(item.Description) ? string.Empty : $"\n\n{item.Description}");
             await OpenCodeActivity.SendPromptAsync(session.Id, session.Directory, prompt, CancellationToken.None, "plan");
             if (await Ideas.LinkSessionAsync(item.Id, repository, session.Id,

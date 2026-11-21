@@ -53,7 +53,7 @@
                                     {
                                         <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Branch: {0}", item.BranchName)</MudText>
                                     }
-                                    @if (item.Type == IdeaType.Task && !string.IsNullOrWhiteSpace(item.SessionId))
+                                    @if (!string.IsNullOrWhiteSpace(item.SessionId))
                                     {
                                         <MudStack Spacing="0" Class="mt-1">
                                             <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Repository: {0}", item.RepositoryName)</MudText>
@@ -62,7 +62,7 @@
                                             </MudLink>
                                         </MudStack>
                                     }
-                                    else if (item.Type == IdeaType.Task)
+                                    else
                                     {
                                         @if (_repositories.Count > 0)
                                         {

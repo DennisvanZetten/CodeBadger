@@ -593,7 +593,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
         if (text.Equals("!help", StringComparison.OrdinalIgnoreCase))
         {
             await PostMessageAsync(_botToken, _channelId,
-                "*Session commands*\n• `!build <task>` — switch to Build and send the task.\n• `!plan <task>` — switch to Plan and send the task.\n• `!allow <id>` / `!always <id>` / `!deny <id> [reason]` — answer an OpenCode permission request.\n• `!answer <id> key=value; key2=value` — answer an OpenCode form. Use `|` between multiselect values.\n• `!commit` — stage and commit all repository changes.\n• `!help` — show this command list.\n\nAny other reply is sent to the current session.",
+                "*Session commands*\n• `!build <task>` — switch to Build and send the task.\n• `!plan <task>` — switch to Plan and send the task.\n• `!allow <id>` / `!always <id>` / `!deny <id> [reason]` — answer an OpenCode permission request.\n• `!answer <id> key=value; key2=value` — answer an OpenCode form. Use `|` between multiselect values.\n• `!commit` — stage and commit all repository changes.\n• `!push` — push using the same safe up-to-date check as the Git dialog.\n• `!help` — show this command list.\n\nAny other reply is sent to the current session.",
                 threadTs, cancellationToken);
             return;
         }
@@ -608,6 +608,8 @@ public sealed class SlackNotificationService : IAsyncDisposable
         {
             if (text.Equals("!commit", StringComparison.OrdinalIgnoreCase))
                 await StartCommitCommandAsync(linkedSession.Key, linkedSession.Value, threadTs, cancellationToken);
+            else if (text.Equals("!push", StringComparison.OrdinalIgnoreCase))
+                await PushSessionAsync(linkedSession.Value, threadTs, cancellationToken);
             else
             {
                 var session = new OpenCodeActivityService.ActiveSession(linkedSession.Key,
@@ -649,6 +651,41 @@ public sealed class SlackNotificationService : IAsyncDisposable
         await PostMessageAsync(_botToken, _channelId,
             $"✅ Added *{EscapeSlack(item.Title)}* to the CodeBadger ideas and tasks list ({type.ToString().ToLowerInvariant()}).",
             threadTs, cancellationToken);
+    }
+
+    private async Task PushSessionAsync(ThreadLink thread, string threadTs, CancellationToken cancellationToken)
+    {
+        var settings = await _settingsService.LoadAsync();
+        var repository = settings.Repositories.FirstOrDefault(candidate =>
+            AgentTools.Normalize(candidate.AgentTool) == AgentTools.OpenCode &&
+            string.Equals(OpenCodeActivityService.NormalizePath(candidate.Path),
+                OpenCodeActivityService.NormalizePath(thread.Directory), StringComparison.OrdinalIgnoreCase));
+        if (repository is null || repository.OpenCodeSandboxEnabled)
+        {
+            await PostMessageAsync(_botToken, _channelId,
+                "Push from Slack is only available for a configured, non-sandboxed OpenCode repository.", threadTs, cancellationToken);
+            return;
+        }
+
+        await PostMessageAsync(_botToken, _channelId, "⏳ Pushing changes using the Git dialog's safe push check…",
+            threadTs, cancellationToken);
+        try
+        {
+            var result = await _gitBranchService.PushWhenUpToDateAsync(thread.Directory);
+            await PostMessageAsync(_botToken, _channelId,
+                result.Success ? "✅ Push completed." : "❌ Push failed: " + EscapeSlack(result.Message),
+                threadTs, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Could not push repository {Directory} from Slack.", thread.Directory);
+            await PostMessageAsync(_botToken, _channelId,
+                "❌ Push failed: " + EscapeSlack(exception.Message), threadTs, cancellationToken);
+        }
     }
 
     private async Task StartCommitCommandAsync(string sessionId, ThreadLink thread, string threadTs,

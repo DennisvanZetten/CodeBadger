@@ -57,15 +57,16 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
             if (openCodeSandboxEnabled)
                 throw new InvalidOperationException(_localization.T("OpenCode sandbox is enabled, but isolated execution is not available yet. OpenCode was not started."));
 
+            var sessionArguments = string.Empty;
             if (!string.IsNullOrWhiteSpace(openCodeSessionId))
             {
                 if (!openCodeSessionId.StartsWith("ses_", StringComparison.Ordinal) ||
                     !openCodeSessionId.All(character => char.IsAsciiLetterOrDigit(character) || character == '_'))
                     throw new ArgumentException("Invalid OpenCode session ID.", nameof(openCodeSessionId));
-                commandLine = $"{commandLine} --session {openCodeSessionId}";
+                sessionArguments = $"--session {openCodeSessionId}";
             }
 
-            var session = CreateSession(workingDirectory, commandLine, Math.Max(columns, 1), Math.Max(rows, 1));
+            var session = CreateSession(workingDirectory, commandLine, Math.Max(columns, 1), Math.Max(rows, 1), sessionArguments);
             lock (_sessionsLock)
                 _sessions[id] = session;
             _ = Task.Run(() => ReadOutputAsync(id, session));
@@ -198,7 +199,8 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
             return _sessions.TryGetValue(id, out var active) && ReferenceEquals(active, session);
     }
 
-    private TerminalSession CreateSession(string workingDirectory, string commandLine, int columns, int rows)
+    private TerminalSession CreateSession(string workingDirectory, string commandLine, int columns, int rows,
+        string additionalArguments = "")
     {
         SafeFileHandle? inputRead = null;
         SafeFileHandle? outputWrite = null;
@@ -244,7 +246,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
             {
                 Marshal.StructureToPtr(startupInfo, startupPointer, false);
                 var processInfo = new ProcessInformation();
-                var launch = ResolveCommand(commandLine);
+                var launch = ResolveCommand(commandLine, additionalArguments);
                 var mutableCommandLine = new StringBuilder(launch.CommandLine);
                 if (!CreateProcessW(launch.Executable, mutableCommandLine, IntPtr.Zero, IntPtr.Zero, false,
                         ExtendedStartupInfoPresent | CreateUnicodeEnvironment, IntPtr.Zero, workingDirectory,
@@ -297,7 +299,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         }
     }
 
-    private (string Executable, string CommandLine) ResolveCommand(string configuredCommand)
+    private (string Executable, string CommandLine) ResolveCommand(string configuredCommand, string additionalArguments = "")
     {
         var command = configuredCommand.Trim();
         var executable = ReadExecutableToken(command, out var argumentText);
@@ -305,6 +307,8 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
             throw new InvalidOperationException(_localization.T("The configured application is empty."));
 
         var resolvedExecutable = FindExecutable(executable);
+        argumentText = string.Join(' ', new[] { argumentText, additionalArguments }
+            .Where(argument => !string.IsNullOrWhiteSpace(argument)));
         var extension = Path.GetExtension(resolvedExecutable);
         if (extension.Equals(".ps1", StringComparison.OrdinalIgnoreCase))
         {
@@ -318,8 +322,8 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
             (string.IsNullOrEmpty(extension) && !resolvedExecutable.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)))
         {
             var commandInterpreter = Environment.GetEnvironmentVariable("ComSpec") ?? Path.Combine(Environment.SystemDirectory, "cmd.exe");
-            var batchCommand = $"\"{resolvedExecutable}\"{(string.IsNullOrWhiteSpace(argumentText) ? string.Empty : " " + argumentText)}";
-            return (commandInterpreter, $"\"{commandInterpreter}\" /d /s /c \"\"{batchCommand}\"\"");
+            var batchCommand = $"call \"{resolvedExecutable}\"{(string.IsNullOrWhiteSpace(argumentText) ? string.Empty : " " + argumentText)}";
+            return (commandInterpreter, $"\"{commandInterpreter}\" /d /s /c {batchCommand}");
         }
 
         return (resolvedExecutable, $"\"{resolvedExecutable}\"{(string.IsNullOrWhiteSpace(argumentText) ? string.Empty : " " + argumentText)}");

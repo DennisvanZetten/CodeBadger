@@ -79,29 +79,32 @@
                                                    OnClick="@(() => OpenCodexRepositoryConfigAsync(repository))" />
                                 }
                             </div>
-                            <div class="repository-ticket-required-control">
-                                <MudSwitch T="bool" @bind-Value="repository.TicketRequired" Color="Color.Primary"
-                                           Label="@L.T("Ticket required")" />
-                            </div>
-                            <div class="repository-ticket-system-control">
-                                <MudSelect T="string" Value="@TicketSystems.Normalize(repository.TicketSystem)"
-                                           ValueChanged="@(value => repository.TicketSystem = value)"
-                                           Label="@L.T("Ticket system")"
-                                           HelperText="@(repository.TicketRequired && TicketSystems.Normalize(repository.TicketSystem) == TicketSystems.None ? L.T("Choose a ticket system when tickets are required.") : null)"
-                                           Variant="Variant.Outlined" Margin="Margin.Dense">
-                                    <MudSelectItem T="string" Value="@TicketSystems.None">@L.T("None")</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@TicketSystems.Jira">Jira</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@TicketSystems.GitHub">GitHub Issues</MudSelectItem>
-                                </MudSelect>
-                                @if (TicketSystems.Normalize(repository.TicketSystem) != TicketSystems.None)
-                                {
-                                    <MudTextField T="string" @bind-Value="repository.TicketMcpServerName"
-                                                  Label="@L.T("MCP server name")"
-                                                  Placeholder="@L.T("Exact name from OpenCode config")"
-                                                  HelperText="@(string.IsNullOrWhiteSpace(repository.TicketMcpServerName) ? L.T("Enter the exact MCP server name configured for this repository.") : L.T("Use the MCP server name configured for this repository in OpenCode."))"
-                                                  Variant="Variant.Outlined" Margin="Margin.Dense" />
-                                }
-                            </div>
+                            <fieldset class="repository-ticket-settings">
+                                <legend>@L.T("Tickets")</legend>
+                                <div class="repository-ticket-required-control">
+                                    <MudSwitch T="bool" @bind-Value="repository.TicketRequired" Color="Color.Primary"
+                                               Label="@L.T("Ticket required")" />
+                                </div>
+                                <div class="repository-ticket-controls">
+                                    <MudSelect T="string" Value="@TicketSystems.Normalize(repository.TicketSystem)"
+                                               ValueChanged="@(value => repository.TicketSystem = value)"
+                                               Label="@L.T("Ticket system")"
+                                               HelperText="@(repository.TicketRequired && TicketSystems.Normalize(repository.TicketSystem) == TicketSystems.None ? L.T("Choose a ticket system when tickets are required.") : null)"
+                                               Variant="Variant.Outlined" Margin="Margin.Dense">
+                                        <MudSelectItem T="string" Value="@TicketSystems.None">@L.T("None")</MudSelectItem>
+                                        <MudSelectItem T="string" Value="@TicketSystems.Jira">Jira</MudSelectItem>
+                                        <MudSelectItem T="string" Value="@TicketSystems.GitHub">GitHub Issues</MudSelectItem>
+                                    </MudSelect>
+                                    @if (TicketSystems.Normalize(repository.TicketSystem) != TicketSystems.None)
+                                    {
+                                        <MudTextField T="string" @bind-Value="repository.TicketMcpServerName"
+                                                      Label="@L.T("MCP server name")"
+                                                      Placeholder="@L.T("Exact name from OpenCode config")"
+                                                      HelperText="@(string.IsNullOrWhiteSpace(repository.TicketMcpServerName) ? L.T("Enter the exact MCP server name configured for this repository.") : L.T("Use the MCP server name configured for this repository in OpenCode."))"
+                                                      Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                    }
+                                </div>
+                            </fieldset>
                             @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
                             {
                                 <fieldset class="repository-sandbox-toggle">

@@ -41,6 +41,7 @@ public sealed class LocalizationService
         ["Delete"] = ["Delete", "Verwijderen", "Löschen", "Supprimer"],
         ["Repository"] = ["Repository", "Repository", "Repository", "Dépôt"],
         ["Ticket required"] = ["Ticket required", "Ticket verplicht", "Ticket erforderlich", "Ticket obligatoire"],
+        ["Tickets"] = ["Tickets", "Tickets", "Tickets", "Tickets"],
         ["Ticket system"] = ["Ticket system", "Ticketsysteem", "Ticketsystem", "Système de tickets"],
         ["Choose a ticket system when tickets are required."] = ["Choose a ticket system when tickets are required.", "Kies een ticketsysteem als tickets verplicht zijn.", "Wählen Sie ein Ticketsystem, wenn Tickets erforderlich sind.", "Choisissez un système de tickets si les tickets sont obligatoires."],
         ["MCP server name"] = ["MCP server name", "MCP-servernaam", "MCP-Servername", "Nom du serveur MCP"],

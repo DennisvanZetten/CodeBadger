@@ -319,6 +319,25 @@ public sealed class GitBranchService
         return await RunGitAsync(path, "revert", "--no-edit", commitResult.Output.Trim());
     }
 
+    public async Task<GitOperationResult> ResetToCommitAsync(string path, string commitHash, string mode)
+    {
+        var resetMode = mode switch
+        {
+            "soft" => "--soft",
+            "mixed" => "--mixed",
+            "hard" => "--hard",
+            _ => null
+        };
+        if (resetMode is null)
+            return new GitOperationResult(false, _localization.T("Invalid reset mode."), string.Empty);
+
+        var commitResult = await RunGitAsync(path, "rev-parse", "--verify", "--quiet", $"{commitHash}^{{commit}}");
+        if (!commitResult.Success)
+            return new GitOperationResult(false, _localization.T("The selected commit is no longer available."), string.Empty);
+
+        return await RunGitAsync(path, "reset", resetMode, commitResult.Output.Trim());
+    }
+
     public async Task<GitOperationResult> CreateAndCheckoutBranchAsync(string path, string branchName, string startPoint)
     {
         branchName = branchName.Trim();

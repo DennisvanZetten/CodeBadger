@@ -258,11 +258,25 @@
                                                 <MudIcon Icon="@Icons.Material.Filled.CallSplit" Size="Size.Small" />
                                                 <span>@L.T("Cherry-pick commit")</span>
                                              </button>
-                                             <button class="git-commit-context-menu-item" disabled="@_isOperating" @onclick="RevertSelectedCommitAsync">
-                                                 <MudIcon Icon="@Icons.Material.Filled.Undo" Size="Size.Small" />
-                                                 <span>@L.T("Revert commit")</span>
-                                             </button>
-                                             @if (_contextMenuMergeBranch is not null && !string.IsNullOrWhiteSpace(_contextMenuTargetBranch))
+                                              <button class="git-commit-context-menu-item" disabled="@_isOperating" @onclick="RevertSelectedCommitAsync">
+                                                  <MudIcon Icon="@Icons.Material.Filled.Undo" Size="Size.Small" />
+                                                  <span>@L.T("Revert commit")</span>
+                                              </button>
+                                              <div class="git-context-menu-separator" role="separator"></div>
+                                              <div class="git-commit-context-menu-section-label">@L.T("Reset current branch to this commit")</div>
+                                              <button class="git-commit-context-menu-item" disabled="@_isOperating" @onclick="@(() => ResetSelectedCommitAsync("soft"))">
+                                                  <MudIcon Icon="@Icons.Material.Filled.FastForward" Size="Size.Small" />
+                                                  <span>@L.T("Soft reset")</span>
+                                              </button>
+                                              <button class="git-commit-context-menu-item" disabled="@_isOperating" @onclick="@(() => ResetSelectedCommitAsync("mixed"))">
+                                                  <MudIcon Icon="@Icons.Material.Filled.DriveFileMove" Size="Size.Small" />
+                                                  <span>@L.T("Mixed reset")</span>
+                                              </button>
+                                              <button class="git-commit-context-menu-item" disabled="@_isOperating" @onclick="@(() => ResetSelectedCommitAsync("hard"))">
+                                                  <MudIcon Icon="@Icons.Material.Filled.DeleteForever" Size="Size.Small" />
+                                                  <span>@L.T("Hard reset")</span>
+                                              </button>
+                                              @if (_contextMenuMergeBranch is not null && !string.IsNullOrWhiteSpace(_contextMenuTargetBranch))
                                             {
                                                 <button class="git-commit-context-menu-item" disabled="@(_isCheckingMergeBranch || !_mergeBranchReady || _isOperating)"
                                                         title="@(_mergeBranchError ?? string.Empty)" @onclick="MergeSelectedBranchAsync">
@@ -283,11 +297,15 @@
                                                 <MudIcon Icon="@Icons.Material.Filled.AccountTree" Size="Size.Small" />
                                                 <span>@L.T("Copy branch name")</span>
                                             </button>
-                                            <button class="git-commit-context-menu-item" @onclick="@(() => CopyCommitInfoAsync(_contextMenuCommit))">
-                                                <MudIcon Icon="@Icons.Material.Filled.Subject" Size="Size.Small" />
-                                                <span>@L.T("Copy commit info")</span>
-                                            </button>
-                                            <button class="git-commit-context-menu-item" @onclick="@(() => CopyCommitShaAsync(_contextMenuCommit))">
+                                             <button class="git-commit-context-menu-item" @onclick="@(() => CopyCommitInfoAsync(_contextMenuCommit))">
+                                                 <MudIcon Icon="@Icons.Material.Filled.Subject" Size="Size.Small" />
+                                                 <span>@L.T("Copy commit info")</span>
+                                             </button>
+                                             <button class="git-commit-context-menu-item" @onclick="@(() => CopyCommitMessageAsync(_contextMenuCommit))">
+                                                 <MudIcon Icon="@Icons.Material.Filled.Message" Size="Size.Small" />
+                                                 <span>@L.T("Copy commit message")</span>
+                                             </button>
+                                             <button class="git-commit-context-menu-item" @onclick="@(() => CopyCommitShaAsync(_contextMenuCommit))">
                                                 <MudIcon Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small" />
                                                 <span>@L.T("Copy commit SHA")</span>
                                             </button>
@@ -1166,6 +1184,9 @@
         await CopyCommitValueAsync(commitInfo, L.T("Commit info copied."));
     }
 
+    private Task CopyCommitMessageAsync(GitCommitEntry commit) =>
+        CopyCommitValueAsync(commit.Subject, L.T("Commit message copied."));
+
     private Task CopyCommitShaAsync(GitCommitEntry commit) =>
         CopyCommitValueAsync(commit.Hash, L.T("Commit SHA copied."));
 
@@ -1340,6 +1361,45 @@
             Snackbar.Add(result.Success
                     ? L.T("Revert commit completed for {0}.", commit.ShortHash)
                     : L.T("Revert commit failed: {0}", result.Message),
+                result.Success ? Severity.Success : Severity.Error);
+            await RefreshAsync();
+        }
+        finally
+        {
+            _isOperating = false;
+        }
+    }
+
+    private async Task ResetSelectedCommitAsync(string mode)
+    {
+        var commit = _contextMenuCommit;
+        if (commit is null || _isOperating || mode is not ("soft" or "mixed" or "hard"))
+            return;
+
+        var title = mode == "hard" ? L.T("Hard reset branch?") : L.T("Reset branch?");
+        var confirmation = mode switch
+        {
+            "soft" => L.T("Reset soft confirmation"),
+            "mixed" => L.T("Reset mixed confirmation"),
+            _ => L.T("Reset hard confirmation")
+        };
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            title,
+            (MarkupString)string.Format(confirmation, commit.ShortHash, commit.Subject),
+            yesText: mode == "hard" ? L.T("Hard reset") : L.T("Reset branch"),
+            cancelText: L.T("Cancel"),
+            options: new DialogOptions { CloseOnEscapeKey = true });
+        if (confirmed != true || _contextMenuCommit?.Hash != commit.Hash)
+            return;
+
+        CloseCommitContextMenu();
+        _isOperating = true;
+        try
+        {
+            var result = await GitBranchService.ResetToCommitAsync(RepositoryPath, commit.Hash, mode);
+            Snackbar.Add(result.Success
+                    ? L.T("Reset {0} completed for commit {1}.", mode, commit.ShortHash)
+                    : L.T("Reset failed: {0}", result.Message),
                 result.Success ? Severity.Success : Severity.Error);
             await RefreshAsync();
         }

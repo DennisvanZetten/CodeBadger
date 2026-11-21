@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using CodeBadger.Models;
 
 namespace CodeBadger.Services;
@@ -27,9 +28,10 @@ public sealed class LauncherSettingsService
             LauncherSettings settings;
             try
             {
-                await using var stream = File.OpenRead(_settingsPath);
-                settings = await JsonSerializer.DeserializeAsync<LauncherSettings>(stream, JsonOptions)
-                    ?? new LauncherSettings();
+                var json = await File.ReadAllTextAsync(_settingsPath);
+                var root = JsonNode.Parse(json);
+                MigrateLegacyTicketSettings(root);
+                settings = root?.Deserialize<LauncherSettings>(JsonOptions) ?? new LauncherSettings();
             }
             catch (JsonException)
             {
@@ -48,7 +50,7 @@ public sealed class LauncherSettingsService
             {
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
                 repository.TicketSystem = TicketSystems.Normalize(repository.TicketSystem);
-                repository.JiraMcpHosting = JiraMcpHostings.Normalize(repository.JiraMcpHosting);
+                repository.TicketMcpServerName ??= string.Empty;
             }
             settings.AiApiKey = await SecureStorage.Default.GetAsync(AiApiKeyStorageKey) ?? string.Empty;
             settings.SlackBotToken = await SecureStorage.Default.GetAsync(SlackBotTokenStorageKey) ?? string.Empty;
@@ -78,7 +80,7 @@ public sealed class LauncherSettingsService
             {
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
                 repository.TicketSystem = TicketSystems.Normalize(repository.TicketSystem);
-                repository.JiraMcpHosting = JiraMcpHostings.Normalize(repository.JiraMcpHosting);
+                repository.TicketMcpServerName = repository.TicketMcpServerName?.Trim() ?? string.Empty;
             }
             settings.NotificationChannel = "Slack";
             Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
@@ -108,5 +110,35 @@ public sealed class LauncherSettingsService
         }
 
         SettingsSaved?.Invoke();
+    }
+
+    private static void MigrateLegacyTicketSettings(JsonNode? root)
+    {
+        if (root?["Repositories"] is not JsonArray repositories)
+            return;
+
+        foreach (var repository in repositories.OfType<JsonObject>())
+        {
+            var legacyTicketSystem = repository["TicketSystem"]?.GetValue<string>();
+            if (!repository.ContainsKey("TicketRequired") && legacyTicketSystem is not null)
+            {
+                repository["TicketRequired"] = !string.Equals(legacyTicketSystem, "None", StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (legacyTicketSystem is not null && !repository.ContainsKey("TicketMcpServerName"))
+            {
+                repository["TicketSystem"] = legacyTicketSystem;
+                var legacyServerName = legacyTicketSystem switch
+                {
+                    "Jira" => "codebadger-jira",
+                    "GitHub Issues" => "codebadger-github",
+                    _ => string.Empty
+                };
+                if (!string.IsNullOrEmpty(legacyServerName))
+                    repository["TicketMcpServerName"] = legacyServerName;
+            }
+            repository.Remove("JiraMcpHosting");
+            repository.Remove("JiraMcpUrl");
+        }
     }
 }

@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using CodeBadger.Models;
 
 namespace CodeBadger.Services;
 
@@ -10,9 +9,6 @@ public sealed record OpenCodeProjectSkill(string Id, string RelativePath);
 public sealed class OpenCodeRepositoryConfigService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-    private const string JiraMcpServerName = "codebadger-jira";
-    private const string GitHubMcpServerName = "codebadger-github";
-
     public string GetProjectConfigPath(string repositoryPath)
     {
         var candidates = new[]
@@ -67,66 +63,6 @@ public sealed class OpenCodeRepositoryConfigService
     {
         _ = ParseObject(json);
         await SaveWithBackupAsync(GetProjectConfigPath(repositoryPath), json);
-    }
-
-    public async Task ConfigureTicketSystemAsync(string repositoryPath, string ticketSystem, string jiraMcpHosting, string jiraMcpUrl)
-    {
-        var normalized = TicketSystems.Normalize(ticketSystem);
-        var normalizedHosting = JiraMcpHostings.Normalize(jiraMcpHosting);
-        var jiraUrl = normalized != TicketSystems.Jira
-            ? string.Empty
-            : normalizedHosting == JiraMcpHostings.AtlassianCloud
-                ? "https://mcp.atlassian.com/v2/mcp"
-                : ValidateMcpUrl(jiraMcpUrl);
-        var root = ParseObject(await LoadProjectConfigAsync(repositoryPath));
-        var mcp = root["mcp"] as JsonObject ?? new JsonObject();
-        root["mcp"] = mcp;
-        var servers = mcp["servers"] as JsonObject ?? new JsonObject();
-        mcp["servers"] = servers;
-
-        ConfigureRemoteServer(servers, JiraMcpServerName, jiraUrl, normalized == TicketSystems.Jira);
-        ConfigureRemoteServer(servers, GitHubMcpServerName, "https://api.githubcopilot.com/mcp/", normalized == TicketSystems.GitHub);
-
-        if (servers.Count == 0)
-            mcp.Remove("servers");
-        if (mcp.Count == 0)
-            root.Remove("mcp");
-
-        await SaveProjectConfigAsync(repositoryPath, root.ToJsonString(JsonOptions));
-    }
-
-    private static string ValidateMcpUrl(string url)
-    {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
-            throw new InvalidOperationException("Enter a valid HTTPS URL for your company's Jira MCP endpoint.");
-        return uri.AbsoluteUri;
-    }
-
-    private static void ConfigureRemoteServer(JsonObject servers, string name, string url, bool enabled)
-    {
-        var server = servers[name] as JsonObject;
-        if (server is null)
-        {
-            if (!enabled)
-                return;
-            server = new JsonObject();
-            server["type"] = "remote";
-            server["url"] = url;
-            servers[name] = server;
-        }
-        else
-        {
-            if (enabled)
-            {
-                server["type"] = "remote";
-                server["url"] = url;
-            }
-        }
-
-        if (enabled)
-            server.Remove("disabled");
-        else
-            server["disabled"] = true;
     }
 
     public string GetSkillsDirectory(string repositoryPath) => Path.Combine(repositoryPath, ".opencode", "skills");

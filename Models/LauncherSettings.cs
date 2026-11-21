@@ -40,9 +40,9 @@ public sealed class RepositoryEntry
     public bool OpenCodeSandboxEnabled { get; set; }
     public string OpenCodeSandboxModel { get; set; } = "bonzai/gpt-6-luna";
     public string OpenCodeSandboxFiles { get; set; } = string.Empty;
+    public bool TicketRequired { get; set; }
     public string TicketSystem { get; set; } = TicketSystems.None;
-    public string JiraMcpHosting { get; set; } = JiraMcpHostings.Custom;
-    public string JiraMcpUrl { get; set; } = string.Empty;
+    public string TicketMcpServerName { get; set; } = string.Empty;
     public bool SlackNotificationsMuted { get; set; }
 }
 
@@ -58,14 +58,6 @@ public static class TicketSystems
         GitHub => GitHub,
         _ => None
     };
-}
-
-public static class JiraMcpHostings
-{
-    public const string AtlassianCloud = "Atlassian Cloud";
-    public const string Custom = "Custom MCP endpoint";
-
-    public static string Normalize(string? hosting) => hosting == AtlassianCloud ? AtlassianCloud : Custom;
 }
 
 public static class AgentTools

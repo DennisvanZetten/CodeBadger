@@ -285,7 +285,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
                 try
                 {
                     await PostMessageAsync(_botToken, link.ChannelId,
-                        FormatPendingInteraction(interaction), link.ThreadTs, cancellationToken);
+                        FormatPendingInteraction(interaction, current), link.ThreadTs, cancellationToken);
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
@@ -314,51 +314,105 @@ public sealed class SlackNotificationService : IAsyncDisposable
         }
     }
 
-    private static string FormatPendingInteraction(OpenCodeActivityService.PendingInteraction interaction)
+    private static string FormatPendingInteraction(OpenCodeActivityService.PendingInteraction interaction,
+        IReadOnlyList<OpenCodeActivityService.PendingInteraction> pendingInteractions)
     {
         if (interaction.Kind == "permission")
         {
+            var permissionNumber = pendingInteractions.Where(item => item.Kind == "permission")
+                .TakeWhile(item => item.Id != interaction.Id).Count() + 1;
             var resources = interaction.Resources.Count == 0 ? string.Empty :
                 "\nResources:\n" + string.Join("\n", interaction.Resources.Select(resource => "• " + EscapeSlack(resource)));
-            return $"⏸️ *OpenCode vraagt toestemming:* {EscapeSlack(interaction.Details)}\n" +
+            return $"⏸️ *Toestemmingsverzoek {permissionNumber}:* {EscapeSlack(interaction.Details)}\n" +
                 $"Request ID: `{EscapeSlack(interaction.Id)}`{resources}\n" +
-                $"Antwoord met `!allow {EscapeSlack(interaction.Id)}` (eenmalig), `!always {EscapeSlack(interaction.Id)}` (altijd) " +
-                $"of `!deny {EscapeSlack(interaction.Id)} [reden]`.";
+                $"Antwoord met `!allow {permissionNumber}` (eenmalig), `!always {permissionNumber}` (altijd) " +
+                $"of `!deny {permissionNumber} [reden]`. Als er maar één verzoek openstaat, mag je het nummer weglaten. Je kunt ook de ID gebruiken.";
         }
 
-        var fields = interaction.Fields.Count == 0 ? "(geen zichtbare velden)" : string.Join("\n", interaction.Fields.Select(field =>
+        var formNumber = pendingInteractions.Where(item => item.Kind == "form")
+            .TakeWhile(item => item.Id != interaction.Id).Count() + 1;
+        var fields = interaction.Fields.Count == 0 ? "(geen zichtbare velden)" : string.Join("\n", interaction.Fields.Select((field, fieldIndex) =>
         {
-            var options = field.Options.Count == 0 ? string.Empty : " Opties: " +
-                string.Join(", ", field.Options.Select(option => $"{EscapeSlack(option.Value)} ({EscapeSlack(option.Label)})"));
-            return $"• `{EscapeSlack(field.Key)}` — {EscapeSlack(string.IsNullOrWhiteSpace(field.Title) ? field.Key : field.Title)}" +
-                (field.Required ? " (verplicht)" : string.Empty) + options;
+            var title = EscapeSlack(string.IsNullOrWhiteSpace(field.Title) ? field.Key : field.Title);
+            var options = field.Options.Select((option, optionIndex) =>
+                $"   {optionIndex + 1}. {EscapeSlack(option.Label)}")
+                .ToList();
+            if (field.Type == "boolean" && options.Count == 0)
+            {
+                options.Add("   1. Ja");
+                options.Add("   2. Nee");
+            }
+            if (field.Custom)
+                options.Add($"   {field.Options.Count + 1}. Anders — eigen antwoord");
+            var choices = options.Count == 0
+                ? (field.Custom ? "\n   Antwoord met `!answer " + (interaction.Fields.Count == 1 ? "tekst <antwoord>" : $"{fieldIndex + 1} tekst <antwoord>") + "`." : string.Empty)
+                : "\n" + string.Join("\n", options);
+            var description = string.IsNullOrWhiteSpace(field.Description) ? string.Empty :
+                $"\n   {EscapeSlack(field.Description)}";
+            return $"{fieldIndex + 1}. *{title}* (`{EscapeSlack(field.Key)}`{(field.Required ? ", verplicht" : string.Empty)})" + description + choices;
         }));
-        return $"❓ *OpenCode vraagt om informatie:* {EscapeSlack(interaction.Title)}\n{fields}\n" +
-            $"Antwoord met `!answer {EscapeSlack(interaction.Id)} sleutel=waarde; sleutel2=waarde`. " +
-            "Meerdere antwoorden scheid je met puntkomma's; meerkeuzevelden accepteren waarden gescheiden door `|`.";
+        var multipleForms = pendingInteractions.Count(item => item.Kind == "form") > 1;
+        return $"❓ *OpenCode-formulier {formNumber}:* {EscapeSlack(interaction.Title)}\n{fields}\n" +
+            (interaction.Fields.Count == 1 && !multipleForms
+                ? $"Kies met `!answer <optienummer>`; bij ‘Anders’ gebruik je `!answer {interaction.Fields[0].Options.Count + 1} <eigen antwoord>`."
+                : multipleForms && interaction.Fields.Count == 1
+                    ? "Antwoord met `!answer <formuliernummer> <optienummer>`; voeg bij ‘Anders’ je eigen tekst toe na het optienummer."
+                    : multipleForms
+                    ? "Antwoord met `!answer <formuliernummer> <veldnummer> <optienummer>`; bij ‘Anders’ voeg je je tekst toe na het optienummer. Combineer meerdere velden met puntkomma's."
+                    : "Antwoord per veld met `!answer <veldnummer> <optienummer>`; bij ‘Anders’ voeg je je tekst toe na het optienummer. Combineer meerdere velden met puntkomma's.") +
+            $" Je kunt ook de bestaande syntax met ID en veldnamen gebruiken: `!answer {EscapeSlack(interaction.Id)} sleutel=waarde`.";
     }
 
     private async Task<bool> HandlePendingInteractionReplyAsync(string threadTs, string text,
         CancellationToken cancellationToken)
     {
-        if (!_pendingInteractionThreads.TryGetValue(threadTs, out var pending))
-            return false;
-
         var match = System.Text.RegularExpressions.Regex.Match(text,
-            "^!(allow|always|deny|answer)\\s+(\\S+)(?:\\s+(.*))?$",
+            "^!(allow|always|deny|answer)(?:\\s+(.*))?$",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
         if (!match.Success)
             return false;
 
-        var command = match.Groups[1].Value.ToLowerInvariant();
-        var id = match.Groups[2].Value;
-        var body = match.Groups[3].Value.Trim();
-        var kind = command == "answer" ? "form" : "permission";
-        var interaction = pending.Interactions.FirstOrDefault(item => item.Kind == kind && item.Id == id);
-        if (interaction is null)
+        if (!_pendingInteractionThreads.TryGetValue(threadTs, out var pending))
         {
             await PostMessageAsync(_botToken, _channelId,
-                "⚠️ Die vraag is niet meer open, of de ID hoort niet bij deze thread. Gebruik de ID uit de meest recente vraag.",
+                "⚠️ Er staat geen OpenCode-vraag of toestemmingsverzoek open in deze thread.", threadTs, cancellationToken);
+            return true;
+        }
+
+        var command = match.Groups[1].Value.ToLowerInvariant();
+        var arguments = match.Groups[2].Value.Trim();
+        var kind = command == "answer" ? "form" : "permission";
+        var matchingInteractions = pending.Interactions.Where(item => item.Kind == kind).ToArray();
+        var firstToken = arguments.Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        var explicitId = firstToken is not null && matchingInteractions.Any(item => item.Id == firstToken);
+        var byId = explicitId ? matchingInteractions.First(item => item.Id == firstToken) : null;
+        var numericIndex = !explicitId && int.TryParse(firstToken, out var parsedIndex) ? parsedIndex : 0;
+        var formIndexSelect = command == "answer" && !explicitId && matchingInteractions.Length > 1 &&
+            numericIndex > 0 && numericIndex <= matchingInteractions.Length;
+        var interaction = byId ?? (command == "answer"
+            ? matchingInteractions.Length == 1 ? matchingInteractions[0]
+                : formIndexSelect ? matchingInteractions[numericIndex - 1] : null
+            : numericIndex > 0 && numericIndex <= matchingInteractions.Length
+                ? matchingInteractions[numericIndex - 1]
+                : !explicitId && string.IsNullOrWhiteSpace(arguments) && matchingInteractions.Length == 1
+                    ? matchingInteractions[0]
+                    : command == "deny" && !explicitId && numericIndex == 0 && matchingInteractions.Length == 1
+                        ? matchingInteractions[0] : null);
+        var id = interaction?.Id ?? firstToken ?? string.Empty;
+        var numberedPermission = kind == "permission" && numericIndex > 0;
+        var body = explicitId || formIndexSelect || numberedPermission
+            ? arguments[firstToken!.Length..].Trim()
+            : arguments;
+        if (interaction is null)
+        {
+            var response = matchingInteractions.Length == 0
+            ? "⚠️ Er staat geen passend verzoek meer open in deze thread."
+                : matchingInteractions.Length > 1 && string.IsNullOrWhiteSpace(arguments)
+                    ? command == "answer"
+                        ? "⚠️ Er staan meerdere formulieren open. Kies eerst het formuliernummer, bijvoorbeeld `!answer 1 <antwoord>`; de veld-/optienummers staan in dat formulier."
+                        : "⚠️ Er staan meerdere verzoeken open. Kies het getoonde nummer, bijvoorbeeld `!allow 1`."
+                    : "⚠️ Onbekend verzoek of nummer. Gebruik een getoond nummer of de ID uit de vraag.";
+            await PostMessageAsync(_botToken, _channelId, response,
                 threadTs, cancellationToken);
             return true;
         }
@@ -367,9 +421,24 @@ public sealed class SlackNotificationService : IAsyncDisposable
         {
             if (kind == "permission")
             {
+                if (numericIndex == 0 && !explicitId &&
+                    (string.IsNullOrWhiteSpace(arguments) || command is "allow" or "always") && matchingInteractions.Length != 1)
+                {
+                    await PostMessageAsync(_botToken, _channelId,
+                        "⚠️ Geef het nummer van het toestemmingsverzoek op, bijvoorbeeld `!allow 1`.", threadTs, cancellationToken);
+                    return true;
+                }
                 var decision = command switch { "allow" => "once", "always" => "always", _ => "reject" };
+                if (numericIndex == 0 && !explicitId && (command is "allow" or "always") && !string.IsNullOrWhiteSpace(arguments))
+                {
+                    await PostMessageAsync(_botToken, _channelId,
+                        "⚠️ Gebruik `!allow` zonder ID bij één verzoek, of geef het getoonde verzoeknummer op.",
+                        threadTs, cancellationToken);
+                    return true;
+                }
+                var permissionReason = !explicitId && numericIndex == 0 && command == "deny" ? arguments : body;
                 await _openCodeActivity.ReplyToPermissionAsync(pending.Session.Id, pending.Session.Directory,
-                    id, decision, body, cancellationToken);
+                    id, decision, permissionReason, cancellationToken);
                 await PostMessageAsync(_botToken, _channelId,
                     decision == "reject" ? "✅ Toestemmingsverzoek afgewezen." :
                         decision == "always" ? "✅ Toestemming altijd verleend." : "✅ Eenmalige toestemming verleend.",
@@ -377,7 +446,9 @@ public sealed class SlackNotificationService : IAsyncDisposable
                 return true;
             }
 
-            var answers = ParseFormAnswers(body, interaction.Fields);
+            var answers = explicitId
+                ? ParseFormAnswers(body, interaction.Fields)
+                : ParseNumberedFormAnswers(body, interaction.Fields, formIndexSelect && interaction.Fields.Count > 1);
             await _openCodeActivity.ReplyToFormAsync(pending.Session.Id, pending.Session.Directory,
                 id, answers, cancellationToken);
             await PostMessageAsync(_botToken, _channelId, "✅ Antwoord naar OpenCode verzonden.", threadTs, cancellationToken);
@@ -390,6 +461,104 @@ public sealed class SlackNotificationService : IAsyncDisposable
                 "⚠️ Antwoord niet verwerkt: " + EscapeSlack(exception.Message), threadTs, cancellationToken);
             return true;
         }
+    }
+
+    private static JsonElement ParseNumberedFormAnswers(string text,
+        IReadOnlyList<OpenCodeActivityService.FormField> fields, bool forceFieldNumber = false)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            throw new InvalidOperationException("Geef een optienummer of een eigen antwoord op.");
+        if (fields.Count == 0)
+            throw new InvalidOperationException("Dit formulier bevat geen zichtbare velden.");
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var entry in text.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = entry.Split((char[]?)null, 3, StringSplitOptions.RemoveEmptyEntries);
+            var numberedFields = fields.Count > 1 || forceFieldNumber;
+            var fieldIndex = !numberedFields ? 1 : parts.Length > 0 && int.TryParse(parts[0], out var fieldNumber)
+                ? fieldNumber : 0;
+            if (fieldIndex < 1 || fieldIndex > fields.Count)
+                throw new InvalidOperationException(fields.Count == 1
+                    ? "Kies een optienummer of gebruik `!answer tekst <antwoord>`."
+                    : "Gebruik `!answer <veldnummer> <optienummer>`.");
+            var field = fields[fieldIndex - 1];
+            if (parts.Length == 0 || numberedFields && parts.Length < 2)
+                throw new InvalidOperationException("Voeg na het veldnummer een optienummer toe. Bijvoorbeeld `!answer 1 2`.");
+            var choiceToken = !numberedFields ? parts.FirstOrDefault() : parts.Skip(1).FirstOrDefault();
+            var freeText = !numberedFields && parts.Length > 1 ? string.Join(' ', parts.Skip(1)) :
+                parts.Length > 2 ? parts[2] : string.Empty;
+            object parsed;
+            if (string.Equals(choiceToken, "tekst", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(choiceToken, "text", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!field.Custom || string.IsNullOrWhiteSpace(freeText))
+                    throw new InvalidOperationException($"Veld '{field.Key}' accepteert hier geen eigen tekstantwoord.");
+                parsed = ParseFieldValue(field, freeText);
+            }
+            else if (field.Type == "multiselect" && choiceToken is not null &&
+                     choiceToken.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                         .All(part => int.TryParse(part, out _)))
+            {
+                var selectedNumbers = choiceToken.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                    .Select(part => int.Parse(part, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                if (selectedNumbers.Length == 0 || selectedNumbers.Any(number => number < 1 || number > field.Options.Count))
+                    throw new InvalidOperationException($"Een of meer optienummers zijn ongeldig voor '{field.Key}'.");
+                parsed = selectedNumbers.Select(number => field.Options[number - 1].Value).Distinct(StringComparer.Ordinal).ToArray();
+            }
+            else if (int.TryParse(choiceToken, out var choiceNumber))
+            {
+                if (field.Type == "boolean" && field.Options.Count == 0 && choiceNumber is 1 or 2)
+                {
+                    parsed = choiceNumber == 1;
+                    values[field.Key] = parsed;
+                    continue;
+                }
+                var customNumber = field.Options.Count + 1;
+                if (field.Custom && choiceNumber == customNumber)
+                {
+                    if (string.IsNullOrWhiteSpace(freeText))
+                        throw new InvalidOperationException("Voeg je eigen antwoord toe na het nummer van ‘Anders’.");
+                    parsed = ParseFieldValue(field, freeText);
+                }
+                else if (choiceNumber >= 1 && choiceNumber <= field.Options.Count)
+                {
+                    var selected = field.Options[choiceNumber - 1].Value;
+                    parsed = field.Type == "multiselect" ? new[] { selected } : ParseFieldValue(field, selected);
+                }
+                else
+                    throw new InvalidOperationException($"Optienummer {choiceNumber} is ongeldig voor '{field.Key}'.");
+            }
+            else if (field.Options.Count == 0 && (field.Type is "integer" or "number" or "boolean"))
+                parsed = ParseFieldValue(field, choiceToken ?? string.Empty);
+            else if (!numberedFields && field.Custom && !string.IsNullOrWhiteSpace(text))
+                parsed = ParseFieldValue(field, text);
+            else
+                throw new InvalidOperationException("Gebruik een optienummer. Voor een eigen antwoord: `!answer tekst <antwoord>`.");
+            values[field.Key] = parsed;
+        }
+        ValidateRequiredFields(values, fields);
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(values));
+        return document.RootElement.Clone();
+    }
+
+    private static object ParseFieldValue(OpenCodeActivityService.FormField field, string value) => field.Type switch
+    {
+        "boolean" when bool.TryParse(value, out var boolean) => boolean,
+        "integer" when long.TryParse(value, System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out var integer) => integer,
+        "number" when double.TryParse(value, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var number) => number,
+        "multiselect" => value.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
+        "boolean" or "integer" or "number" => throw new InvalidOperationException($"Ongeldige waarde voor veld '{field.Key}'."),
+        _ => value
+    };
+
+    private static void ValidateRequiredFields(IReadOnlyDictionary<string, object?> values,
+        IReadOnlyList<OpenCodeActivityService.FormField> fields)
+    {
+        foreach (var field in fields.Where(field => field.Required))
+            if (!values.ContainsKey(field.Key))
+                throw new InvalidOperationException($"Verplicht veld '{field.Key}' ontbreekt. Beantwoord alle verplichte velden met puntkomma's ertussen.");
     }
 
     private static JsonElement ParseFormAnswers(string text, IReadOnlyList<OpenCodeActivityService.FormField> fields)
@@ -407,31 +576,18 @@ public sealed class SlackNotificationService : IAsyncDisposable
             var value = entry[(separator + 1)..].Trim();
             if (!fieldMap.TryGetValue(key, out var field))
                 throw new InvalidOperationException($"Onbekend veld '{key}'. Gebruik de veldnamen uit de vraag.");
-            object parsed = field.Type switch
-            {
-                "boolean" when bool.TryParse(value, out var boolean) => boolean,
-                "integer" when long.TryParse(value, System.Globalization.NumberStyles.Integer,
-                    System.Globalization.CultureInfo.InvariantCulture, out var integer) => integer,
-                "number" when double.TryParse(value, System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out var number) => number,
-                "multiselect" => value.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
-                _ => value
-            };
-            if (field.Type is "boolean" or "integer" or "number" && parsed is string)
-                throw new InvalidOperationException($"Ongeldige waarde voor veld '{key}'.");
+            var parsed = ParseFieldValue(field, value);
             if (field.Options.Count > 0)
             {
                 var permitted = field.Type == "multiselect" && parsed is string[] selected
                     ? selected : parsed is string single ? [single] : [];
                 foreach (var selectedValue in permitted)
-                    if (!field.Options.Any(option => option.Value == selectedValue))
+                    if (!field.Options.Any(option => option.Value == selectedValue) && !field.Custom)
                         throw new InvalidOperationException($"'{selectedValue}' is geen geldige optie voor '{key}'.");
             }
             values[key] = parsed;
         }
-        foreach (var field in fields.Where(field => field.Required))
-            if (!values.ContainsKey(field.Key))
-                throw new InvalidOperationException($"Verplicht veld '{field.Key}' ontbreekt.");
+        ValidateRequiredFields(values, fields);
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(values));
         return document.RootElement.Clone();
     }
@@ -609,7 +765,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
         if (text.Equals("!help", StringComparison.OrdinalIgnoreCase))
         {
             await PostMessageAsync(_botToken, _channelId,
-                "*Session commands*\n• `!status` — check whether OpenCode is currently working.\n• `!build <task>` — switch to Build and send the task.\n• `!plan <task>` — switch to Plan and send the task.\n• `!allow <id>` / `!always <id>` / `!deny <id> [reason]` — answer an OpenCode permission request.\n• `!answer <id> key=value; key2=value` — answer an OpenCode form. Use `|` between multiselect values.\n• `!commit` — stage and commit all repository changes.\n• `!push` — push using the same safe up-to-date check as the Git dialog.\n• `!help` — show this command list.\n\nAny other reply is sent to the current session.",
+                "*Session commands*\n• `!status` — check whether OpenCode is currently working.\n• `!build <task>` — switch to Build and send the task.\n• `!plan <task>` — switch to Plan and send the task.\n• `!allow [number|id]` / `!always [number|id]` / `!deny [number|id] [reason]` — answer a permission request; the number may be omitted when only one is pending.\n• `!answer <option>` — answer a single-field form by option number; use `!answer <field> <option>` for forms with multiple fields and `;` between fields. Append text after the “Other” option for a custom answer.\n• `!answer <id> key=value; key2=value` — legacy form syntax.\n• `!commit` — stage and commit all repository changes.\n• `!push` — push using the same safe up-to-date check as the Git dialog.\n• `!help` — show this command list.\n\nAny other reply is sent to the current session.",
                 threadTs, cancellationToken);
             return;
         }

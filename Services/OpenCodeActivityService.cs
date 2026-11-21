@@ -7,7 +7,7 @@ public sealed class OpenCodeActivityService
 {
     public sealed record ActiveSession(string Id, string Directory, string Agent, string Title);
     public sealed record FormField(string Key, string Title, string Description, string Type, bool Required,
-        IReadOnlyList<(string Value, string Label)> Options);
+        IReadOnlyList<(string Value, string Label)> Options, bool Custom);
     public sealed record PendingInteraction(string Id, string Kind, string Title, string Details,
         IReadOnlyList<FormField> Fields, IReadOnlyList<string> Resources);
     public sealed record ActivitySnapshot(HashSet<string> ActiveDirectories, HashSet<string> QuestionDirectories,
@@ -128,9 +128,12 @@ public sealed class OpenCodeActivityService
                                             options.Add((value, string.IsNullOrWhiteSpace(label) ? value : label));
                                     }
                                 }
+                                var fieldType = GetString(field, "type");
+                                var supportsCustom = (fieldType is "string" or "multiselect") &&
+                                    (!field.TryGetProperty("custom", out var custom) || custom.ValueKind != JsonValueKind.False);
                                 fields.Add(new FormField(key, GetString(field, "title"), GetString(field, "description"),
-                                    GetString(field, "type"), field.TryGetProperty("required", out var required) && required.ValueKind == JsonValueKind.True,
-                                    options));
+                                    fieldType, field.TryGetProperty("required", out var required) && required.ValueKind == JsonValueKind.True,
+                                    options, supportsCustom));
                             }
                         }
                         interactions.Add(new PendingInteraction(id, "form", GetString(form, "title"), string.Empty,

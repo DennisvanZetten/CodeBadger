@@ -590,7 +590,9 @@ public sealed class SlackNotificationService : IAsyncDisposable
 
         try
         {
-            await _openCodeActivity.SendPromptAsync(session.Id, session.Directory, text, cancellationToken);
+            await _openCodeActivity.SendPromptAsync(session.Id, session.Directory, text, cancellationToken, "plan");
+            await PostMessageAsync(_botToken, _channelId,
+                "✅ OpenCode accepted your task and started the session in Plan mode.", threadTs, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

@@ -153,14 +153,18 @@ public sealed class OpenCodeActivityService
         response.RootElement.TryGetProperty("data", out var items) &&
         items.ValueKind == JsonValueKind.Array && items.GetArrayLength() > 0;
 
-    public async Task SendPromptAsync(string sessionId, string directory, string text, CancellationToken cancellationToken)
+    public async Task SendPromptAsync(string sessionId, string directory, string text, CancellationToken cancellationToken,
+        string? agent = null)
     {
         if (!IsValidSessionId(sessionId))
             throw new ArgumentException("Invalid OpenCode session ID.", nameof(sessionId));
         if (string.IsNullOrWhiteSpace(text) || text.Length > 32000)
             throw new ArgumentException("Reply must contain 1–32,000 characters.", nameof(text));
+        var payload = agent is "build" or "plan"
+            ? JsonSerializer.Serialize(new { text, delivery = "steer", agent })
+            : JsonSerializer.Serialize(new { text, delivery = "steer" });
         using var response = await RequestAsync($"/api/session/{sessionId}/prompt", cancellationToken,
-            HttpMethod.Post, JsonSerializer.Serialize(new { text, delivery = "steer" }), directory);
+            HttpMethod.Post, payload, directory);
         if (response is null)
             throw new InvalidOperationException("Could not submit the reply to the OpenCode session.");
     }
@@ -171,14 +175,14 @@ public sealed class OpenCodeActivityService
             throw new ArgumentException("Repository directory does not exist.", nameof(directory));
 
         using var response = await RequestAsync("/api/session", cancellationToken,
-            HttpMethod.Post, JsonSerializer.Serialize(new { location = new { directory } }), directory);
+            HttpMethod.Post, JsonSerializer.Serialize(new { location = new { directory }, agent = "plan" }), directory);
         if (response is null || !response.RootElement.TryGetProperty("data", out var data) ||
             !data.TryGetProperty("id", out var idValue) || idValue.ValueKind != JsonValueKind.String ||
             string.IsNullOrWhiteSpace(idValue.GetString()))
             throw new InvalidOperationException("Could not create a new OpenCode session.");
 
         var id = idValue.GetString()!;
-        return new ActiveSession(id, NormalizePath(directory) ?? directory, "build",
+        return new ActiveSession(id, NormalizePath(directory) ?? directory, "plan",
             data.TryGetProperty("title", out var titleValue) && titleValue.ValueKind == JsonValueKind.String
                 ? titleValue.GetString() ?? string.Empty : string.Empty);
     }

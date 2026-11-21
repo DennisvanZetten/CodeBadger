@@ -715,7 +715,10 @@
                 await OpenCodeActivity.SwitchAgentAsync(session.Id, session.Directory, agent, _statusMonitorCancellation.Token);
                 await SlackNotifications.UpdateSessionAgentAsync(session.Id, agent);
             }
-            await OpenCodeActivity.SendPromptAsync(session.Id, session.Directory, prompt, _statusMonitorCancellation.Token);
+            await OpenCodeActivity.SendPromptAsync(session.Id, session.Directory, prompt, _statusMonitorCancellation.Token,
+                command.Success ? command.Groups[1].Value.ToLowerInvariant() : null);
+            await SlackNotifications.PublishReplyStatusAsync(session.Id,
+                "✅ OpenCode heeft je opdracht ontvangen en is gestart.", _statusMonitorCancellation.Token);
         }
         catch (Exception exception) when (!_statusMonitorCancellation.IsCancellationRequested)
         {

@@ -16,6 +16,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
     private readonly OpenCodeActivityService _openCodeActivity;
     private readonly GitBranchService _gitBranchService;
     private readonly AiCommitMessageService _aiCommitMessageService;
+    private readonly IdeaListService _ideaListService;
     private readonly ILogger<SlackNotificationService> _logger;
     private static readonly HttpClient Http = new() { BaseAddress = new Uri("https://slack.com/api/") };
     private readonly ConcurrentDictionary<string, ThreadLink> _sessionThreads = new(StringComparer.Ordinal);
@@ -32,13 +33,14 @@ public sealed class SlackNotificationService : IAsyncDisposable
     private string _allowedUserId = string.Empty;
 
     public SlackNotificationService(LauncherSettingsService settingsService, OpenCodeActivityService openCodeActivity,
-        GitBranchService gitBranchService, AiCommitMessageService aiCommitMessageService,
+        GitBranchService gitBranchService, AiCommitMessageService aiCommitMessageService, IdeaListService ideaListService,
         ILogger<SlackNotificationService> logger)
     {
         _settingsService = settingsService;
         _openCodeActivity = openCodeActivity;
         _gitBranchService = gitBranchService;
         _aiCommitMessageService = aiCommitMessageService;
+        _ideaListService = ideaListService;
         _logger = logger;
     }
 
@@ -349,8 +351,14 @@ public sealed class SlackNotificationService : IAsyncDisposable
             if (text.Equals("!help", StringComparison.OrdinalIgnoreCase))
             {
                 await PostMessageAsync(_botToken, _channelId,
-                    "*Slack commands*\n• `!new` — start a new OpenCode session; then choose a repository and send a task in its thread.\n• `!help` — show this command list.",
+                    "*Slack commands*\n• `!new` — start a new OpenCode session; then choose a repository and send a task in its thread.\n• `!todo <title>` — add an item to the CodeBadger ideas and tasks list. Optional type prefixes: `idea:`, `wish:`, `task:`, or `bug:`.\n• `!help` — show this command list.",
                     null, cancellationToken);
+                return;
+            }
+
+            if (text.StartsWith("!todo", StringComparison.OrdinalIgnoreCase))
+            {
+                await AddIdeaFromSlackAsync(text, null, cancellationToken);
                 return;
             }
 
@@ -375,6 +383,12 @@ public sealed class SlackNotificationService : IAsyncDisposable
             }
 
             await HandleNewSessionWizardReplyAsync(threadTs, pendingNewSession, text, cancellationToken);
+            return;
+        }
+
+        if (text.StartsWith("!todo", StringComparison.OrdinalIgnoreCase))
+        {
+            await AddIdeaFromSlackAsync(text, threadTs, cancellationToken);
             return;
         }
 
@@ -405,6 +419,39 @@ public sealed class SlackNotificationService : IAsyncDisposable
             }
         }
         await Task.CompletedTask;
+    }
+
+    private async Task AddIdeaFromSlackAsync(string command, string? threadTs, CancellationToken cancellationToken)
+    {
+        var title = command.Length > "!todo".Length ? command["!todo".Length..].Trim() : string.Empty;
+        if (string.IsNullOrWhiteSpace(title) || title.Length > 160)
+        {
+            await PostMessageAsync(_botToken, _channelId,
+                "Usage: `!todo <title>` (up to 160 characters). Optional prefixes: `idea:`, `wish:`, `task:`, or `bug:`.",
+                threadTs, cancellationToken);
+            return;
+        }
+
+        var type = IdeaType.Task;
+        foreach (var candidate in Enum.GetValues<IdeaType>())
+        {
+            var prefix = candidate.ToString().ToLowerInvariant() + ":";
+            if (!title.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                continue;
+            type = candidate;
+            title = title[prefix.Length..].Trim();
+            break;
+        }
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            await PostMessageAsync(_botToken, _channelId, "Add a title after the item type.", threadTs, cancellationToken);
+            return;
+        }
+
+        var item = await _ideaListService.AddAsync(title, string.Empty, type, cancellationToken);
+        await PostMessageAsync(_botToken, _channelId,
+            $"✅ Added *{EscapeSlack(item.Title)}* to the CodeBadger ideas and tasks list ({type.ToString().ToLowerInvariant()}).",
+            threadTs, cancellationToken);
     }
 
     private async Task StartCommitCommandAsync(string sessionId, ThreadLink thread, string threadTs,

@@ -1,0 +1,41 @@
+@inject IdeaListService Ideas
+@inject LocalizationService L
+
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">@L.T("New item")</MudText></TitleContent>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudTextField @bind-Value="_title" Label="@L.T("Title")" Required="true" MaxLength="160" AutoFocus="true" />
+            <MudSelect T="IdeaType" @bind-Value="_type" Label="@L.T("Type")">
+                <MudSelectItem Value="IdeaType.Idea">@L.T("Idea")</MudSelectItem>
+                <MudSelectItem Value="IdeaType.Wish">@L.T("Wish")</MudSelectItem>
+                <MudSelectItem Value="IdeaType.Task">@L.T("Task")</MudSelectItem>
+                <MudSelectItem Value="IdeaType.Bug">@L.T("Bug")</MudSelectItem>
+            </MudSelect>
+            <MudTextField @bind-Value="_description" Label="@L.T("Description (optional)")" Lines="3" MaxLength="2000" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">@L.T("Cancel")</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@string.IsNullOrWhiteSpace(_title)" OnClick="SaveAsync">
+            @L.T("Save")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    private string _title = string.Empty;
+    private string _description = string.Empty;
+    private IdeaType _type = IdeaType.Task;
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_title))
+            return;
+        var item = await Ideas.AddAsync(_title, _description, _type);
+        MudDialog.Close(DialogResult.Ok(item));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

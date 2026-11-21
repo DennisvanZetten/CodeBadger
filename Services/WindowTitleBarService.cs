@@ -6,9 +6,10 @@ public sealed class WindowTitleBarService
 {
     public event Action? SettingsRequested;
     public event Action? HelpRequested;
+    public event Action? IdeasRequested;
 
 #if WINDOWS
-    private readonly Dictionary<Window, (TitleBar TitleBar, ImageButton? SettingsButton, ImageButton? HelpButton)> _titleBars = [];
+    private readonly Dictionary<Window, (TitleBar TitleBar, ImageButton? SettingsButton, ImageButton? IdeasButton, ImageButton? HelpButton)> _titleBars = [];
 #endif
 
     public bool UsesNativeTitleBar
@@ -36,6 +37,17 @@ public sealed class WindowTitleBarService
             Source = new FontImageSource { FontFamily = "Segoe MDL2 Assets", Glyph = "\uE713", Size = 20 }
         };
         settingsButton.Clicked += (_, _) => SettingsRequested?.Invoke();
+        var ideasButton = new ImageButton
+        {
+            WidthRequest = 36,
+            HeightRequest = 36,
+            Margin = new Thickness(0, 0, 2, 0),
+            Padding = 0,
+            BackgroundColor = Colors.Transparent,
+            Source = new FontImageSource { FontFamily = "Segoe MDL2 Assets", Glyph = "\uE8FD", Size = 18 }
+        };
+        SemanticProperties.SetDescription(ideasButton, "Ideas and tasks");
+        ideasButton.Clicked += (_, _) => IdeasRequested?.Invoke();
         var helpButton = new ImageButton
         {
             WidthRequest = 36,
@@ -65,10 +77,10 @@ public sealed class WindowTitleBarService
             {
                 Spacing = 0,
                 VerticalOptions = LayoutOptions.Center,
-                Children = { settingsButton, helpButton }
+                Children = { settingsButton, ideasButton, helpButton }
             } : null
         };
-        _titleBars[window] = (titleBar, showSettings ? settingsButton : null, showSettings ? helpButton : null);
+        _titleBars[window] = (titleBar, showSettings ? settingsButton : null, showSettings ? ideasButton : null, showSettings ? helpButton : null);
         window.Destroying += (_, _) => _titleBars.Remove(window);
         window.TitleBar = titleBar;
         ApplyTheme(LauncherThemes.Get(null));
@@ -86,7 +98,7 @@ public sealed class WindowTitleBarService
 
         var background = theme.IsDark ? theme.Theme.PaletteDark.Background : theme.Theme.PaletteLight.Background;
         var text = theme.IsDark ? theme.Theme.PaletteDark.TextPrimary : theme.Theme.PaletteLight.TextPrimary;
-        foreach (var (titleBar, settingsButton, helpButton) in _titleBars.Values)
+        foreach (var (titleBar, settingsButton, ideasButton, helpButton) in _titleBars.Values)
         {
             titleBar.BackgroundColor = Color.FromArgb(background.ToString(MudColorOutputFormats.Hex));
             titleBar.ForegroundColor = Color.FromArgb(text.ToString(MudColorOutputFormats.Hex));
@@ -94,6 +106,8 @@ public sealed class WindowTitleBarService
                 label.TextColor = titleBar.ForegroundColor;
             if (settingsButton?.Source is FontImageSource icon)
                 icon.Color = titleBar.ForegroundColor;
+            if (ideasButton?.Source is FontImageSource ideasIcon)
+                ideasIcon.Color = titleBar.ForegroundColor;
             if (helpButton?.Source is FontImageSource helpIcon)
                 helpIcon.Color = titleBar.ForegroundColor;
         }
@@ -109,7 +123,7 @@ public sealed class WindowTitleBarService
             return;
         }
 
-        foreach (var (_, settingsButton, _) in _titleBars.Values)
+        foreach (var (_, settingsButton, _, _) in _titleBars.Values)
         {
             if (settingsButton is null)
                 continue;
@@ -128,12 +142,31 @@ public sealed class WindowTitleBarService
             return;
         }
 
-        foreach (var (_, _, helpButton) in _titleBars.Values)
+        foreach (var (_, _, _, helpButton) in _titleBars.Values)
         {
             if (helpButton is null)
                 continue;
             SemanticProperties.SetDescription(helpButton, description);
             helpButton.IsEnabled = true;
+        }
+#endif
+    }
+
+    public void SetIdeasDescription(string description)
+    {
+#if WINDOWS
+        if (!MainThread.IsMainThread)
+        {
+            MainThread.BeginInvokeOnMainThread(() => SetIdeasDescription(description));
+            return;
+        }
+
+        foreach (var (_, _, ideasButton, _) in _titleBars.Values)
+        {
+            if (ideasButton is null)
+                continue;
+            SemanticProperties.SetDescription(ideasButton, description);
+            ideasButton.IsEnabled = true;
         }
 #endif
     }

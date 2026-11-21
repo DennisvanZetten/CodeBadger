@@ -39,6 +39,10 @@ else
                 <MudSpacer />
                 <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Default" Size="Size.Small"
                                 aria-label="@L.T("Open settings")" OnClick="OpenSettingsAsync" />
+                <MudTooltip Text="@L.T("Ideas and tasks")">
+                    <MudIconButton Icon="@Icons.Material.Filled.Checklist" Color="Color.Default" Size="Size.Small"
+                                   aria-label="@L.T("Ideas and tasks")" title="@L.T("Ideas and tasks")" OnClick="OpenIdeasAsync" />
+                </MudTooltip>
                 <MudTooltip Text="@L.T("Help menu")">
                     <MudIconButton Class="help-menu-trigger" Icon="@Icons.Material.Filled.HelpOutline" Color="Color.Default" Size="Size.Small"
                                    aria-label="@L.T("Help menu")" title="@L.T("Help menu")" OnClick="OpenHelpMenuAsync" />
@@ -72,6 +76,7 @@ else
 
     private void HandleSettingsRequested() => _ = InvokeAsync(OpenSettingsAsync);
     private void HandleHelpRequested() => _ = InvokeAsync(OpenHelpMenuAsync);
+    private void HandleIdeasRequested() => _ = InvokeAsync(OpenIdeasAsync);
 
     protected override void OnInitialized()
     {
@@ -83,11 +88,14 @@ else
     {
         WindowTitleBar.SettingsRequested -= HandleSettingsRequested;
         WindowTitleBar.HelpRequested -= HandleHelpRequested;
+        WindowTitleBar.IdeasRequested -= HandleIdeasRequested;
         WindowTitleBar.SetHelpDescription(L.T("Help menu"));
+        WindowTitleBar.SetIdeasDescription(L.T("Ideas and tasks"));
         if (!IsDetachedRepositoryRoute())
         {
             WindowTitleBar.SettingsRequested += HandleSettingsRequested;
             WindowTitleBar.HelpRequested += HandleHelpRequested;
+            WindowTitleBar.IdeasRequested += HandleIdeasRequested;
         }
     }
 
@@ -98,6 +106,7 @@ else
     {
         WindowTitleBar.SetSettingsState(!_isStarting, L.T("Open settings"));
         WindowTitleBar.SetHelpDescription(L.T("Help menu"));
+        WindowTitleBar.SetIdeasDescription(L.T("Ideas and tasks"));
         StateHasChanged();
     });
 
@@ -294,6 +303,12 @@ else
         }
     }
 
+    private async Task OpenIdeasAsync()
+    {
+        await DialogService.ShowAsync<IdeaListDialog>(L.T("Ideas and tasks"),
+            options: new DialogOptions { CloseButton = true, CloseOnEscapeKey = true, MaxWidth = MaxWidth.Medium, FullWidth = true });
+    }
+
     private bool IsManualWindowRoute() =>
         GetCurrentRoutePath().Equals("manual", StringComparison.OrdinalIgnoreCase);
 
@@ -307,5 +322,6 @@ else
         SettingsService.SettingsSaved -= HandleSettingsSaved;
         WindowTitleBar.SettingsRequested -= HandleSettingsRequested;
         WindowTitleBar.HelpRequested -= HandleHelpRequested;
+        WindowTitleBar.IdeasRequested -= HandleIdeasRequested;
     }
 }

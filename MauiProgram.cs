@@ -28,6 +28,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<WindowTitleBarService>();
 		builder.Services.AddSingleton<RepositoryDetachedWindowService>();
 		builder.Services.AddSingleton<LauncherSettingsService>();
+		builder.Services.AddSingleton<IdeaListService>();
 		builder.Services.AddSingleton<PowerShellLauncher>();
 		builder.Services.AddSingleton<WindowsTerminalSessionService>();
 		builder.Services.AddSingleton<WindowsSandboxSessionService>();

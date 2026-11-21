@@ -1,0 +1,105 @@
+@inject IdeaListService Ideas
+@inject LocalizationService L
+@inject IDialogService Dialogs
+
+<MudDialog Class="idea-list-dialog">
+    <TitleContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icons.Material.Filled.Checklist" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">@L.T("Ideas and tasks")</MudText>
+        </MudStack>
+    </TitleContent>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("A local list of things to remember.")</MudText>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="AddItemAsync">
+                    @L.T("New")
+                </MudButton>
+            </MudStack>
+            @if (_loading)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else if (_items.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="py-4">@L.T("No ideas or tasks yet.")</MudText>
+            }
+            else
+            {
+                <MudStack Spacing="1" Class="idea-list-items">
+                    @foreach (var item in _items.OrderBy(item => item.Status).ThenByDescending(item => item.CreatedAt))
+                    {
+                        <MudPaper Outlined="true" Class="pa-3">
+                            <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="2">
+                                <MudStack Spacing="1" Style="flex: 1; min-width: 0;">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                        <MudText Typo="Typo.subtitle1">@item.Title</MudText>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@TypeLabel(item.Type)</MudChip>
+                                    </MudStack>
+                                    @if (!string.IsNullOrWhiteSpace(item.Description))
+                                    {
+                                        <MudText Typo="Typo.body2" Color="Color.Secondary">@item.Description</MudText>
+                                    }
+                                    <MudSelect T="IdeaStatus" Value="item.Status" ValueChanged="@(status => UpdateStatusAsync(item, status))" Dense="true" Margin="Margin.Dense" Class="idea-status-select">
+                                        <MudSelectItem Value="IdeaStatus.Open">@L.T("Open")</MudSelectItem>
+                                        <MudSelectItem Value="IdeaStatus.InProgress">@L.T("In progress")</MudSelectItem>
+                                        <MudSelectItem Value="IdeaStatus.Done">@L.T("Done")</MudSelectItem>
+                                    </MudSelect>
+                                </MudStack>
+                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Default" Size="Size.Small"
+                                               aria-label="@L.T("Delete")" OnClick="@(() => DeleteItemAsync(item))" />
+                            </MudStack>
+                        </MudPaper>
+                    }
+                </MudStack>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Size="Size.Small" OnClick="Close">@L.T("Close")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    private List<IdeaItem> _items = [];
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _items = (await Ideas.GetAllAsync()).ToList();
+        _loading = false;
+    }
+
+    private async Task AddItemAsync()
+    {
+        var dialog = await Dialogs.ShowAsync<NewIdeaDialog>(L.T("New item"),
+            options: new DialogOptions { CloseButton = true, CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: IdeaItem item })
+            _items.Add(item);
+    }
+
+    private async Task UpdateStatusAsync(IdeaItem item, IdeaStatus status)
+    {
+        if (await Ideas.UpdateStatusAsync(item.Id, status))
+            item.Status = status;
+    }
+
+    private async Task DeleteItemAsync(IdeaItem item)
+    {
+        if (await Ideas.DeleteAsync(item.Id))
+            _items.Remove(item);
+    }
+
+    private string TypeLabel(IdeaType type) => L.T(type switch
+    {
+        IdeaType.Idea => "Idea",
+        IdeaType.Wish => "Wish",
+        IdeaType.Bug => "Bug",
+        _ => "Task"
+    });
+
+    private void Close() => MudDialog.Cancel();
+}

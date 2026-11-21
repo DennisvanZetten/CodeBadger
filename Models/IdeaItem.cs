@@ -23,4 +23,9 @@ public sealed class IdeaItem
     public IdeaType Type { get; set; } = IdeaType.Task;
     public IdeaStatus Status { get; set; } = IdeaStatus.Open;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public Guid? RepositoryId { get; set; }
+    public string RepositoryName { get; set; } = string.Empty;
+    public string RepositoryPath { get; set; } = string.Empty;
+    public string SessionId { get; set; } = string.Empty;
+    public string SessionTitle { get; set; } = string.Empty;
 }

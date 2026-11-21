@@ -72,6 +72,34 @@ public sealed class IdeaListService
         }
     }
 
+    public async Task<bool> LinkSessionAsync(Guid id, RepositoryEntry repository, string sessionId, string sessionTitle,
+        CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var items = await ReadAllCoreAsync(cancellationToken);
+            var item = items.FirstOrDefault(candidate => candidate.Id == id);
+            if (item is null)
+                return false;
+
+            item.RepositoryId = repository.Id;
+            item.RepositoryName = string.IsNullOrWhiteSpace(repository.Name)
+                ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path))
+                : repository.Name;
+            item.RepositoryPath = repository.Path;
+            item.SessionId = sessionId;
+            item.SessionTitle = sessionTitle;
+            item.Status = IdeaStatus.InProgress;
+            await SaveCoreAsync(items, cancellationToken);
+            return true;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);

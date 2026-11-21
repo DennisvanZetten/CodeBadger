@@ -11,6 +11,7 @@
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject RepositoryDetachedWindowService DetachedWindows
+@inject NavigationManager Navigation
 @inject Microsoft.Extensions.Logging.ILogger<Home> Logger
 @using Microsoft.Extensions.Logging
 @using CodeBadger.Components.Pages
@@ -157,14 +158,18 @@
         DetachedWindows.DockDragChanged += HandleDockDragChanged;
         L.LanguageChanged += HandleLanguageChanged;
         SyncRepositories();
+        var hasLinkedSession = SelectLinkedSessionFromUri();
         await SlackNotifications.ConfigureAsync(_settings);
         if (_activeRepositories.Count > 0)
         {
             var lastRepositoryId = Preferences.Default.Get(LastRepositoryPreferenceKey, string.Empty);
-            var lastIndex = Guid.TryParse(lastRepositoryId, out var parsedRepositoryId)
-                ? DockedRepositories.FindIndex(repository => repository.Id == parsedRepositoryId)
-                : -1;
-            _activeTabIndex = lastIndex >= 0 ? lastIndex : 0;
+            if (!hasLinkedSession)
+            {
+                var lastIndex = Guid.TryParse(lastRepositoryId, out var parsedRepositoryId)
+                    ? DockedRepositories.FindIndex(repository => repository.Id == parsedRepositoryId)
+                    : -1;
+                _activeTabIndex = lastIndex >= 0 ? lastIndex : 0;
+            }
 
             var selectedRepository = DockedRepositories.ElementAtOrDefault(_activeTabIndex);
             if (selectedRepository is not null)
@@ -176,6 +181,48 @@
         }
         _ = MonitorActiveRepositoryStatusAsync(_statusMonitorCancellation.Token);
         _ = MonitorOpenCodeActivityAsync(_statusMonitorCancellation.Token);
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (_activeRepositories.Count > 0 && SelectLinkedSessionFromUri())
+            StateHasChanged();
+    }
+
+    private bool SelectLinkedSessionFromUri()
+    {
+        var query = new Uri(Navigation.Uri).Query;
+        if (!Guid.TryParse(GetQueryValue(query, "repository"), out var repositoryId))
+            return false;
+
+        var sessionId = GetQueryValue(query, "session");
+        var repository = _activeRepositories.FirstOrDefault(candidate => candidate.Id == repositoryId &&
+            AgentTools.Normalize(candidate.AgentTool) == AgentTools.OpenCode);
+        if (repository is null || string.IsNullOrWhiteSpace(sessionId) ||
+            !sessionId.StartsWith("ses_", StringComparison.Ordinal) ||
+            !sessionId.All(character => char.IsAsciiLetterOrDigit(character) || character == '_'))
+            return false;
+
+        _selectedOpenCodeSessions[repository.Id] = sessionId;
+        var tabIndex = DockedRepositories.FindIndex(candidate => candidate.Id == repository.Id);
+        if (tabIndex >= 0)
+        {
+            _activeTabIndex = tabIndex;
+            Preferences.Default.Set(LastRepositoryPreferenceKey, repository.Id.ToString());
+        }
+        return true;
+    }
+
+    private static string? GetQueryValue(string query, string key)
+    {
+        foreach (var pair in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var separator = pair.IndexOf('=');
+            if (separator < 0 || !string.Equals(Uri.UnescapeDataString(pair[..separator]), key, StringComparison.Ordinal))
+                continue;
+            return Uri.UnescapeDataString(pair[(separator + 1)..].Replace('+', ' '));
+        }
+        return null;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

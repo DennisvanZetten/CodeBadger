@@ -44,18 +44,29 @@
                                     {
                                         <MudText Typo="Typo.body2" Color="Color.Secondary">@item.Description</MudText>
                                     }
-                                    @if (item.Type == IdeaType.Task)
+                                    @if (item.Type == IdeaType.Task && !string.IsNullOrWhiteSpace(item.SessionId))
+                                    {
+                                        <MudStack Spacing="0" Class="mt-1">
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Repository: {0}", item.RepositoryName)</MudText>
+                                            <MudLink Href="@SessionHref(item)" Color="Color.Primary" Underline="Underline.Hover" Target="_self">
+                                                @L.T("Open session: {0}", string.IsNullOrWhiteSpace(item.SessionTitle) ? item.Title : item.SessionTitle)
+                                            </MudLink>
+                                        </MudStack>
+                                    }
+                                    else if (item.Type == IdeaType.Task)
                                     {
                                         @if (_repositories.Count > 0)
                                         {
                                             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-1">
-                                                <MudSelect T="Guid" Value="GetSelectedRepositoryId(item)"
+                                                <MudSelect T="string" Value="GetSelectedRepositoryId(item)"
                                                            ValueChanged="@(id => SelectRepository(item, id))"
                                                            Label="@L.T("Repository")" Dense="true" Margin="Margin.Dense"
-                                                           Disabled="@_startingTasks.Contains(item.Id)" Class="idea-repository-select">
+                                                           Placeholder="@L.T("Select a repository")"
+                                                           Disabled="@(_startingTasks.Contains(item.Id) || !string.IsNullOrWhiteSpace(item.SessionId))"
+                                                           Class="idea-repository-select">
                                                     @foreach (var repository in _repositories)
                                                     {
-                                                        <MudSelectItem Value="repository.Id">@RepositoryName(repository)</MudSelectItem>
+                                                        <MudSelectItem Value="repository.Id.ToString()">@RepositoryName(repository)</MudSelectItem>
                                                     }
                                                 </MudSelect>
                                                 <MudButton Variant="Variant.Outlined" Color="Color.Primary"
@@ -95,7 +106,7 @@
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
     private List<IdeaItem> _items = [];
     private List<RepositoryEntry> _repositories = [];
-    private readonly Dictionary<Guid, Guid> _selectedRepositories = [];
+    private readonly Dictionary<Guid, string?> _selectedRepositories = [];
     private readonly HashSet<Guid> _startingTasks = [];
     private bool _loading = true;
 
@@ -109,7 +120,10 @@
             .OrderBy(RepositoryName, StringComparer.OrdinalIgnoreCase)
             .ToList();
         foreach (var item in _items)
-            _selectedRepositories[item.Id] = Guid.Empty;
+        {
+            var repositoryExists = item.RepositoryId is { } savedId && _repositories.Any(repository => repository.Id == savedId);
+            _selectedRepositories[item.Id] = repositoryExists ? item.RepositoryId!.Value.ToString() : null;
+        }
         _loading = false;
     }
 
@@ -121,17 +135,18 @@
         if (result is { Canceled: false, Data: IdeaItem item })
         {
             _items.Add(item);
-            _selectedRepositories[item.Id] = Guid.Empty;
+            _selectedRepositories[item.Id] = null;
         }
     }
 
-    private Guid GetSelectedRepositoryId(IdeaItem item) => _selectedRepositories.GetValueOrDefault(item.Id);
+    private string? GetSelectedRepositoryId(IdeaItem item) => _selectedRepositories.GetValueOrDefault(item.Id);
 
-    private void SelectRepository(IdeaItem item, Guid repositoryId) => _selectedRepositories[item.Id] = repositoryId;
+    private void SelectRepository(IdeaItem item, string? repositoryId) => _selectedRepositories[item.Id] = repositoryId;
 
     private bool CanStartTask(IdeaItem item) => !_startingTasks.Contains(item.Id) &&
+        string.IsNullOrWhiteSpace(item.SessionId) &&
         _selectedRepositories.TryGetValue(item.Id, out var repositoryId) &&
-        _repositories.Any(repository => repository.Id == repositoryId);
+        Guid.TryParse(repositoryId, out var id) && _repositories.Any(repository => repository.Id == id);
 
     private async Task StartTaskAsync(IdeaItem item)
     {
@@ -140,14 +155,24 @@
 
         try
         {
-            var repository = _repositories.First(candidate => candidate.Id == _selectedRepositories[item.Id]);
+            var repositoryId = Guid.Parse(_selectedRepositories[item.Id]!);
+            var repository = _repositories.First(candidate => candidate.Id == repositoryId);
             var session = await OpenCodeActivity.CreateSessionAsync(repository.Path, CancellationToken.None);
             var prompt = string.IsNullOrWhiteSpace(item.Description)
                 ? item.Title
                 : $"{item.Title}\n\n{item.Description}";
             await OpenCodeActivity.SendPromptAsync(session.Id, session.Directory, prompt, CancellationToken.None, "plan");
-            if (await Ideas.UpdateStatusAsync(item.Id, IdeaStatus.InProgress))
+            if (await Ideas.LinkSessionAsync(item.Id, repository, session.Id,
+                    string.IsNullOrWhiteSpace(session.Title) ? item.Title : session.Title))
+            {
                 item.Status = IdeaStatus.InProgress;
+                item.RepositoryId = repository.Id;
+                item.RepositoryName = RepositoryName(repository);
+                item.RepositoryPath = repository.Path;
+                item.SessionId = session.Id;
+                item.SessionTitle = session.Title;
+                _selectedRepositories[item.Id] = repository.Id.ToString();
+            }
             await InvokeAsync(StateHasChanged);
             Snackbar.Add(L.T("Task started in a new session."), Severity.Success);
         }
@@ -164,6 +189,13 @@
     private string RepositoryName(RepositoryEntry repository) => string.IsNullOrWhiteSpace(repository.Name)
         ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path))
         : repository.Name;
+
+    private string SessionHref(IdeaItem item)
+    {
+        var repository = _repositories.FirstOrDefault(candidate => candidate.Id == item.RepositoryId) ??
+            new RepositoryEntry { Id = item.RepositoryId ?? Guid.Empty, Name = item.RepositoryName, Path = item.RepositoryPath };
+        return $"/?repository={Uri.EscapeDataString(repository.Id.ToString())}&session={Uri.EscapeDataString(item.SessionId)}";
+    }
 
     private async Task UpdateStatusAsync(IdeaItem item, IdeaStatus status)
     {

@@ -2170,7 +2170,7 @@ h1:focus {
     scrollbar-gutter: stable;
 }
 
-.git-history-workspace .git-branch-group:not([open]) > .git-branch-list {
+.git-history-workspace details.git-branch-group:not([open]) > .git-branch-list {
     display: none;
 }
 
@@ -2192,6 +2192,11 @@ h1:focus {
 .git-history-splitter:hover,
 .git-history-splitter:focus-visible {
     cursor: ew-resize !important;
+}
+
+.git-history-workspace .git-branch-group-splitter:hover,
+.git-history-workspace .git-branch-group-splitter:focus-visible {
+    cursor: url("./vertical-resize-cursor.svg") 12 12, ns-resize !important;
 }
 
 .git-branch-header {

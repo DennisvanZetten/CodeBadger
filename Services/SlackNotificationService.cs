@@ -346,6 +346,14 @@ public sealed class SlackNotificationService : IAsyncDisposable
         var threadTs = slackEvent.TryGetProperty("thread_ts", out var threadValue) ? threadValue.GetString() : null;
         if (string.IsNullOrWhiteSpace(threadTs))
         {
+            if (text.Equals("!help", StringComparison.OrdinalIgnoreCase))
+            {
+                await PostMessageAsync(_botToken, _channelId,
+                    "*Slack commands*\n• `!new` — start a new OpenCode session; then choose a repository and send a task in its thread.\n• `!help` — show this command list.",
+                    null, cancellationToken);
+                return;
+            }
+
             if (text.Equals("!new", StringComparison.OrdinalIgnoreCase))
             {
                 await BeginNewSessionWizardAsync(cancellationToken);
@@ -358,6 +366,14 @@ public sealed class SlackNotificationService : IAsyncDisposable
 
         if (_pendingNewSessions.TryGetValue(threadTs, out var pendingNewSession))
         {
+            if (text.Equals("!help", StringComparison.OrdinalIgnoreCase))
+            {
+                await PostMessageAsync(_botToken, _channelId,
+                    "*New session setup*\nReply with a repository number, then send the task for the new OpenCode session. `!help` shows this list.",
+                    threadTs, cancellationToken);
+                return;
+            }
+
             await HandleNewSessionWizardReplyAsync(threadTs, pendingNewSession, text, cancellationToken);
             return;
         }
@@ -365,6 +381,13 @@ public sealed class SlackNotificationService : IAsyncDisposable
         var linkedSession = _sessionThreads.FirstOrDefault(pair => pair.Value.ThreadTs == threadTs && pair.Value.ChannelId == _channelId);
         if (string.IsNullOrWhiteSpace(linkedSession.Key))
             return;
+        if (text.Equals("!help", StringComparison.OrdinalIgnoreCase))
+        {
+            await PostMessageAsync(_botToken, _channelId,
+                "*Session commands*\n• `!build <task>` — switch to Build and send the task.\n• `!plan <task>` — switch to Plan and send the task.\n• `!commit` — stage and commit all repository changes.\n• `!help` — show this command list.\n\nAny other reply is sent to the current session.",
+                threadTs, cancellationToken);
+            return;
+        }
         if (_pendingCommitMessages.TryGetValue(threadTs, out var pendingCommit))
         {
             await CompletePendingCommitAsync(threadTs, pendingCommit, text, cancellationToken);

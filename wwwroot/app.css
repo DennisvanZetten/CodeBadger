@@ -95,6 +95,16 @@ body {
     text-transform: none;
 }
 
+.mud-snackbar .mud-snackbar-content-message {
+    font-size: 0.76rem !important;
+    line-height: 1.35;
+}
+
+.mud-snackbar .mud-icon-button {
+    width: 28px;
+    height: 28px;
+}
+
 .mud-tab {
     font-size: 0.78rem !important;
 }

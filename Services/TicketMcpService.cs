@@ -20,30 +20,33 @@ public sealed class TicketMcpService
             throw new InvalidOperationException("Configure a ticket system and MCP server for this repository first.");
 
         var agentTool = AgentTools.Normalize(repository.AgentTool);
-        var configPath = _agentConfig.GetConfigPath(agentTool);
-        if (!File.Exists(configPath))
-            throw new InvalidOperationException($"The {AgentTools.GetDisplayName(agentTool)} config containing the MCP server was not found.");
-
-        var configText = await _agentConfig.LoadAsync(agentTool);
-        var config = JsonNode.Parse(configText, documentOptions: new JsonDocumentOptions
+        JsonObject? server;
+        try
         {
-            AllowTrailingCommas = true,
-            CommentHandling = JsonCommentHandling.Skip
-        }) as JsonObject ?? throw new InvalidOperationException($"The {AgentTools.GetDisplayName(agentTool)} config is not a JSON object.");
-        var isClaude = agentTool == AgentTools.ClaudeCode;
-        var servers = isClaude
-            ? config["mcpServers"] as JsonObject
-            : (config["mcp"] as JsonObject)?["servers"] as JsonObject;
-        var server = servers?[repository.TicketMcpServerName] as JsonObject
-            ?? throw new InvalidOperationException("The configured ticket MCP server was not found.");
+            server = await _agentConfig.GetRepositoryMcpServerAsync(agentTool, repository, repository.TicketMcpServerName);
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException($"Could not load the effective MCP configuration for {AgentTools.GetDisplayName(agentTool)}.", exception);
+        }
+        if (server is null)
+            throw new InvalidOperationException($"The selected ticket MCP server '{repository.TicketMcpServerName}' was not found in the global or repository-specific {AgentTools.GetDisplayName(agentTool)} configuration.");
         if (server["disabled"]?.GetValue<bool>() == true)
-            throw new InvalidOperationException("The configured ticket MCP server is disabled.");
+            throw new InvalidOperationException($"The selected ticket MCP server '{repository.TicketMcpServerName}' is disabled.");
         if (server["url"] is JsonValue)
             throw new InvalidOperationException("Ticket creation through remote HTTP MCP servers is not supported yet; configure a local stdio MCP server.");
         if (server["command"] is not JsonArray command || command.Count == 0 || command[0]?.GetValue<string>() is not { Length: > 0 } executable)
             throw new InvalidOperationException("Ticket creation currently requires a local stdio MCP server with a command.");
 
-        var toolResult = await CallServerAsync(repository.Path, command, server, cancellationToken);
+        JsonObject? toolResult;
+        try
+        {
+            toolResult = await CallServerAsync(repository.Path, command, server, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException($"Could not start MCP server '{repository.TicketMcpServerName}' or list its tools: {exception.Message}", exception);
+        }
         var tools = toolResult?[("tools")] as JsonArray ??
             throw new InvalidOperationException("The ticket MCP server did not return a tool list.");
         var createTool = tools.OfType<JsonObject>()
@@ -56,8 +59,16 @@ public sealed class TicketMcpService
             throw new InvalidOperationException("No create-issue or create-ticket tool was found on the configured MCP server.");
 
         var arguments = BuildArguments(createTool.Tool["inputSchema"] as JsonObject, title, description);
-        var callResult = await CallServerAsync(repository.Path, command, server, cancellationToken,
-            createTool.Name, arguments);
+        JsonObject? callResult;
+        try
+        {
+            callResult = await CallServerAsync(repository.Path, command, server, cancellationToken,
+                createTool.Name, arguments);
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException($"MCP server '{repository.TicketMcpServerName}' failed while calling tool '{createTool.Name}': {exception.Message}", exception);
+        }
         var text = callResult?.ToJsonString() ?? string.Empty;
         var ticketNumber = Regex.Match(text, @"\b[A-Z][A-Z0-9_]+-\d+\b|#\d+", RegexOptions.IgnoreCase).Value;
         if (string.IsNullOrWhiteSpace(ticketNumber))

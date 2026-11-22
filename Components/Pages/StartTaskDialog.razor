@@ -2,6 +2,7 @@
 @inject GitBranchService Git
 @inject TicketMcpService Tickets
 @inject ISnackbar Snackbar
+@inject IJSRuntime JS
 
 <MudDialog>
     <TitleContent><MudText Typo="Typo.h6">@L.T("Prepare task start")</MudText></TitleContent>
@@ -73,6 +74,7 @@
     private string _existingBranch = string.Empty;
     private IReadOnlyList<string> _branches = [];
     private bool _working;
+    private string _errorDetails = string.Empty;
     private bool CanContinue => !_working && (!TicketRequired || _ticketMode switch
     {
         "new-branch-existing-ticket" => !string.IsNullOrWhiteSpace(_ticketNumber),
@@ -97,11 +99,16 @@
         if (!CanContinue)
             return;
         _working = true;
+        var stage = "preparing the ticket";
         try
         {
             if (TicketRequired && _ticketMode == "new-ticket")
+            {
+                stage = "creating the ticket";
                 _ticketNumber = await Tickets.CreateTicketAsync(Repository, Task.Title, Task.Description);
+            }
 
+            stage = "preparing the branch";
             var existingBranch = TicketRequired && _ticketMode == "existing-ticket-branch" ? _existingBranch : null;
             var startPoint = _branchBase == "development" ? _developmentBranch : _currentBranch;
             if (existingBranch is null && string.IsNullOrWhiteSpace(startPoint))
@@ -111,9 +118,44 @@
         }
         catch (Exception exception)
         {
-            Snackbar.Add(L.T("Could not prepare the task: {0}", exception.Message), Severity.Error);
+            var summary = stage == "creating the ticket"
+                ? L.T("Ticket creation failed.")
+                : L.T("Could not prepare the branch.");
+            _errorDetails = string.Join(Environment.NewLine,
+                "Task start preparation failed",
+                $"Stage: {stage}",
+                $"Task: {Task.Title}",
+                $"Repository: {Repository.Name}",
+                $"Repository path: {Repository.Path}",
+                $"Agent: {AgentTools.GetDisplayName(AgentTools.Normalize(Repository.AgentTool))}",
+                $"Ticket system: {Repository.TicketSystem}",
+                $"Selected MCP server: {Repository.TicketMcpServerName}",
+                $"Ticket mode: {_ticketMode}",
+                $"Exception: {exception}");
+            Snackbar.Add(summary, Severity.Error, options =>
+            {
+                options.RequireInteraction = true;
+                options.ShowCloseIcon = true;
+                options.VisibleStateDuration = 30000;
+                options.Action = L.T("Copy details");
+                options.ActionColor = Color.Inherit;
+                options.OnClick = CopyErrorDetailsAsync;
+            });
         }
         finally { _working = false; }
+    }
+
+    private async Task CopyErrorDetailsAsync(Snackbar snackbar)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _errorDetails);
+            Snackbar.Add(L.T("Error details copied."), Severity.Success);
+        }
+        catch (Exception)
+        {
+            Snackbar.Add(L.T("Could not copy error details."), Severity.Error);
+        }
     }
 
     private void Cancel() => MudDialog.Cancel();

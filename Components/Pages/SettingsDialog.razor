@@ -464,8 +464,7 @@
         try
         {
             var agentTool = AgentTools.Normalize(repository.AgentTool);
-            var config = await AgentConfigService.LoadAsync(agentTool);
-            var servers = await AgentConfigService.GetMcpServersAsync(agentTool, config, Settings.Repositories);
+            var servers = await AgentConfigService.GetRepositoryMcpServersAsync(agentTool, repository, Settings.Repositories);
             _repositoryMcpOptions[repository.Id] = new RepositoryMcpOptions(false, servers);
         }
         catch (Exception exception)

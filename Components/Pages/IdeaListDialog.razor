@@ -5,6 +5,7 @@
 @inject OpenCodeActivityService OpenCodeActivity
 @inject GitBranchService Git
 @inject ISnackbar Snackbar
+@inject IJSRuntime JS
 
 <MudDialog Class="idea-list-dialog">
     <TitleContent>
@@ -162,6 +163,7 @@
         if (!CanStartTask(item) || !_startingTasks.Add(item.Id))
             return;
 
+        var stage = "preparing the task start";
         try
         {
             var repositoryId = Guid.Parse(_selectedRepositories[item.Id]!);
@@ -182,6 +184,7 @@
             await Ideas.SaveTicketAsync(item.Id, plan.TicketNumber);
 
             string branchName;
+            stage = "creating or checking out the branch";
             if (plan.ExistingBranch is not null)
             {
                 var checkout = await Git.CheckoutBranchAsync(repository.Path, plan.ExistingBranch);
@@ -197,6 +200,7 @@
                     throw new InvalidOperationException(branchResult.Message);
             }
 
+            stage = "creating the OpenCode session";
             var session = await OpenCodeActivity.CreateSessionAsync(repository.Path, CancellationToken.None);
             var ticketContext = string.IsNullOrWhiteSpace(plan.TicketNumber) ? string.Empty : $"Ticket: {plan.TicketNumber}\n";
             var storyTemplate = string.IsNullOrWhiteSpace(repository.TaskStoryTemplate)
@@ -206,6 +210,7 @@
                 $"{L.T("Shape the requested work as a story using the repository's template below. Preserve its sections and fill them with details grounded in the task.")}\n\n" +
                 $"{L.T("Story template:")}\n{storyTemplate}\n\n{L.T("Task:")}\n{item.Title}" +
                 (string.IsNullOrWhiteSpace(item.Description) ? string.Empty : $"\n\n{item.Description}");
+            stage = "sending the initial task prompt";
             await OpenCodeActivity.SendPromptAsync(session.Id, session.Directory, prompt, CancellationToken.None, "plan");
             if (await Ideas.LinkSessionAsync(item.Id, repository, session.Id,
                     string.IsNullOrWhiteSpace(session.Title) ? item.Title : session.Title,
@@ -224,11 +229,45 @@
         }
         catch (Exception exception)
         {
-            Snackbar.Add(L.T("Could not start the task: {0}", exception.Message), Severity.Error);
+            var repository = _repositories.FirstOrDefault(candidate => candidate.Id ==
+                (Guid.TryParse(_selectedRepositories.GetValueOrDefault(item.Id), out var id) ? id : Guid.Empty));
+            var summary = L.T("Task start failed.");
+            var errorDetails = string.Join(Environment.NewLine,
+                "Task start failed",
+                $"Stage: {stage}",
+                $"Task: {item.Title}",
+                $"Repository: {repository?.Name ?? repository?.Path ?? "unknown"}",
+                $"Repository path: {repository?.Path ?? "unknown"}",
+                $"Agent: {(repository is null ? "unknown" : AgentTools.GetDisplayName(AgentTools.Normalize(repository.AgentTool)))}",
+                $"Ticket system: {repository?.TicketSystem ?? "unknown"}",
+                $"Selected MCP server: {repository?.TicketMcpServerName ?? "unknown"}",
+                $"Exception: {exception}");
+            Snackbar.Add(summary, Severity.Error, options =>
+            {
+                options.RequireInteraction = true;
+                options.ShowCloseIcon = true;
+                options.VisibleStateDuration = 30000;
+                options.Action = L.T("Copy details");
+                options.ActionColor = Color.Inherit;
+                options.OnClick = snackbar => CopyTaskStartErrorDetailsAsync(errorDetails);
+            });
         }
         finally
         {
             _startingTasks.Remove(item.Id);
+        }
+    }
+
+    private async Task CopyTaskStartErrorDetailsAsync(string errorDetails)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", errorDetails);
+            Snackbar.Add(L.T("Error details copied."), Severity.Success);
+        }
+        catch (Exception)
+        {
+            Snackbar.Add(L.T("Could not copy error details."), Severity.Error);
         }
     }
 

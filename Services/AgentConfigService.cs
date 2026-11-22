@@ -8,7 +8,9 @@ namespace CodeBadger.Services;
 
 public sealed record AgentMcpServer(string Name, bool Enabled);
 
-public sealed class AgentConfigService(CodexConfigService codexConfigService)
+public sealed class AgentConfigService(
+    CodexConfigService codexConfigService,
+    OpenCodeRepositoryConfigService openCodeRepositoryConfigService)
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
@@ -90,6 +92,62 @@ public sealed class AgentConfigService(CodexConfigService codexConfigService)
 
             return new AgentMcpServer(pair.Key, enabled);
         }).OrderBy(server => server.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    public async Task<IReadOnlyList<AgentMcpServer>> GetRepositoryMcpServersAsync(
+        string agentTool, RepositoryEntry repository, IReadOnlyCollection<RepositoryEntry> repositories)
+    {
+        var config = await LoadAsync(agentTool);
+        if (AgentTools.Normalize(agentTool) == AgentTools.OpenCode && !string.IsNullOrWhiteSpace(repository.Path))
+        {
+            var projectConfig = await openCodeRepositoryConfigService.LoadProjectConfigAsync(repository.Path);
+            config = MergeOpenCodeMcpServers(config, projectConfig);
+        }
+
+        return await GetMcpServersAsync(agentTool, config, repositories);
+    }
+
+    public async Task<JsonObject?> GetRepositoryMcpServerAsync(string agentTool, RepositoryEntry repository, string serverName)
+    {
+        var config = await LoadAsync(agentTool);
+        if (AgentTools.Normalize(agentTool) == AgentTools.OpenCode && !string.IsNullOrWhiteSpace(repository.Path))
+        {
+            var projectConfig = await openCodeRepositoryConfigService.LoadProjectConfigAsync(repository.Path);
+            config = MergeOpenCodeMcpServers(config, projectConfig);
+        }
+
+        var root = ParseObject(config);
+        var isClaude = AgentTools.Normalize(agentTool) == AgentTools.ClaudeCode;
+        var servers = isClaude
+            ? root["mcpServers"] as JsonObject
+            : (root["mcp"] as JsonObject)?["servers"] as JsonObject;
+        return servers?[serverName] is JsonObject server ? (JsonObject)server.DeepClone() : null;
+    }
+
+    private static string MergeOpenCodeMcpServers(string globalConfig, string projectConfig)
+    {
+        var globalRoot = ParseObject(globalConfig);
+        var projectRoot = ParseObject(projectConfig);
+        var projectServers = (projectRoot["mcp"] as JsonObject)?["servers"] as JsonObject;
+        if (projectServers is null)
+            return globalRoot.ToJsonString();
+
+        var globalMcp = globalRoot["mcp"] as JsonObject;
+        if (globalMcp is null)
+        {
+            globalMcp = new JsonObject();
+            globalRoot["mcp"] = globalMcp;
+        }
+        var globalServers = globalMcp["servers"] as JsonObject;
+        if (globalServers is null)
+        {
+            globalServers = new JsonObject();
+            globalMcp["servers"] = globalServers;
+        }
+        foreach (var (name, server) in projectServers)
+            globalServers[name] = server?.DeepClone();
+
+        return globalRoot.ToJsonString();
     }
 
     public async Task<string> SetMcpServerEnabledAsync(

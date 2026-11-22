@@ -49,7 +49,7 @@ export function attachHistorySplitter() {
         activeSplitters.delete(splitter);
     }
 
-    for (const splitter of document.querySelectorAll(".git-history-workspace .git-history-splitter, .git-commit-workspace .git-commit-splitter")) {
+    for (const splitter of document.querySelectorAll(".git-history-workspace .git-history-splitter, .git-history-workspace .git-commit-file-detail-splitter, .git-commit-workspace .git-commit-splitter")) {
         const branchGroupSplitter = splitter.classList.contains("git-branch-group-splitter");
         if (branchGroupSplitter) {
             const groups = splitter.closest(".git-branch-groups");
@@ -129,6 +129,71 @@ export function attachHistorySplitter() {
                 const splitterBounds = splitter.getBoundingClientRect();
                 const currentCenter = (splitterBounds.top + splitterBounds.bottom) / 2;
                 setBoundary(currentCenter + (increase ? 20 : -20));
+            };
+
+            splitter.addEventListener("pointerdown", startDragging);
+            splitter.addEventListener("keydown", onKeyDown);
+            activeSplitters.add(splitter);
+            attachedSplitters.set(splitter, () => {
+                stopDragging();
+                splitter.removeEventListener("pointerdown", startDragging);
+                splitter.removeEventListener("keydown", onKeyDown);
+            });
+            continue;
+        }
+
+        if (splitter.classList.contains("git-commit-file-detail-splitter")) {
+            const panel = splitter.closest(".git-commit-files-panel");
+            const fileList = panel?.querySelector(":scope > .git-commit-files-list");
+            if (!panel || !fileList || attachedSplitters.has(splitter))
+                continue;
+
+            let dragging = false;
+            const setBoundary = coordinate => {
+                const panelBounds = panel.getBoundingClientRect();
+                const listBounds = fileList.getBoundingClientRect();
+                const diffTitle = panel.querySelector(":scope > .git-commit-file-diff-title");
+                const styles = getComputedStyle(panel);
+                const gap = parseFloat(styles.rowGap) || 0;
+                const bottomPadding = parseFloat(styles.paddingBottom) || 0;
+                const minimum = 80;
+                const detailMinimum = 180;
+                const titleHeight = diffTitle?.getBoundingClientRect().height ?? 0;
+                const maximum = panelBounds.bottom - bottomPadding - detailMinimum - titleHeight - splitter.getBoundingClientRect().height - 3 * gap - listBounds.top;
+                const height = Math.max(minimum, Math.min(maximum, coordinate - listBounds.top));
+                panel.style.setProperty("--git-commit-file-list-height", `${height}px`);
+            };
+            const onPointerMove = event => {
+                if (dragging)
+                    setBoundary(event.clientY);
+            };
+            const stopDragging = () => {
+                if (!dragging)
+                    return;
+                dragging = false;
+                document.body.classList.remove("git-commit-file-resizing");
+                window.removeEventListener("pointermove", onPointerMove);
+                window.removeEventListener("pointerup", stopDragging);
+                window.removeEventListener("pointercancel", stopDragging);
+            };
+            const startDragging = event => {
+                if (event.button !== 0)
+                    return;
+                event.preventDefault();
+                dragging = true;
+                document.body.classList.add("git-commit-file-resizing");
+                window.addEventListener("pointermove", onPointerMove);
+                window.addEventListener("pointerup", stopDragging);
+                window.addEventListener("pointercancel", stopDragging);
+            };
+            const onKeyDown = event => {
+                const decrease = event.key === "ArrowUp" || event.key === "ArrowLeft";
+                const increase = event.key === "ArrowDown" || event.key === "ArrowRight";
+                if (!decrease && !increase)
+                    return;
+                event.preventDefault();
+                const listBounds = fileList.getBoundingClientRect();
+                setBoundary(listBounds.bottom + (increase ? 20 : -20));
             };
 
             splitter.addEventListener("pointerdown", startDragging);

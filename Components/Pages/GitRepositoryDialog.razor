@@ -435,6 +435,7 @@
                                     </div>
                                     @if (_selectedCommitFile is not null)
                                     {
+                                        <div class="git-history-splitter git-commit-file-detail-splitter" role="separator" aria-orientation="horizontal" aria-label="@L.T("Resize commit file list and diff")" tabindex="0"></div>
                                         <MudText Typo="Typo.caption" Class="git-commit-file-diff-title" title="@_selectedCommitFile.Path">@_selectedCommitFile.Path</MudText>
                                         <GitDiffViewer Diff="@_selectedCommitFileDiff" IsLoading="@_isLoadingCommitFileDiff" CssClass="git-commit-file-diff" />
                                     }

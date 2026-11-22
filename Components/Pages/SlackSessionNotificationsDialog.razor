@@ -21,12 +21,12 @@
         }
         else
         {
-            <MudStack Spacing="2">
+            <MudStack Spacing="1" Class="session-notification-list">
                 @foreach (var session in SessionItems)
                 {
-                    <MudPaper @key="session.Id" Outlined="true" Elevation="0" Class="pa-3">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap" Spacing="2">
-                            <MudStack Spacing="0">
+                    <MudPaper @key="session.Id" Outlined="true" Elevation="0" Class="session-notification-card">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap session-notification-row" Spacing="1">
+                            <MudStack Spacing="0" Class="session-notification-details">
                                 <MudText Typo="Typo.body1">@session.Title</MudText>
                                 <MudText Typo="Typo.caption" Color="Color.Secondary">@session.Agent · @session.Id</MudText>
                             </MudStack>

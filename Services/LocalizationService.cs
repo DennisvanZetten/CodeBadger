@@ -616,6 +616,7 @@ public sealed class LocalizationService
         ["Collapse commit files panel"] = ["Collapse commit files panel", "Commitbestandenpaneel inklappen", "Commit-Dateibereich einklappen", "Réduire le panneau des fichiers du commit"],
         ["Expand commit files panel"] = ["Expand commit files panel", "Commitbestandenpaneel uitklappen", "Commit-Dateibereich ausklappen", "Développer le panneau des fichiers du commit"],
         ["Resize commit files panel"] = ["Resize commit files panel", "Paneel met commitbestanden aanpassen", "Commit-Dateibereich ändern", "Redimensionner le panneau des fichiers du commit"],
+        ["Resize commit file list and diff"] = ["Resize commit file list and diff", "Bestandenlijst en diff aanpassen", "Dateiliste und Diff anpassen", "Redimensionner la liste de fichiers et le diff"],
         ["Diff {0}"] = ["Diff {0}", "Verschil {0}", "Diff {0}", "Diff {0}"],
         ["Select a file to view its diff."] = ["Select a file to view its diff.", "Selecteer een bestand om de diff te bekijken.", "Wählen Sie eine Datei aus, um den Diff anzuzeigen.", "Sélectionnez un fichier pour afficher son diff."],
         ["Unstaged ({0})"] = ["Unstaged ({0})", "Niet staged ({0})", "Nicht vorgemerkt ({0})", "Non indexés ({0})"],

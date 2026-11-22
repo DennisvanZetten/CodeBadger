@@ -28,17 +28,8 @@ body {
 .mud-typography-body1,
 .mud-typography-body2,
 .mud-typography-subtitle1,
-.mud-typography-subtitle2,
-.mud-input-control,
-.mud-input-control .mud-input-slot,
-.mud-input-control .mud-input-slot input,
-.mud-input-control .mud-input-slot textarea,
-.mud-input-control .mud-input-slot .mud-input-root,
-.mud-input-control .mud-select-input,
-.mud-input-control .mud-input-label,
-.mud-input-control .mud-input-helper-text,
-.mud-input-control .mud-input-control-helper-container {
-    font-size: 0.88rem !important;
+.mud-typography-subtitle2 {
+    font-size: 0.8rem !important;
     line-height: 1.35;
 }
 
@@ -71,24 +62,37 @@ body {
 .mud-alert,
 .mud-list-item,
 .mud-menu-item,
-.mud-table-cell,
-.mud-input-helper-text,
-.mud-input-control .mud-input-helper-text,
-.mud-input-control .mud-input-control-helper-container {
+.mud-table-cell {
     font-size: 0.7rem !important;
     line-height: 1.35;
 }
 
 .mud-input-label,
 .mud-input-control .mud-input-label {
-    font-size: 0.78rem !important;
+    font-size: 0.88rem !important;
+    line-height: 1.35;
+}
+
+.mud-input-control .mud-input-slot,
+.mud-input-control .mud-input-slot input,
+.mud-input-control .mud-input-slot textarea,
+.mud-input-control .mud-input-slot .mud-input-root,
+.mud-input-control .mud-select-input {
+    font-size: 0.8rem !important;
+    line-height: 1.35;
+}
+
+.mud-input-control .mud-input-helper-text,
+.mud-input-control .mud-input-control-helper-container {
+    font-size: 0.68rem !important;
     line-height: 1.35;
 }
 
 .mud-button-root {
-    font-size: 0.72rem !important;
+    font-size: 0.7rem !important;
     min-height: 32px;
     padding: 4px 10px;
+    text-transform: none;
 }
 
 .mud-tab {
@@ -100,18 +104,6 @@ body {
     height: 28px;
     padding: 3px;
     font-size: 1rem;
-}
-
-.mud-input-control .mud-input-slot,
-.mud-input-control input,
-.mud-input-control textarea,
-.mud-input-control .mud-select-input {
-    font-size: 0.88rem !important;
-}
-
-.mud-input-label,
-.mud-input-helper-text {
-    font-size: 0.75rem;
 }
 
 .mud-input-control-margin-dense {
@@ -480,6 +472,29 @@ h1:focus {
 
 .settings-tabs .mud-divider {
     flex: 0 0 auto;
+}
+
+.session-notification-list {
+    gap: 0.5rem !important;
+}
+
+.session-notification-card {
+    min-width: 0;
+    padding: 0.55rem 0.7rem;
+}
+
+.session-notification-row {
+    gap: 0.5rem !important;
+}
+
+.session-notification-details {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.session-notification-card .mud-button-root {
+    min-height: 28px;
+    padding: 3px 8px;
 }
 
 .repository-setting-row {
@@ -2392,15 +2407,49 @@ h1:focus {
 
 .git-commit-files-list {
     display: flex;
-    flex: 0 1 auto;
+    flex: 0 0 var(--git-commit-file-list-height, 38%);
     flex-direction: column;
     align-items: stretch;
     align-self: stretch;
     width: 100%;
-    max-height: 38%;
-    min-height: 0;
+    max-height: none;
+    min-height: 80px;
     overflow-y: auto;
     box-sizing: border-box;
+}
+
+.git-commit-file-detail-splitter {
+    display: block;
+    position: relative;
+    z-index: 1;
+    flex: 0 0 6px;
+    width: 100%;
+    min-height: 6px;
+    cursor: ns-resize !important;
+    touch-action: none;
+}
+
+.git-commit-file-detail-splitter::before {
+    content: "";
+    position: absolute;
+    inset: -5px 0;
+    cursor: ns-resize !important;
+}
+
+.git-commit-file-detail-splitter::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    border-top: 1px solid var(--mud-palette-divider);
+    pointer-events: none;
+}
+
+.git-commit-file-detail-splitter:hover,
+.git-commit-file-detail-splitter:focus-visible {
+    cursor: ns-resize !important;
+    outline: none;
 }
 
 .git-commit-file-button {
@@ -2451,6 +2500,7 @@ h1:focus {
 
 .git-commit-file-diff {
     align-self: stretch;
+    flex: 1 1 0;
     width: 100%;
     min-height: 0;
     box-sizing: border-box;
@@ -2536,6 +2586,12 @@ body.git-history-resizing * {
 
 body.git-branch-groups-resizing,
 body.git-branch-groups-resizing * {
+    cursor: ns-resize !important;
+    user-select: none !important;
+}
+
+body.git-commit-file-resizing,
+body.git-commit-file-resizing * {
     cursor: ns-resize !important;
     user-select: none !important;
 }

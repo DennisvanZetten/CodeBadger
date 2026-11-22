@@ -26,6 +26,18 @@
                     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@L.T("A ticket will be created from the task title and description using the configured MCP server.")</MudAlert>
                 }
             }
+            else if (TicketConfigured)
+            {
+                <MudText Typo="Typo.subtitle2">@L.T("Would you like to create a ticket?")</MudText>
+                <MudRadioGroup T="string" @bind-Value="_optionalTicketChoice">
+                    <MudRadio T="string" Value="@("yes")">@L.T("Yes, create a ticket")</MudRadio>
+                    <MudRadio T="string" Value="@("no")">@L.T("No, continue without a ticket")</MudRadio>
+                </MudRadioGroup>
+                @if (_optionalTicketChoice == "yes")
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@L.T("A ticket will be created from the task title and description using the configured MCP server.")</MudAlert>
+                }
+            }
             @if (TicketRequired && _ticketMode == "existing-ticket-branch")
             {
                 <MudSelect T="string" @bind-Value="_existingBranch" Label="@L.T("Existing branch")" Required="true">
@@ -46,7 +58,7 @@
                     }
                 </MudRadioGroup>
             }
-            @if (!TicketRequired)
+            @if (!TicketRequired && !TicketConfigured)
             {
                 <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Ticket handling is optional for this repository; the task will start without a ticket.")</MudText>
             }
@@ -65,8 +77,11 @@
     [Parameter, EditorRequired] public IdeaItem Task { get; set; } = new();
     [Parameter, EditorRequired] public RepositoryEntry Repository { get; set; } = new();
     [Parameter] public bool TicketRequired { get; set; }
+    private bool TicketConfigured => TicketSystems.Normalize(Repository.TicketSystem) != TicketSystems.None &&
+        !string.IsNullOrWhiteSpace(Repository.TicketMcpServerName);
 
     private string _ticketMode = "new-branch-existing-ticket";
+    private string _optionalTicketChoice = string.Empty;
     private string _ticketNumber = string.Empty;
     private string _branchBase = "current";
     private string? _currentBranch;
@@ -75,13 +90,15 @@
     private IReadOnlyList<string> _branches = [];
     private bool _working;
     private string _errorDetails = string.Empty;
-    private bool CanContinue => !_working && (!TicketRequired || _ticketMode switch
-    {
-        "new-branch-existing-ticket" => !string.IsNullOrWhiteSpace(_ticketNumber),
-        "new-ticket" => true,
-        "existing-ticket-branch" => !string.IsNullOrWhiteSpace(_ticketNumber) && !string.IsNullOrWhiteSpace(_existingBranch),
-        _ => false
-    });
+    private bool CanContinue => !_working && (TicketRequired
+        ? _ticketMode switch
+        {
+            "new-branch-existing-ticket" => !string.IsNullOrWhiteSpace(_ticketNumber),
+            "new-ticket" => true,
+            "existing-ticket-branch" => !string.IsNullOrWhiteSpace(_ticketNumber) && !string.IsNullOrWhiteSpace(_existingBranch),
+            _ => false
+        }
+        : !TicketConfigured || _optionalTicketChoice is "yes" or "no");
 
     protected override async Task OnInitializedAsync()
     {
@@ -102,7 +119,10 @@
         var stage = "preparing the ticket";
         try
         {
-            if (TicketRequired && _ticketMode == "new-ticket")
+            var createTicket = TicketRequired
+                ? _ticketMode == "new-ticket"
+                : TicketConfigured && _optionalTicketChoice == "yes";
+            if (createTicket)
             {
                 stage = "creating the ticket";
                 _ticketNumber = await Tickets.CreateTicketAsync(Repository, Task.Type, Task.Title, Task.Description);

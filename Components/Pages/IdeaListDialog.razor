@@ -193,6 +193,10 @@
                     throw new InvalidOperationException(checkout.Message);
                 branchName = plan.ExistingBranch;
             }
+            else if (plan.UseCurrentBranch)
+            {
+                branchName = plan.StartPoint!;
+            }
             else
             {
                 branchName = BuildTaskBranchName(settings.TaskBranchPrefix, plan.TicketNumber, item.Title);
@@ -283,9 +287,10 @@
             .Select(part => new string(part.Where(char.IsAsciiLetterOrDigit).ToArray()))
             .Where(part => part.Length > 0));
 
-        var parts = new[] { prefix.Trim('/'), ticketNumber, Slug(title) }
-            .Where(part => !string.IsNullOrWhiteSpace(part));
-        return string.Join('/', parts);
+        var branchLabel = string.Join('-', new[] { ticketNumber, Slug(title) }
+            .Where(part => !string.IsNullOrWhiteSpace(part)));
+        var branchPrefix = prefix.Trim('/');
+        return string.IsNullOrWhiteSpace(branchPrefix) ? branchLabel : $"{branchPrefix}/{branchLabel}";
     }
 
     private string RepositoryName(RepositoryEntry repository) => string.IsNullOrWhiteSpace(repository.Name)

@@ -57,14 +57,25 @@
             }
             else
             {
-                <MudText Typo="Typo.subtitle2">@L.T("Create branch from")</MudText>
-                <MudRadioGroup T="string" @bind-Value="_branchBase">
-                    <MudRadio T="string" Value="@("current")">@L.T("Current branch ({0})", _currentBranch ?? L.T("unavailable"))</MudRadio>
-                    @if (_developmentBranch is not null)
+                <MudText Typo="Typo.subtitle2">@L.T("Branch choice")</MudText>
+                <MudRadioGroup T="string" @bind-Value="_branchMode">
+                    <MudRadio T="string" Value="@("new")">@L.T("Create a new branch")</MudRadio>
+                    @if (_currentBranch is not null)
                     {
-                        <MudRadio T="string" Value="@("development")">@L.T("development branch")</MudRadio>
+                        <MudRadio T="string" Value="@("current")">@L.T("Use current branch ({0})", _currentBranch)</MudRadio>
                     }
                 </MudRadioGroup>
+                @if (_branchMode == "new")
+                {
+                    <MudText Typo="Typo.subtitle2">@L.T("Create branch from")</MudText>
+                    <MudRadioGroup T="string" @bind-Value="_branchBase">
+                        <MudRadio T="string" Value="@("current")">@L.T("Current branch ({0})", _currentBranch ?? L.T("unavailable"))</MudRadio>
+                        @if (_developmentBranch is not null)
+                        {
+                            <MudRadio T="string" Value="@("development")">@L.T("development branch")</MudRadio>
+                        }
+                    </MudRadioGroup>
+                }
             }
             @if (!TicketRequired && !TicketConfigured)
             {
@@ -92,6 +103,7 @@
     private string _optionalTicketChoice = string.Empty;
     private string _ticketNumber = string.Empty;
     private string _branchBase = "current";
+    private string _branchMode = "new";
     private string? _currentBranch;
     private string? _developmentBranch;
     private string _existingBranch = string.Empty;
@@ -145,11 +157,16 @@
 
             stage = "preparing the branch";
             var existingBranch = TicketRequired && _ticketMode == "existing-ticket-branch" ? _existingBranch : null;
-            var startPoint = _branchBase == "development" ? _developmentBranch : _currentBranch;
+            var useCurrentBranch = !TicketRequired || _ticketMode != "existing-ticket-branch"
+                ? _branchMode == "current"
+                : false;
+            var startPoint = useCurrentBranch
+                ? _currentBranch
+                : _branchBase == "development" ? _developmentBranch : _currentBranch;
             if (existingBranch is null && string.IsNullOrWhiteSpace(startPoint))
                 throw new InvalidOperationException(L.T("The selected branch starting point is unavailable."));
 
-            MudDialog.Close(DialogResult.Ok(new TaskStartPlan(_ticketNumber.Trim(), existingBranch, startPoint)));
+            MudDialog.Close(DialogResult.Ok(new TaskStartPlan(_ticketNumber.Trim(), existingBranch, startPoint, useCurrentBranch)));
         }
         catch (Exception exception)
         {
@@ -202,5 +219,5 @@
 
     private void Cancel() => MudDialog.Cancel();
 
-    public sealed record TaskStartPlan(string TicketNumber, string? ExistingBranch, string? StartPoint);
+    public sealed record TaskStartPlan(string TicketNumber, string? ExistingBranch, string? StartPoint, bool UseCurrentBranch);
 }

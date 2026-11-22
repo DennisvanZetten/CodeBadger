@@ -57,7 +57,7 @@ export function renderConflictResult(textarea, rows, pendingValue) {
         line.dataset.resultLine = String(row.lineNumber);
         if (row.sourceRowIndex !== null && row.sourceRowIndex !== undefined)
             line.dataset.sourceRowIndex = String(row.sourceRowIndex);
-        line.className = `git-conflict-result-line git-conflict-result-${row.kind}`;
+        line.className = `git-conflict-result-line git-conflict-result-${row.kind}${row.isConflictLine ? " git-conflict-result-conflict" : ""}`;
         const number = document.createElement("span");
         number.className = "git-conflict-result-number";
         number.textContent = String(row.lineNumber);

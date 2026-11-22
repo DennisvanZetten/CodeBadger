@@ -9,9 +9,9 @@
         <div class="git-conflict-editor">
             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="git-conflict-toolbar">
                 <MudStack Spacing="0">
-                    <MudText Typo="Typo.subtitle1">@L.T("Resolve conflict")</MudText>
-                    <MudText Typo="Typo.caption" Color="Color.Secondary">@ConflictPath</MudText>
-                </MudStack>
+                        <MudText Typo="Typo.subtitle1">@L.T("Resolve conflict")</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@ConflictPath</MudText>
+                    </MudStack>
                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="git-conflict-navigation">
                     <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" Size="Size.Small" aria-label="@L.T("Previous conflict")" title="@L.T("Previous conflict")" OnClick="PreviousConflict" Disabled="@(_saving || _conflictChunks.Count == 0 || _activeConflictIndex <= 0)" />
                     <MudText Typo="Typo.caption">@(_conflictChunks.Count == 0 ? L.T("No conflicts") : L.T("Conflict {0} of {1}", _activeConflictIndex + 1, _conflictChunks.Count))</MudText>
@@ -34,8 +34,8 @@
             else
             {
                 <div class="git-conflict-sides">
-                    <section class="git-conflict-side">
-                        <header><MudText Typo="Typo.subtitle2">@L.T("Current (left)")</MudText><MudButton Size="Size.Small" OnClick="TakeAllOurs">@L.T("Take all")</MudButton></header>
+                    <section class="git-conflict-side git-conflict-side-current">
+                        <header><MudText Typo="Typo.subtitle2"><span class="git-conflict-source-badge git-conflict-source-a">A</span>@L.T("Current (left)")</MudText><MudButton Size="Size.Small" OnClick="TakeAllOurs">@L.T("Take all")</MudButton></header>
                         <div class="git-conflict-code" @ref="_leftCode">
                             @foreach (var row in BuildSideRows(false))
                             {
@@ -53,8 +53,8 @@
                             }
                         </div>
                     </section>
-                    <section class="git-conflict-side">
-                        <header><MudText Typo="Typo.subtitle2">@L.T("Incoming (right)")</MudText><MudButton Size="Size.Small" OnClick="TakeAllTheirs">@L.T("Take all")</MudButton></header>
+                    <section class="git-conflict-side git-conflict-side-incoming">
+                        <header><MudText Typo="Typo.subtitle2"><span class="git-conflict-source-badge git-conflict-source-b">B</span>@L.T("Incoming (right)")</MudText><MudButton Size="Size.Small" OnClick="TakeAllTheirs">@L.T("Take all")</MudButton></header>
                         <div class="git-conflict-code" @ref="_rightCode">
                             @foreach (var row in BuildSideRows(true))
                             {
@@ -148,7 +148,7 @@
             _chunks = [new ConflictChunk(AlignLines(_ours, _theirs))];
         UpdateResult();
         _pendingResultEditorValue = _result;
-        _resultRenderPending = true;
+                    _resultRenderPending = true;
         _loading = false;
     }
 
@@ -324,7 +324,7 @@
                     var text = row.Selection == true ? row.RightLine : row.LeftLine;
                     if (text is not null)
                     {
-                        selectedRows.Add(new ConflictResultRow(text, row.RequiresSelection ? "chosen" : "context", selectedRows.Count + 1, sourceRowIndex));
+                        selectedRows.Add(new ConflictResultRow(text, row.RequiresSelection ? "chosen" : "context", selectedRows.Count + 1, sourceRowIndex, row.RequiresSelection));
                     }
                     sourceRowIndex++;
                 }
@@ -346,11 +346,10 @@
                 break;
             }
 
-            var kind = matchIndex >= 0 ? selectedRows[matchIndex].Kind : "context";
-            var mappedSourceIndex = matchIndex >= 0 ? selectedRows[matchIndex].SourceRowIndex : (int?)null;
+            var matchedRow = matchIndex >= 0 ? selectedRows[matchIndex] : null;
             if (matchIndex >= 0)
                 sourceIndex = matchIndex + 1;
-            rows.Add(new ConflictResultRow(line, kind, resultIndex + 1, mappedSourceIndex));
+            rows.Add(new ConflictResultRow(line, matchedRow?.Kind ?? "context", resultIndex + 1, matchedRow?.SourceRowIndex, matchedRow?.IsConflictLine ?? false));
         }
         return rows;
     }
@@ -520,5 +519,5 @@
     }
 
     private sealed record ConflictDisplayRow(string? Text, int? LineNumber, ConflictLine? Conflict, int SourceRowIndex);
-    private sealed record ConflictResultRow(string Text, string Kind, int LineNumber, int? SourceRowIndex);
+    private sealed record ConflictResultRow(string Text, string Kind, int LineNumber, int? SourceRowIndex, bool IsConflictLine = false);
 }

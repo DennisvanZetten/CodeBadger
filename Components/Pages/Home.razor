@@ -101,11 +101,11 @@
         @if (_contextMenuRepository is not null && CanOpenRepositorySlackSessions(_contextMenuRepository))
         {
             <div class="repository-tab-context-backdrop" @onclick="CloseRepositoryContextMenu" @oncontextmenu:preventDefault="true"></div>
-            <div class="repository-tab-context-menu" style="left:@(_contextMenuX)px;top:@(_contextMenuY)px" @onclick:stopPropagation="true">
-                <MudButton FullWidth="true" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.NotificationsActive"
-                           OnClick="OpenRepositorySlackSessionsAsync">
-                    @L.T("Session notifications")
-                </MudButton>
+            <div class="repository-tab-context-menu git-commit-context-menu" style="left:@(_contextMenuX)px;top:@(_contextMenuY)px" @onclick:stopPropagation="true">
+                <button class="git-commit-context-menu-item" @onclick="OpenRepositorySlackSessionsAsync">
+                    <MudIcon Icon="@Icons.Material.Filled.NotificationsActive" Size="Size.Small" />
+                    <span>@L.T("Session notifications")</span>
+                </button>
             </div>
         }
         @if (_isDockDragActive)

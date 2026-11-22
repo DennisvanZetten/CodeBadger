@@ -11,6 +11,7 @@
                 <MudSelectItem Value="IdeaType.Wish">@L.T("Wish")</MudSelectItem>
                 <MudSelectItem Value="IdeaType.Task">@L.T("Task")</MudSelectItem>
                 <MudSelectItem Value="IdeaType.Bug">@L.T("Bug")</MudSelectItem>
+                <MudSelectItem Value="IdeaType.Story">@L.T("Story")</MudSelectItem>
             </MudSelect>
             <MudTextField @bind-Value="_description" Label="@L.T("Description (optional)")" Lines="3" MaxLength="2000" />
         </MudStack>
@@ -27,7 +28,7 @@
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
     private string _title = string.Empty;
     private string _description = string.Empty;
-    private IdeaType _type = IdeaType.Task;
+    private IdeaType _type = IdeaType.Story;
 
     private async Task SaveAsync()
     {

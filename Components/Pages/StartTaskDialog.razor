@@ -105,7 +105,7 @@
             if (TicketRequired && _ticketMode == "new-ticket")
             {
                 stage = "creating the ticket";
-                _ticketNumber = await Tickets.CreateTicketAsync(Repository, Task.Title, Task.Description);
+                _ticketNumber = await Tickets.CreateTicketAsync(Repository, Task.Type, Task.Title, Task.Description);
             }
 
             stage = "preparing the branch";

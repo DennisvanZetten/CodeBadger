@@ -52,6 +52,7 @@ public sealed class LauncherSettingsService
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
                 repository.TicketSystem = TicketSystems.Normalize(repository.TicketSystem);
                 repository.TicketMcpServerName ??= string.Empty;
+                repository.TicketProjectKey ??= string.Empty;
                 ClearLegacyTicketMcpServer(repository);
                 repository.TaskStoryTemplate ??= RepositoryEntry.DefaultTaskStoryTemplate;
             }
@@ -85,6 +86,7 @@ public sealed class LauncherSettingsService
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
                 repository.TicketSystem = TicketSystems.Normalize(repository.TicketSystem);
                 repository.TicketMcpServerName = repository.TicketMcpServerName?.Trim() ?? string.Empty;
+                repository.TicketProjectKey = repository.TicketProjectKey?.Trim() ?? string.Empty;
                 ClearLegacyTicketMcpServer(repository);
                 repository.TaskStoryTemplate ??= RepositoryEntry.DefaultTaskStoryTemplate;
             }

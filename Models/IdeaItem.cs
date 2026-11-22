@@ -5,7 +5,8 @@ public enum IdeaType
     Idea,
     Wish,
     Task,
-    Bug
+    Bug,
+    Story
 }
 
 public enum IdeaStatus
@@ -20,7 +21,7 @@ public sealed class IdeaItem
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
-    public IdeaType Type { get; set; } = IdeaType.Task;
+    public IdeaType Type { get; set; } = IdeaType.Story;
     public IdeaStatus Status { get; set; } = IdeaStatus.Open;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public Guid? RepositoryId { get; set; }

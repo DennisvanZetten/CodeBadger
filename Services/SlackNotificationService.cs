@@ -704,7 +704,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
             if (text.Equals("!help", StringComparison.OrdinalIgnoreCase))
             {
                 await PostMessageAsync(_botToken, _channelId,
-                "*Slack commands*\n• `!new` — start a new OpenCode session; then choose a repository and send a task in its thread.\n• `!todo <title>` — add an item to the CodeBadger ideas and tasks list. Optional type prefixes: `idea:`, `wish:`, `task:`, or `bug:`.\n• `!todos` — list up to 10 most recently created open items.\n• `!help` — show this command list.",
+                "*Slack commands*\n• `!new` — start a new OpenCode session; then choose a repository and send a task in its thread.\n• `!todo <title>` — add an item to the CodeBadger ideas and tasks list (defaults to story). Optional type prefixes: `idea:`, `wish:`, `task:`, `bug:`, or `story:`.\n• `!todos` — list up to 10 most recently created open items.\n• `!help` — show this command list.",
                     null, cancellationToken);
                 return;
             }
@@ -811,12 +811,12 @@ public sealed class SlackNotificationService : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(title) || title.Length > 160)
         {
             await PostMessageAsync(_botToken, _channelId,
-                "Usage: `!todo <title>` (up to 160 characters). Optional prefixes: `idea:`, `wish:`, `task:`, or `bug:`.",
+                "Usage: `!todo <title>` (up to 160 characters). Optional prefixes: `idea:`, `wish:`, `task:`, `bug:`, or `story:`. Defaults to story.",
                 threadTs, cancellationToken);
             return;
         }
 
-        var type = IdeaType.Task;
+        var type = IdeaType.Story;
         foreach (var candidate in Enum.GetValues<IdeaType>())
         {
             var prefix = candidate.ToString().ToLowerInvariant() + ":";

@@ -12,13 +12,15 @@ public sealed class TicketMcpService
 
     public TicketMcpService(AgentConfigService agentConfig) => _agentConfig = agentConfig;
 
-    public async Task<string> CreateTicketAsync(RepositoryEntry repository, string title, string description,
+    public async Task<string> CreateTicketAsync(RepositoryEntry repository, IdeaType itemType, string title, string description,
         CancellationToken cancellationToken = default)
     {
         if (TicketSystems.Normalize(repository.TicketSystem) == TicketSystems.None ||
             string.IsNullOrWhiteSpace(repository.TicketMcpServerName))
             throw new InvalidOperationException("Configure a ticket system and MCP server for this repository first.");
-
+        if (TicketSystems.Normalize(repository.TicketSystem) == TicketSystems.Jira &&
+            string.IsNullOrWhiteSpace(repository.TicketProjectKey))
+            throw new InvalidOperationException("Configure the Jira project key for this repository before creating a ticket.");
         var agentTool = AgentTools.Normalize(repository.AgentTool);
         JsonObject? server;
         try
@@ -49,16 +51,25 @@ public sealed class TicketMcpService
         }
         var tools = toolResult?[("tools")] as JsonArray ??
             throw new InvalidOperationException("The ticket MCP server did not return a tool list.");
-        var createTool = tools.OfType<JsonObject>()
-            .Select(tool => (Tool: tool, Name: tool["name"]?.GetValue<string>() ?? string.Empty))
-            .Where(candidate => candidate.Name.Contains("create", StringComparison.OrdinalIgnoreCase) &&
-                (candidate.Name.Contains("issue", StringComparison.OrdinalIgnoreCase) || candidate.Name.Contains("ticket", StringComparison.OrdinalIgnoreCase)))
+        var availableTools = tools.OfType<JsonObject>()
+            .Select(tool => (Tool: tool, Name: tool["name"]?.GetValue<string>() ?? string.Empty,
+                Description: tool["description"]?.GetValue<string>() ?? string.Empty))
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate.Name))
+            .ToArray();
+        var createTool = availableTools
+            .Where(candidate => IsIssueCreationTool(candidate.Name, candidate.Description))
             .OrderBy(candidate => candidate.Name.Contains("issue", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
             .FirstOrDefault();
         if (createTool.Tool is null)
-            throw new InvalidOperationException("No create-issue or create-ticket tool was found on the configured MCP server.");
+            throw new InvalidOperationException(
+                $"No Jira issue-creation tool was recognized on MCP server '{repository.TicketMcpServerName}'. " +
+                $"Available tools: {string.Join("; ", availableTools.Select(candidate =>
+                    string.IsNullOrWhiteSpace(candidate.Description)
+                        ? candidate.Name
+                        : $"{candidate.Name}: {candidate.Description}"))}.");
 
-        var arguments = BuildArguments(createTool.Tool["inputSchema"] as JsonObject, title, description);
+        var arguments = BuildArguments(createTool.Tool["inputSchema"] as JsonObject, title, description,
+            repository.TicketProjectKey, GetJiraIssueType(itemType));
         JsonObject? callResult;
         try
         {
@@ -76,7 +87,31 @@ public sealed class TicketMcpService
         return ticketNumber;
     }
 
-    private static JsonObject BuildArguments(JsonObject? schema, string title, string description)
+    private static string GetJiraIssueType(IdeaType itemType) => itemType switch
+    {
+        IdeaType.Bug => "Bug",
+        IdeaType.Task => "Task",
+        _ => "Story"
+    };
+
+    private static bool IsIssueCreationTool(string name, string description)
+    {
+        var normalizedName = name.Replace('_', '-').Replace('.', '-');
+        var isCreateOperation = normalizedName.Contains("create", StringComparison.OrdinalIgnoreCase) ||
+            normalizedName.Contains("add", StringComparison.OrdinalIgnoreCase);
+        var isIssueOperation = normalizedName.Contains("issue", StringComparison.OrdinalIgnoreCase) ||
+            normalizedName.Contains("ticket", StringComparison.OrdinalIgnoreCase) ||
+            normalizedName.Contains("work-item", StringComparison.OrdinalIgnoreCase);
+        if (isCreateOperation && isIssueOperation)
+            return true;
+
+        var lowerDescription = description.ToLowerInvariant();
+        return (lowerDescription.Contains("create") || lowerDescription.Contains("create a") || lowerDescription.Contains("create an")) &&
+            (lowerDescription.Contains("issue") || lowerDescription.Contains("ticket"));
+    }
+
+    private static JsonObject BuildArguments(JsonObject? schema, string title, string description,
+        string projectKey, string issueType)
     {
         var properties = schema?["properties"] as JsonObject ?? new JsonObject();
         var args = new JsonObject();
@@ -87,8 +122,10 @@ public sealed class TicketMcpService
                 args[name] = title;
             else if (normalized.Contains("description") || normalized is "body" or "details")
                 args[name] = description;
-            else if (normalized is "project" or "projectkey" or "project_key")
-                continue;
+            else if (normalized is "project" or "projectkey" or "project_key" or "project-key")
+                args[name] = projectKey;
+            else if (normalized is "issue_type" or "issuetype" or "issue-type" or "type")
+                args[name] = issueType;
         }
 
         if (schema?["required"] is JsonArray required)

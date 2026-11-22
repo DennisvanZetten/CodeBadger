@@ -98,6 +98,14 @@
                                         <MudSelectItem T="string" Value="@TicketSystems.Jira">Jira</MudSelectItem>
                                         <MudSelectItem T="string" Value="@TicketSystems.GitHub">GitHub Issues</MudSelectItem>
                                     </MudSelect>
+                                    @if (TicketSystems.Normalize(repository.TicketSystem) == TicketSystems.Jira)
+                                    {
+                                        <MudTextField @bind-Value="repository.TicketProjectKey"
+                                                      Label="@L.T("Jira project key")"
+                                                      Placeholder="PROJ"
+                                                      HelperText="@L.T("The project key used when creating Jira issues.")"
+                                                      Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                    }
                                     @if (TicketSystems.Normalize(repository.TicketSystem) != TicketSystems.None)
                                     {
                                     <MudSelect T="string" @bind-Value="repository.TicketMcpServerName"

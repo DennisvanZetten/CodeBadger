@@ -46,6 +46,7 @@ public sealed class RepositoryEntry
     public bool TicketRequired { get; set; }
     public string TicketSystem { get; set; } = TicketSystems.None;
     public string TicketMcpServerName { get; set; } = string.Empty;
+    public string TicketProjectKey { get; set; } = string.Empty;
     public string TaskStoryTemplate { get; set; } = DefaultTaskStoryTemplate;
     public bool SlackNotificationsMuted { get; set; }
 }

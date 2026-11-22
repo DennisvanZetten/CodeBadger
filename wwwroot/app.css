@@ -485,14 +485,20 @@ h1:focus {
 }
 
 .app-settings-dialog {
-    width: min(1020px, 88vw);
-    min-width: min(720px, 88vw);
+    width: min(820px, 88vw);
+    min-width: min(680px, 88vw);
     max-width: 96vw;
     height: min(820px, 86vh);
     min-height: min(560px, 70vh);
     max-height: 96vh;
     resize: both;
     overflow: auto;
+}
+
+.settings-tab-panel .mud-input-control {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
 }
 
 .session-notification-list {
@@ -720,8 +726,8 @@ h1:focus {
 }
 
 .repository-settings-dialog {
-    width: min(900px, 84vw);
-    min-width: min(640px, 84vw);
+    width: min(760px, 84vw);
+    min-width: min(600px, 84vw);
     max-width: 96vw;
     height: min(780px, 88vh);
     min-height: min(460px, 72vh);

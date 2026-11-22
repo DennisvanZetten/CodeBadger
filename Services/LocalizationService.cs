@@ -171,6 +171,7 @@ public sealed class LocalizationService
         ["Path"] = ["Path", "Pad", "Pfad", "Chemin"],
         ["Browse for repository folder"] = ["Browse for repository folder", "Repositorymap zoeken", "Repository-Ordner auswählen", "Parcourir les dossiers de dépôt"],
         ["Remove repository"] = ["Remove repository", "Repository verwijderen", "Repository entfernen", "Supprimer le dépôt"],
+        ["Remove repository '{0}'? This cannot be undone."] = ["Remove repository '{0}'? This cannot be undone.", "Repository '{0}' verwijderen? Dit kan niet ongedaan worden gemaakt.", "Repository '{0}' entfernen? Dies kann nicht rückgängig gemacht werden.", "Supprimer le dépôt « {0} » ? Cette action est irréversible."],
         ["Edit"] = ["Edit", "Bewerken", "Bearbeiten", "Modifier"],
         ["Repository settings"] = ["Repository settings", "Repository-instellingen", "Repository-Einstellungen", "Paramètres du dépôt"],
         ["Move up"] = ["Move up", "Omhoog verplaatsen", "Nach oben verschieben", "Déplacer vers le haut"],

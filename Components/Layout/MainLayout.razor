@@ -295,7 +295,7 @@ else
         {
             { dialog => dialog.Settings, settings }
         };
-        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.ExtraExtraLarge, CloseButton = true };
+        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Large, CloseButton = true };
         var dialog = await DialogService.ShowAsync<SettingsDialog>(L.T("Settings"), parameters, options);
         if (!SetActiveDialog(generation.Value, dialog))
             return;

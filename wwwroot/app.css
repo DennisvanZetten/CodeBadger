@@ -484,6 +484,17 @@ h1:focus {
     flex: 0 0 auto;
 }
 
+.app-settings-dialog {
+    width: min(1020px, 88vw);
+    min-width: min(720px, 88vw);
+    max-width: 96vw;
+    height: min(820px, 86vh);
+    min-height: min(560px, 70vh);
+    max-height: 96vh;
+    resize: both;
+    overflow: auto;
+}
+
 .session-notification-list {
     gap: 0.5rem !important;
 }
@@ -708,6 +719,17 @@ h1:focus {
     overflow-y: auto;
 }
 
+.repository-settings-dialog {
+    width: min(900px, 84vw);
+    min-width: min(640px, 84vw);
+    max-width: 96vw;
+    height: min(780px, 88vh);
+    min-height: min(460px, 72vh);
+    max-height: 96vh;
+    resize: both;
+    overflow: auto;
+}
+
 .repository-instruction-editor textarea {
     min-height: 15rem !important;
     line-height: 1.5;
@@ -757,6 +779,15 @@ h1:focus {
     .settings-dialog {
         width: 96vw;
         min-width: 96vw;
+    }
+
+    .app-settings-dialog,
+    .repository-settings-dialog {
+        width: 96vw;
+        min-width: 96vw;
+        height: 88vh;
+        min-height: 88vh;
+        resize: none;
     }
 
     .settings-tabs .mud-tabs-tabbar {

@@ -9,7 +9,7 @@
 @inject IDialogService DialogService
 @implements IDisposable
 
-<MudDialog Class="settings-dialog">
+<MudDialog Class="settings-dialog app-settings-dialog">
     <TitleContent>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
             <MudIcon Icon="@Icons.Material.Filled.Settings" Color="Color.Primary" />
@@ -44,10 +44,20 @@
                                 </MudText>
                             </div>
                             <div class="repository-order-controls">
+                                <MudTooltip Text="@L.T("Move up")">
+                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.KeyboardArrowUp" aria-label="@L.T("Move up")"
+                                                   Disabled="@(Settings.Repositories.IndexOf(repository) == 0)"
+                                                   OnClick="@(() => MoveRepository(repository, -1))" />
+                                </MudTooltip>
+                                <MudTooltip Text="@L.T("Move down")">
+                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.KeyboardArrowDown" aria-label="@L.T("Move down")"
+                                                   Disabled="@(Settings.Repositories.IndexOf(repository) == Settings.Repositories.Count - 1)"
+                                                   OnClick="@(() => MoveRepository(repository, 1))" />
+                                </MudTooltip>
                                 <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" aria-label="@L.T("Edit")"
                                                OnClick="@(() => EditRepositoryAsync(repository))" />
                                 <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" aria-label="@L.T("Remove repository")"
-                                               OnClick="@(() => Settings.Repositories.Remove(repository))" />
+                                               OnClick="@(() => RemoveRepositoryAsync(repository))" />
                             </div>
                         </MudPaper>
                     }
@@ -429,6 +439,27 @@
         if (index >= 0)
             CopyRepositorySettings(savedRepository, repository);
         return true;
+    }
+
+    private async Task RemoveRepositoryAsync(RepositoryEntry repository)
+    {
+        var repositoryName = string.IsNullOrWhiteSpace(repository.Name) ? repository.Path : repository.Name;
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            L.T("Remove repository"), L.T("Remove repository '{0}'? This cannot be undone.", repositoryName),
+            yesText: L.T("Delete"), cancelText: L.T("Cancel"));
+        if (confirmed == true)
+            Settings.Repositories.Remove(repository);
+    }
+
+    private void MoveRepository(RepositoryEntry repository, int offset)
+    {
+        var currentIndex = Settings.Repositories.IndexOf(repository);
+        var targetIndex = currentIndex + offset;
+        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= Settings.Repositories.Count)
+            return;
+
+        Settings.Repositories.RemoveAt(currentIndex);
+        Settings.Repositories.Insert(targetIndex, repository);
     }
 
     private static void CopyRepositorySettings(RepositoryEntry source, RepositoryEntry target)

@@ -86,7 +86,7 @@ export function renderConflictResult(textarea, rows, pendingValue) {
 }
 
 export function scrollConflictSidesToSourceRow(left, right, sourceRowIndex) {
-    const line = Array.from(left.children).find(child => Number(child.dataset.sourceRowIndex) >= sourceRowIndex);
+    const line = Array.from(left.querySelectorAll("[data-source-row-index]")).find(child => Number(child.dataset.sourceRowIndex) >= sourceRowIndex);
     if (!line) return;
     const containerBounds = left.getBoundingClientRect();
     const lineBounds = line.getBoundingClientRect();
@@ -97,7 +97,7 @@ export function scrollConflictSidesToSourceRow(left, right, sourceRowIndex) {
 
 export function getVisibleConflictSourceRowIndex(source) {
     const sourceBounds = source.getBoundingClientRect();
-    const visibleLine = Array.from(source.children).find(child => {
+    const visibleLine = Array.from(source.querySelectorAll("[data-source-row-index]")).find(child => {
         const bounds = child.getBoundingClientRect();
         return bounds.bottom > sourceBounds.top && bounds.top < sourceBounds.bottom;
     });

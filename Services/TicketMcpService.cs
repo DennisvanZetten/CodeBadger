@@ -77,9 +77,10 @@ public sealed class TicketMcpService
                 Description: tool["description"]?.GetValue<string>() ?? string.Empty))
             .Where(candidate => !string.IsNullOrWhiteSpace(candidate.Name))
             .ToArray();
+        var isGitHub = TicketSystems.Normalize(repository.TicketSystem) == TicketSystems.GitHub;
         var createTool = availableTools
             .Where(candidate => IsIssueCreationTool(candidate.Name, candidate.Description) &&
-                !RequiresExistingIssueNumber(candidate.Tool["inputSchema"] as JsonObject))
+                (!isGitHub || !RequiresExistingIssueNumber(candidate.Tool["inputSchema"] as JsonObject)))
             .OrderBy(candidate => candidate.Name.Contains("issue", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
             .FirstOrDefault();
         if (createTool.Tool is null)
@@ -91,11 +92,11 @@ public sealed class TicketMcpService
                         ? candidate.Name
                         : $"{candidate.Name}: {candidate.Description}"))}.");
 
-        var githubRepository = TicketSystems.Normalize(repository.TicketSystem) == TicketSystems.GitHub
+        var githubRepository = isGitHub
             ? await GetGitHubRepositoryAsync(repository.Path, cancellationToken)
             : (Owner: string.Empty, Name: string.Empty);
         var arguments = BuildArguments(createTool.Tool["inputSchema"] as JsonObject, title, description,
-            repository.TicketProjectKey, GetJiraIssueType(itemType), githubRepository.Owner, githubRepository.Name);
+            repository.TicketProjectKey, GetJiraIssueType(itemType), githubRepository.Owner, githubRepository.Name, isGitHub);
         JsonObject? callResult;
         try
         {
@@ -155,7 +156,7 @@ public sealed class TicketMcpService
                          string.Equals(name, "issue_id", StringComparison.OrdinalIgnoreCase)) == true;
 
     private static JsonObject BuildArguments(JsonObject? schema, string title, string description,
-        string projectKey, string issueType, string githubOwner, string githubRepository)
+        string projectKey, string issueType, string githubOwner, string githubRepository, bool isGitHub)
     {
         var properties = schema?["properties"] as JsonObject ?? new JsonObject();
         var args = new JsonObject();
@@ -168,7 +169,7 @@ public sealed class TicketMcpService
                 args[name] = description;
             else if (normalized is "project" or "projectkey" or "project_key" or "project-key")
                 args[name] = projectKey;
-            else if (normalized is "issue_type" or "issuetype" or "issue-type" or "type")
+            else if (!isGitHub && (normalized is "issue_type" or "issuetype" or "issue-type" or "type"))
                 args[name] = issueType;
             else if (normalized is "owner" or "repository_owner" or "repositoryowner")
                 args[name] = githubOwner;

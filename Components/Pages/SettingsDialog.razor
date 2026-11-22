@@ -20,7 +20,7 @@
         <MudTabs Position="Position.Left" Rounded="true" Border="true" ApplyEffectsToContainer="true"
                  TabPanelsClass="settings-tab-panel" Class="settings-tabs">
             <MudTabPanel Text="@L.T("Repositories")" Icon="@Icons.Material.Filled.Folder">
-                <MudStack Spacing="3">
+                <MudStack Spacing="3" Class="settings-content-stack">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                         <div>
                             <MudText Typo="Typo.h6">@L.T("Manage repositories")</MudText>
@@ -64,7 +64,7 @@
                 </MudStack>
             </MudTabPanel>
             <MudTabPanel Text="@L.T("Agent management")" Icon="@Icons.Material.Filled.Terminal">
-                <MudStack Spacing="3">
+                <MudStack Spacing="3" Class="settings-content-stack">
                     <MudText Typo="Typo.h6">@L.T("Agent management")</MudText>
                      <MudSelect T="string" Value="_selectedAgent" ValueChanged="LoadAgentConfigAsync" Label="@L.T("Agent tool")" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(_isLoadingAgentConfig || _isSavingAgentConfig)">
                          <MudSelectItem T="string" Value="@AgentTools.OpenCode">OpenCode</MudSelectItem>
@@ -130,9 +130,9 @@
                 </MudStack>
             </MudTabPanel>
             <MudTabPanel Text="@L.T("AI provider")" Icon="@Icons.Material.Filled.AutoAwesome">
-                <MudStack Spacing="3">
+                <MudStack Spacing="3" Class="settings-content-stack">
                     <MudPaper Outlined="true" Elevation="0" Class="pa-4">
-                    <MudStack Spacing="3">
+                    <MudStack Spacing="3" Class="settings-content-stack">
                     <MudText Typo="Typo.h6">@L.T("AI provider settings")</MudText>
                     <MudSelect T="string" Label="@L.T("Provider")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.AiProvider" @bind-Value:after="ResetModelList">
                         @foreach (var provider in AiProviders)
@@ -187,7 +187,7 @@
                 </MudStack>
             </MudTabPanel>
             <MudTabPanel Text="@L.T("Notifications")" Icon="@Icons.Material.Filled.NotificationsActive">
-                <MudStack Spacing="3">
+                <MudStack Spacing="3" Class="settings-content-stack">
                     <MudText Typo="Typo.h6">@L.T("Session notifications")</MudText>
                     <MudSelect T="string" Label="@L.T("Notification channel")" Variant="Variant.Outlined" Margin="Margin.Dense"
                                @bind-Value="Settings.NotificationChannel">
@@ -235,7 +235,7 @@
                 </MudStack>
             </MudTabPanel>
             <MudTabPanel Text="Sandbox" Icon="@Icons.Material.Filled.Security">
-                <MudStack Spacing="3">
+                <MudStack Spacing="3" Class="settings-content-stack">
                     <MudText Typo="Typo.h6">@L.T("General sandbox limits")</MudText>
                     <MudNumericField T="int" @bind-Value="Settings.SandboxMaxFileMb" Label="@L.T("Maximum per file (MB)")" Min="1" Max="512" Variant="Variant.Outlined" />
                     <MudNumericField T="int" @bind-Value="Settings.SandboxMaxTotalMb" Label="@L.T("Maximum total selection (MB)")" Min="1" Max="2048" Variant="Variant.Outlined" />
@@ -244,7 +244,7 @@
                 </MudStack>
             </MudTabPanel>
             <MudTabPanel Text="@L.T("Other")" Icon="@Icons.Material.Filled.Tune">
-                <MudStack Spacing="3">
+                <MudStack Spacing="3" Class="settings-content-stack">
                     <MudText Typo="Typo.h6">@L.T("Other settings")</MudText>
                     <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Settings are stored locally. API keys are stored securely.")</MudText>
                     <MudTextField @bind-Value="Settings.TaskBranchPrefix" Label="@L.T("Task branch prefix")"
@@ -413,7 +413,16 @@
 
     private async Task AddRepositoryAsync()
     {
+        var setupDialog = await DialogService.ShowAsync<RepositorySetupDialog>(
+            L.T("Add repository"),
+            options: new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Small, CloseButton = true, CloseOnEscapeKey = true });
+        var setupResult = await setupDialog.Result;
+        if (setupResult is not { Canceled: false, Data: RepositorySetupDialog.RepositorySetupResult setup })
+            return;
+
         var repository = new RepositoryEntry();
+        repository.Path = setup.Path;
+        repository.Name = Path.GetFileName(Path.TrimEndingDirectorySeparator(setup.Path));
         Settings.Repositories.Add(repository);
         if (!await EditRepositoryAsync(repository))
             Settings.Repositories.Remove(repository);

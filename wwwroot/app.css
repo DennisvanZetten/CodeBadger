@@ -409,15 +409,17 @@ h1:focus {
 }
 
 .settings-tabs {
-    display: flex;
-    flex-direction: row;
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    width: 100%;
+    min-width: 0;
     min-height: 0;
     height: 100%;
 }
 
 .settings-tabs .mud-tabs-tabbar {
-    flex: 0 0 190px;
-    width: 190px;
+    grid-column: 1;
+    width: 220px;
     border-right: 1px solid var(--mud-palette-divider);
     border-bottom: 0;
 }
@@ -456,8 +458,12 @@ h1:focus {
 }
 
 .settings-tabs .mud-tabs-panels {
+    grid-column: 2;
+    width: 100% !important;
     flex: 1 1 auto;
+    max-width: 100%;
     min-height: 0;
+    min-width: 0;
     height: 100%;
     overflow-y: auto;
     padding: 0.75rem 1.25rem;
@@ -465,6 +471,8 @@ h1:focus {
 }
 
 .settings-tab-panel {
+    width: 100%;
+    min-width: 0;
     height: 100%;
     overflow-y: auto;
     padding: 0.25rem 0.5rem 0.5rem 0.75rem;
@@ -484,6 +492,15 @@ h1:focus {
     flex: 0 0 auto;
 }
 
+.settings-tabs .mud-tabs-panels > .mud-tab-panel {
+    width: 100% !important;
+    flex: 1 1 100%;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
 .app-settings-dialog {
     width: min(820px, 88vw);
     min-width: min(680px, 88vw);
@@ -495,10 +512,53 @@ h1:focus {
     overflow: auto;
 }
 
-.settings-tab-panel .mud-input-control {
+.settings-dialog .mud-tabs-panels,
+.settings-dialog .settings-tab-panel,
+.settings-dialog .settings-tab-panel .mud-stack {
+    width: 100%;
+    min-width: 0;
+}
+
+.settings-dialog .settings-content-stack {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    align-items: stretch !important;
+}
+
+.settings-dialog .settings-content-stack > * {
     width: 100%;
     max-width: none;
     min-width: 0;
+}
+
+.settings-dialog .settings-content-stack > .mud-stack,
+.settings-dialog .settings-content-stack > .mud-paper,
+.settings-dialog .settings-content-stack > .mud-alert,
+.settings-dialog .settings-content-stack > .mud-expansion-panels {
+    flex: 0 0 auto !important;
+    align-self: stretch;
+}
+
+.settings-dialog .settings-tabs-panels,
+.settings-dialog .mud-tabs-panels > *,
+.settings-dialog .mud-tabs-panels .mud-tab-panel {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.settings-dialog .mud-input-control,
+.settings-dialog .mud-select {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+}
+
+.settings-dialog .mud-dialog-actions {
+    padding: 0.75rem 1.5rem 1rem;
+    gap: 0.5rem;
 }
 
 .session-notification-list {
@@ -797,8 +857,17 @@ h1:focus {
     }
 
     .settings-tabs .mud-tabs-tabbar {
-        flex-basis: 148px;
+        grid-column: 1;
         width: 148px;
+    }
+
+    .settings-tabs .mud-tabs-panels {
+        grid-column: 2;
+        width: 100% !important;
+    }
+
+    .settings-tabs {
+        grid-template-columns: 148px minmax(0, 1fr);
     }
 
     .settings-tabs .mud-tab {

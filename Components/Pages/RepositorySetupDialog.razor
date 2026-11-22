@@ -1,0 +1,345 @@
+@inject LocalizationService L
+@inject RepositoryFolderPicker FolderPicker
+@inject GitHostService GitHostService
+
+<MudDialog Class="repository-setup-dialog">
+    <TitleContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icons.Material.Filled.Folder" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">@L.T("Add repository")</MudText>
+        </MudStack>
+    </TitleContent>
+    <DialogContent>
+        @if (_mode is null)
+        {
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Choose how to add a repository.")</MudText>
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.FolderOpen" OnClick="@(() => SelectMode(SetupMode.Open))">@L.T("Open repository")</MudButton>
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.CloudDownload" OnClick="@(() => SelectMode(SetupMode.Clone))">@L.T("Clone repository")</MudButton>
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => SelectMode(SetupMode.Create))">@L.T("Create new repository")</MudButton>
+            </MudStack>
+        }
+        else if (_mode == SetupMode.Open)
+        {
+            <MudStack Spacing="3">
+                <MudText Typo="Typo.body2">@L.T("Choose an existing local repository folder.")</MudText>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.FolderOpen"
+                           Disabled="@(!FolderPicker.IsSupported || _busy)" OnClick="BrowseOpenFolderAsync">@L.T("Browse for repository folder")</MudButton>
+            </MudStack>
+        }
+        else
+        {
+            <MudStack Spacing="3">
+                <MudSelect T="string" @bind-Value="_provider" Label="@L.T("Git provider")" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @if (_mode == SetupMode.Create)
+                    {
+                        <MudSelectItem T="string" Value="@("existing")">@L.T("Use existing remote")</MudSelectItem>
+                    }
+                    @if (_mode == SetupMode.Clone)
+                    {
+                        <MudSelectItem T="string" Value="@("manual")">@L.T("Git URL")</MudSelectItem>
+                    }
+                    @if (_github.IsAvailable)
+                    {
+                        <MudSelectItem T="string" Value="@("github")">GitHub</MudSelectItem>
+                    }
+                    @if (_azure.IsAvailable)
+                    {
+                        <MudSelectItem T="string" Value="@("azure")">Azure DevOps</MudSelectItem>
+                    }
+                    @if (_mode == SetupMode.Create)
+                    {
+                        <MudSelectItem T="string" Value="@("existing")">@L.T("Use existing remote")</MudSelectItem>
+                    }
+                </MudSelect>
+
+                @if (_mode == SetupMode.Clone && _provider == "manual")
+                {
+                    <MudTextField @bind-Value="_cloneUrl" Label="@L.T("Repository URL")" Placeholder="https://..." Variant="Variant.Outlined" />
+                }
+                else if (_mode == SetupMode.Clone && _provider == "github")
+                {
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="LoadGitHubRepositoriesAsync">@L.T("Load repositories")</MudButton>
+                        @if (_githubRepositories.Count > 0)
+                        {
+                            <MudSelect T="string" @bind-Value="_cloneUrl" Label="@L.T("Repository")" Variant="Variant.Outlined" Class="flex-grow-1">
+                                @foreach (var repo in _githubRepositories)
+                                {
+                                    <MudSelectItem T="string" Value="@repo.Url">@repo.FullName</MudSelectItem>
+                                }
+                            </MudSelect>
+                        }
+                    </MudStack>
+                }
+                else if (_mode == SetupMode.Clone)
+                {
+                    <MudTextField @bind-Value="_azureOrganization" Label="@L.T("Azure DevOps organization URL")" Placeholder="https://dev.azure.com/organization" Variant="Variant.Outlined" />
+                    <MudButton Variant="Variant.Outlined" Disabled="@(_busy || string.IsNullOrWhiteSpace(_azureOrganization))" OnClick="LoadAzureProjectsAsync">@L.T("Load projects")</MudButton>
+                    @if (_azureProjects.Count > 0)
+                    {
+                        <MudSelect T="string" @bind-Value="_azureProject" Label="@L.T("Project")" Variant="Variant.Outlined">
+                            @foreach (var project in _azureProjects)
+                            {
+                                <MudSelectItem T="string" Value="@project.Name">@project.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                    @if (_azureRepositories.Count > 0)
+                    {
+                        <MudSelect T="string" @bind-Value="_cloneUrl" Label="@L.T("Repository")" Variant="Variant.Outlined">
+                            @foreach (var repo in _azureRepositories)
+                            {
+                                <MudSelectItem T="string" Value="@repo.Url">@repo.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                }
+                else if (_mode == SetupMode.Create && _provider == "azure")
+                {
+                    <MudTextField @bind-Value="_azureOrganization" Label="@L.T("Azure DevOps organization URL")" Placeholder="https://dev.azure.com/organization" Variant="Variant.Outlined" />
+                    <MudButton Variant="Variant.Outlined" Disabled="@(_busy || string.IsNullOrWhiteSpace(_azureOrganization))" OnClick="LoadAzureProjectsAsync">@L.T("Load projects")</MudButton>
+                    @if (_azureProjects.Count > 0)
+                    {
+                        <MudSelect T="string" Value="@_azureProject" ValueChanged="LoadAzureRepositoriesAsync" Label="@L.T("Project")" Variant="Variant.Outlined">
+                            @foreach (var project in _azureProjects)
+                            {
+                                <MudSelectItem T="string" Value="@project.Name">@project.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("A new repository will be created in the selected Azure DevOps project.")</MudText>
+                }
+                @if (_mode == SetupMode.Create && _provider == "github")
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("A private repository will be created in your authenticated GitHub account.")</MudText>
+                }
+                @if (_mode == SetupMode.Clone && _provider == "github")
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Select a repository from your GitHub account.")</MudText>
+                }
+                @if (_mode == SetupMode.Create && !_github.IsAvailable && !_azure.IsAvailable)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                        @L.T("No authenticated Git hosting provider is available. Install and sign in to GitHub CLI (gh) or Azure CLI with the Azure DevOps extension (az).")
+                        <br />GitHub: @_github.Status
+                        <br />Azure DevOps: @_azure.Status
+                    </MudAlert>
+                }
+                @if (_mode == SetupMode.Clone && !_github.IsAvailable && !_azure.IsAvailable)
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                        @L.T("No Git hosting CLI connection detected. You can still clone by entering a Git URL.")
+                        <br />GitHub: @_github.Status
+                        <br />Azure DevOps: @_azure.Status
+                    </MudAlert>
+                }
+                @if (_mode == SetupMode.Create && _provider == "existing")
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Create a Git repository in the selected folder and push to its existing origin remote.")</MudText>
+                }
+
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudTextField @bind-Value="_parentFolder" Label="@L.T("Destination folder")" Variant="Variant.Outlined" Class="flex-grow-1" />
+                    <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" aria-label="@L.T("Browse for destination folder")"
+                                   Disabled="@(!FolderPicker.IsSupported || _busy)" OnClick="BrowseDestinationAsync" />
+                </MudStack>
+                <MudTextField @bind-Value="_folderName" Label="@L.T(_mode == SetupMode.Clone ? "Local folder name" : "Repository name")" Variant="Variant.Outlined" />
+            </MudStack>
+        }
+
+        @if (_error is not null)
+        {
+            <MudAlert Class="mt-3" Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
+        }
+        @if (_busy)
+        {
+            <MudProgressLinear Class="mt-3" Indeterminate="true" Color="Color.Primary" />
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (_mode is not null)
+        {
+            <MudButton Disabled="@_busy" OnClick="Back">@L.T("Back")</MudButton>
+        }
+        <MudButton Disabled="@_busy" OnClick="Cancel">@L.T("Cancel")</MudButton>
+        @if (_mode == SetupMode.Clone)
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(_busy || string.IsNullOrWhiteSpace(_cloneUrl) || string.IsNullOrWhiteSpace(_parentFolder) || string.IsNullOrWhiteSpace(_folderName))" OnClick="CloneAsync">@L.T("Clone")</MudButton>
+        }
+        else if (_mode == SetupMode.Create)
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(_busy || string.IsNullOrWhiteSpace(_provider) || string.IsNullOrWhiteSpace(_parentFolder) || string.IsNullOrWhiteSpace(_folderName) || (_provider == "azure" && (string.IsNullOrWhiteSpace(_azureOrganization) || string.IsNullOrWhiteSpace(_azureProject))))" OnClick="CreateAsync">@L.T("Create and push")</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    private enum SetupMode { Open, Clone, Create }
+    private SetupMode? _mode;
+    private string _provider = "manual";
+    private string _cloneUrl = string.Empty;
+    private string _parentFolder = string.Empty;
+    private string _folderName = string.Empty;
+    private string _azureOrganization = string.Empty;
+    private string _azureProject = string.Empty;
+    private IReadOnlyList<GitHostRepository> _githubRepositories = [];
+    private IReadOnlyList<GitHostProject> _azureProjects = [];
+    private IReadOnlyList<GitHostRepository> _azureRepositories = [];
+    private GitHostConnection _github = new("GitHub", false, string.Empty);
+    private GitHostConnection _azure = new("Azure DevOps", false, string.Empty);
+    private bool _busy;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var connections = await Task.WhenAll(GitHostService.CheckGitHubAsync(), GitHostService.CheckAzureDevOpsCliAsync());
+        _github = connections[0];
+        _azure = connections[1];
+    }
+
+    private void SelectMode(SetupMode mode)
+    {
+        _mode = mode;
+        _provider = mode == SetupMode.Create
+            ? _github.IsAvailable ? "github" : _azure.IsAvailable ? "azure" : "existing"
+            : _github.IsAvailable ? "github" : _azure.IsAvailable ? "azure" : "manual";
+        _error = null;
+    }
+
+    private void Back()
+    {
+        _mode = null;
+        _error = null;
+    }
+
+    private async Task BrowseOpenFolderAsync()
+    {
+        var path = await FolderPicker.PickFolderAsync();
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+        await RunBusyAsync(async () =>
+        {
+            await GitHostService.ValidateGitRepositoryAsync(path);
+            MudDialog.Close(DialogResult.Ok(new RepositorySetupResult(path)));
+        });
+    }
+
+    private async Task BrowseDestinationAsync()
+    {
+        var path = await FolderPicker.PickFolderAsync();
+        if (!string.IsNullOrWhiteSpace(path))
+            _parentFolder = path;
+    }
+
+    private async Task LoadGitHubRepositoriesAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            _githubRepositories = await GitHostService.ListGitHubRepositoriesAsync();
+            if (_githubRepositories.Count == 0)
+                _error = L.T("No repositories were found.");
+        });
+    }
+
+    private async Task LoadAzureProjectsAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            _azure = await GitHostService.CheckAzureDevOpsAsync(_azureOrganization);
+            if (!_azure.IsAvailable)
+                throw new InvalidOperationException(_azure.Status);
+            _azureProjects = await GitHostService.ListAzureProjectsAsync(_azureOrganization);
+            if (_mode == SetupMode.Clone)
+                _azureRepositories = [];
+            else if (_azureProjects.Count > 0 && string.IsNullOrWhiteSpace(_azureProject))
+                _azureProject = _azureProjects[0].Name;
+            if (_azureProjects.Count == 0)
+                _error = L.T("No projects were found.");
+        });
+    }
+
+    private async Task LoadAzureRepositoriesAsync(string project)
+    {
+        _azureProject = project;
+        _cloneUrl = string.Empty;
+        await RunBusyAsync(async () => _azureRepositories = await GitHostService.ListAzureRepositoriesAsync(_azureOrganization, project));
+    }
+
+    private async Task CloneAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            var path = Path.Combine(_parentFolder, _folderName);
+            await GitHostService.CloneAsync(_cloneUrl, path);
+            MudDialog.Close(DialogResult.Ok(new RepositorySetupResult(path)));
+        });
+    }
+
+    private async Task CreateAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            var path = Path.Combine(_parentFolder, _folderName);
+            if (File.Exists(path))
+                throw new InvalidOperationException(L.T("The destination path is already a file."));
+            await GitHostService.ValidateEmptyOrGitRepositoryAsync(path);
+            var existingRepository = Directory.Exists(path) && await GitHostService.ValidateRepositoryAsync(path);
+            if (existingRepository && _provider != "existing")
+                throw new InvalidOperationException(L.T("The selected folder is already a Git repository. Choose Use existing remote instead."));
+            if (!existingRepository && _provider == "existing")
+                throw new InvalidOperationException(L.T("Use existing remote requires an existing Git repository with an origin remote."));
+            if (_provider == "existing" && string.IsNullOrWhiteSpace(await GitHostService.GetOriginUrlAsync(path)))
+                throw new InvalidOperationException(L.T("Use existing remote requires an existing Git repository with an origin remote."));
+            if (!existingRepository)
+            {
+                await GitHostService.ValidateGitIdentityAsync();
+                await GitHostService.PrepareLocalRepositoryAsync(path);
+            }
+
+            if (_provider == "github")
+                await GitHostService.ValidateGitHubAuthenticationAsync();
+            else if (_provider == "azure")
+            {
+                _azure = await GitHostService.CheckAzureDevOpsAsync(_azureOrganization);
+                if (!_azure.IsAvailable)
+                    throw new InvalidOperationException(_azure.Status);
+            }
+
+            string? remoteUrl = null;
+            if (_provider == "github")
+            {
+                remoteUrl = existingRepository
+                    ? await GitHostService.GetGitHubRepositoryUrlAsync(_folderName)
+                    : await GitHostService.CreateGitHubRepositoryAsync(_folderName, string.Empty, true);
+            }
+            else if (_provider == "azure")
+            {
+                remoteUrl = existingRepository
+                    ? await GitHostService.GetAzureRepositoryUrlAsync(_azureOrganization, _azureProject, _folderName)
+                    : await GitHostService.CreateAzureRepositoryAsync(_azureOrganization, _azureProject, _folderName);
+            }
+            else if (_provider != "existing")
+                throw new InvalidOperationException(L.T("Select an authenticated Git hosting provider to create a remote repository."));
+
+            remoteUrl ??= await GitHostService.GetOriginUrlAsync(path);
+            await GitHostService.PushToRemoteAsync(path, remoteUrl ?? string.Empty);
+            MudDialog.Close(DialogResult.Ok(new RepositorySetupResult(path)));
+        });
+    }
+
+    private async Task RunBusyAsync(Func<Task> operation)
+    {
+        _busy = true;
+        _error = null;
+        try { await operation(); }
+        catch (Exception exception) { _error = exception.Message; }
+        finally { _busy = false; }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    public sealed record RepositorySetupResult(string Path);
+}

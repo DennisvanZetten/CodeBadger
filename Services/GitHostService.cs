@@ -1,0 +1,277 @@
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Text.Json;
+
+namespace CodeBadger.Services;
+
+public sealed record GitHostConnection(string Provider, bool IsAvailable, string Status);
+public sealed record GitHostRepository(string Name, string Url, string FullName, bool IsPrivate = false);
+public sealed record GitHostProject(string Name, string Id);
+
+public sealed class GitHostService(LocalizationService localization)
+{
+    public async Task<GitHostConnection> CheckGitHubAsync()
+    {
+        var result = await RunAsync("gh", ["auth", "status", "--hostname", "github.com"], null, suppressStandardError: true);
+        if (!result.Success && result.Message.Length == 0)
+        {
+            var version = await RunAsync("gh", "--version");
+            if (!version.Success)
+                result = version;
+        }
+        return new GitHostConnection("GitHub", result.Success,
+            result.Success ? localization.T("Connected to GitHub.") :
+                !string.IsNullOrWhiteSpace(result.Message) ? result.Message : localization.T("GitHub CLI is not authenticated. Run gh auth login."));
+    }
+
+    public async Task<GitHostConnection> CheckAzureDevOpsAsync(string organization)
+    {
+        var extension = await RunAsync("az", "extension", "show", "--name", "azure-devops", "--output", "none");
+        if (!extension.Success)
+            return new GitHostConnection("Azure DevOps", false, localization.T("Azure DevOps CLI extension is unavailable. Install it with: az extension add --name azure-devops"));
+        var account = await RunAsync("az", "account", "show", "--output", "none");
+        if (!account.Success)
+            return new GitHostConnection("Azure DevOps", false, localization.T("Sign in to Azure CLI with az login before using Azure DevOps."));
+        if (string.IsNullOrWhiteSpace(organization))
+            return new GitHostConnection("Azure DevOps", true, localization.T("Azure CLI is signed in. Azure DevOps organization access will be checked when selected."));
+        var result = await RunAsync("az", "devops", "project", "list", "--org", organization, "--output", "json");
+        return new GitHostConnection("Azure DevOps", result.Success,
+            result.Success ? localization.T("Connected to Azure DevOps.") :
+                !string.IsNullOrWhiteSpace(result.Message) ? result.Message : localization.T("Azure DevOps access could not be verified for this organization."));
+    }
+
+    public async Task<GitHostConnection> CheckAzureDevOpsCliAsync()
+    {
+        var extension = await RunAsync("az", "extension", "show", "--name", "azure-devops", "--output", "none");
+        if (!extension.Success)
+            return new GitHostConnection("Azure DevOps", false, localization.T("Azure DevOps CLI extension is unavailable. Install it with: az extension add --name azure-devops"));
+        var account = await RunAsync("az", "account", "show", "--output", "none");
+        return account.Success
+            ? new GitHostConnection("Azure DevOps", true, localization.T("Azure CLI is signed in. Azure DevOps organization access will be checked when selected."))
+            : new GitHostConnection("Azure DevOps", false, localization.T("Sign in to Azure CLI with az login before using Azure DevOps."));
+    }
+
+    public async Task<IReadOnlyList<GitHostRepository>> ListGitHubRepositoriesAsync()
+    {
+        var result = await RunAsync("gh", "repo", "list", "--limit", "1000", "--json", "name,nameWithOwner,url,isPrivate");
+        EnsureSuccess(result);
+        using var document = JsonDocument.Parse(result.Output);
+        return document.RootElement.EnumerateArray().Select(item => new GitHostRepository(
+            item.GetProperty("name").GetString() ?? string.Empty,
+            item.GetProperty("url").GetString() ?? string.Empty,
+            item.GetProperty("nameWithOwner").GetString() ?? string.Empty,
+            item.TryGetProperty("isPrivate", out var isPrivate) && isPrivate.GetBoolean())).ToList();
+    }
+
+    public async Task<IReadOnlyList<GitHostProject>> ListAzureProjectsAsync(string organization)
+    {
+        var result = await RunAsync("az", "devops", "project", "list", "--org", organization, "--output", "json");
+        EnsureSuccess(result);
+        using var document = JsonDocument.Parse(result.Output);
+        var projects = document.RootElement.TryGetProperty("value", out var value) ? value : document.RootElement;
+        if (projects.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException(localization.T("No Azure DevOps projects were returned."));
+        return projects.EnumerateArray().Select(item => new GitHostProject(
+            item.GetProperty("name").GetString() ?? string.Empty,
+            item.GetProperty("id").GetString() ?? string.Empty)).ToList();
+    }
+
+    public async Task<IReadOnlyList<GitHostRepository>> ListAzureRepositoriesAsync(string organization, string project)
+    {
+        var result = await RunAsync("az", "repos", "list", "--org", organization, "--project", project, "--output", "json");
+        EnsureSuccess(result);
+        using var document = JsonDocument.Parse(result.Output);
+        if (document.RootElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException(localization.T("No repositories were found."));
+        return document.RootElement.EnumerateArray().Select(item => new GitHostRepository(
+            item.GetProperty("name").GetString() ?? string.Empty,
+            item.TryGetProperty("remoteUrl", out var url) ? url.GetString() ?? string.Empty : string.Empty,
+            item.GetProperty("name").GetString() ?? string.Empty)).ToList();
+    }
+
+    public async Task<string> CreateGitHubRepositoryAsync(string name, string description, bool isPrivate)
+    {
+        var args = new List<string>
+        {
+            "api", "user/repos", "--method", "POST", "-f", $"name={name}",
+            "-F", $"private={isPrivate.ToString().ToLowerInvariant()}", "--jq", ".clone_url"
+        };
+        if (!string.IsNullOrWhiteSpace(description))
+        {
+            args.Add("-f");
+            args.Add($"description={description}");
+        }
+        var result = await RunAsync("gh", args.ToArray());
+        EnsureSuccess(result);
+        return result.Output.Trim();
+    }
+
+    public async Task<string> GetGitHubRepositoryUrlAsync(string name)
+    {
+        var result = await RunAsync("gh", "repo", "view", name, "--json", "url", "--jq", ".url");
+        EnsureSuccess(result);
+        return result.Output.Trim();
+    }
+
+    public async Task<string> CreateAzureRepositoryAsync(string organization, string project, string name)
+    {
+        var result = await RunAsync("az", "repos", "create", "--name", name, "--org", organization, "--project", project, "--output", "json");
+        EnsureSuccess(result);
+        using var document = JsonDocument.Parse(result.Output);
+        if (!document.RootElement.TryGetProperty("remoteUrl", out var remoteUrl))
+            throw new InvalidOperationException(localization.T("Azure DevOps did not return the new repository URL."));
+        return remoteUrl.GetString()
+            ?? throw new InvalidOperationException(localization.T("Azure DevOps did not return the new repository URL."));
+    }
+
+    public async Task<string> GetAzureRepositoryUrlAsync(string organization, string project, string name)
+    {
+        var result = await RunAsync("az", "repos", "show", "--repository", name, "--org", organization, "--project", project, "--output", "json");
+        EnsureSuccess(result);
+        using var document = JsonDocument.Parse(result.Output);
+        return document.RootElement.TryGetProperty("remoteUrl", out var remoteUrl) && remoteUrl.GetString() is { Length: > 0 } value
+            ? value
+            : throw new InvalidOperationException(localization.T("Azure DevOps did not return the new repository URL."));
+    }
+
+    public async Task CloneAsync(string url, string targetPath)
+    {
+        if (Directory.Exists(targetPath) || File.Exists(targetPath))
+            throw new InvalidOperationException(localization.T("The destination path already exists."));
+        var parent = Path.GetDirectoryName(Path.GetFullPath(targetPath))!;
+        Directory.CreateDirectory(parent);
+        var result = await RunAsync("git", "clone", url, targetPath);
+        EnsureSuccess(result);
+    }
+
+    public async Task ValidateGitRepositoryAsync(string path)
+    {
+        var result = await RunGitAsync(path, "rev-parse", "--show-toplevel");
+        EnsureSuccess(result);
+    }
+
+    public async Task<bool> ValidateRepositoryAsync(string path)
+    {
+        var result = await RunGitAsync(path, "rev-parse", "--show-toplevel");
+        return result.Success;
+    }
+
+    public async Task ValidateGitIdentityAsync()
+    {
+        foreach (var setting in new[] { "user.name", "user.email" })
+        {
+            var result = await RunAsync("git", "config", "--global", "--get", setting);
+            if (!result.Success || string.IsNullOrWhiteSpace(result.Output))
+                throw new InvalidOperationException(localization.T("Configure your Git {0} before creating a repository.", setting == "user.name" ? "name" : "email"));
+        }
+    }
+
+    public async Task ValidateGitHubAuthenticationAsync()
+    {
+        var result = await RunAsync("gh", ["auth", "status", "--hostname", "github.com"], null, suppressStandardError: true);
+        if (!result.Success)
+            throw new InvalidOperationException(localization.T("GitHub CLI is not authenticated. Run gh auth login."));
+    }
+
+    public async Task PrepareLocalRepositoryAsync(string path)
+    {
+        Directory.CreateDirectory(path);
+        var init = await RunGitAsync(path, "init", "--initial-branch=main");
+        EnsureSuccess(init);
+
+        if (!Directory.EnumerateFileSystemEntries(path).Any(entry =>
+                !Path.GetFileName(entry).Equals(".git", StringComparison.OrdinalIgnoreCase)))
+            await File.WriteAllTextAsync(Path.Combine(path, "README.md"), "# " + Path.GetFileName(path) + Environment.NewLine);
+
+        EnsureSuccess(await RunGitAsync(path, "add", "--all"));
+        var hasCommit = await RunGitAsync(path, "rev-parse", "--verify", "HEAD");
+        if (!hasCommit.Success)
+            EnsureSuccess(await RunGitAsync(path, "commit", "-m", "Initial commit"));
+        else
+        {
+            var status = await RunGitAsync(path, "status", "--porcelain");
+            EnsureSuccess(status);
+            if (!string.IsNullOrWhiteSpace(status.Output))
+                EnsureSuccess(await RunGitAsync(path, "commit", "-m", "Initial commit"));
+        }
+    }
+
+    public async Task<string?> GetOriginUrlAsync(string path)
+    {
+        var result = await RunGitAsync(path, "remote", "get-url", "origin");
+        return result.Success ? result.Output.Trim() : null;
+    }
+
+    public async Task ValidateEmptyOrGitRepositoryAsync(string path)
+    {
+        if (!Directory.Exists(path))
+            return;
+        var isGit = await RunGitAsync(path, "rev-parse", "--show-toplevel");
+        if (isGit.Success)
+            return;
+        if (Directory.EnumerateFileSystemEntries(path).Any())
+            throw new InvalidOperationException(localization.T("The destination folder must be empty or a Git repository."));
+    }
+
+    public async Task PushToRemoteAsync(string path, string remoteUrl)
+    {
+        if (string.IsNullOrWhiteSpace(remoteUrl))
+            throw new InvalidOperationException(localization.T("The local repository does not have an origin remote."));
+        var currentRemote = await GetOriginUrlAsync(path);
+        if (string.IsNullOrWhiteSpace(currentRemote))
+            EnsureSuccess(await RunGitAsync(path, "remote", "add", "origin", remoteUrl));
+        else if (!string.Equals(currentRemote, remoteUrl, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(localization.T("The local repository already has a different origin remote: {0}", currentRemote));
+        EnsureSuccess(await RunGitAsync(path, "push", "--set-upstream", "origin", "main"));
+    }
+
+    private async Task<CommandResult> RunGitAsync(string path, params string[] arguments) =>
+        await RunAsync("git", arguments, path);
+
+    private async Task<CommandResult> RunAsync(string executable, params string[] arguments) =>
+        await RunAsync(executable, arguments, null);
+
+    private async Task<CommandResult> RunAsync(string executable, string[] arguments, string? workingDirectory, bool suppressStandardError = false)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = executable,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        if (!string.IsNullOrWhiteSpace(workingDirectory))
+            startInfo.WorkingDirectory = workingDirectory;
+        foreach (var argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+
+        try
+        {
+            using var process = Process.Start(startInfo) ?? throw new InvalidOperationException(localization.T("Could not start {0}.", executable));
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            var output = await outputTask;
+            var error = await errorTask;
+            var message = suppressStandardError ? string.Empty : string.IsNullOrWhiteSpace(error) ? output.Trim() : error.Trim();
+            return new CommandResult(process.ExitCode == 0, output.Trim(), message);
+        }
+        catch (Win32Exception)
+        {
+            return new CommandResult(false, string.Empty, localization.T("{0} is not installed or is not available in PATH.", executable));
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return new CommandResult(false, string.Empty, localization.T("The selected destination folder does not exist."));
+        }
+    }
+
+    private static void EnsureSuccess(CommandResult result)
+    {
+        if (!result.Success)
+            throw new InvalidOperationException(result.Message);
+    }
+
+    private sealed record CommandResult(bool Success, string Output, string Message);
+}

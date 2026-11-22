@@ -1513,6 +1513,18 @@ h1:focus {
     flex: 0 0 auto;
 }
 
+.git-file-conflict-label {
+    flex: 0 0 auto;
+    padding: 0.05rem 0.35rem;
+    border: 1px solid color-mix(in srgb, var(--mud-palette-error) 55%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--mud-palette-error) 12%, transparent);
+    color: var(--mud-palette-error);
+    font-size: 0.65rem;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
 .git-file-select {
     display: flex;
     align-items: center;

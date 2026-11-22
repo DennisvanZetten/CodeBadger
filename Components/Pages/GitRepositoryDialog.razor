@@ -484,12 +484,12 @@
                                                 <MudTooltip Text="@L.T("Stage all")">
                                                     <MudIconButton Class="git-file-action-button" Size="Size.Small" Variant="Variant.Outlined"
                                                                    Icon="@Icons.Material.Filled.PlaylistAddCheck" aria-label="@L.T("Stage all")"
-                                                                   Disabled="@(_isOperating || UnstagedFiles.Count == 0)" OnClick="StageAllAsync" />
+                                                                    Disabled="@(_isOperating || StageableUnstagedFiles.Count == 0)" OnClick="StageAllAsync" />
                                                 </MudTooltip>
-                                                <MudTooltip Text="@L.T("Stage selected ({0})", SelectedUnstagedFiles.Count)">
-                                                    <MudIconButton Class="git-file-action-button" Size="Size.Small" Variant="Variant.Outlined"
-                                                                   Icon="@Icons.Material.Filled.PlaylistAdd" aria-label="@L.T("Stage selected ({0})", SelectedUnstagedFiles.Count)"
-                                                                   Disabled="@(_isOperating || SelectedUnstagedFiles.Count == 0)"
+                                                 <MudTooltip Text="@L.T("Stage selected ({0})", SelectedStageableUnstagedFiles.Count)">
+                                                     <MudIconButton Class="git-file-action-button" Size="Size.Small" Variant="Variant.Outlined"
+                                                                    Icon="@Icons.Material.Filled.PlaylistAdd" aria-label="@L.T("Stage selected ({0})", SelectedStageableUnstagedFiles.Count)"
+                                                                    Disabled="@(_isOperating || SelectedStageableUnstagedFiles.Count == 0)"
                                                                    OnClick="StageSelectedAsync" />
                                                 </MudTooltip>
                                                 <MudTooltip Text="@L.T("Undo selected ({0})", SelectedUnstagedFiles.Count)">
@@ -638,7 +638,9 @@
     private IReadOnlyList<BranchFolder> RemoteBranchFolders => GroupBranchesIntoFolders(RemoteBranches);
     private IReadOnlyList<GitFileChange> StagedFiles => _files.Where(file => file.IsStaged).ToList();
     private IReadOnlyList<GitFileChange> UnstagedFiles => _files.Where(file => file.IsUnstaged || file.IsUntracked).ToList();
+    private IReadOnlyList<GitFileChange> StageableUnstagedFiles => UnstagedFiles.Where(file => !file.IsConflicted).ToList();
     private IReadOnlyList<GitFileChange> SelectedUnstagedFiles => UnstagedFiles.Where(file => _selectedUnstagedFilePaths.Contains(file.Path)).ToList();
+    private IReadOnlyList<GitFileChange> SelectedStageableUnstagedFiles => SelectedUnstagedFiles.Where(file => !file.IsConflicted).ToList();
     private bool AreAllUnstagedFilesSelected => UnstagedFiles.Count > 0 && UnstagedFiles.All(file => _selectedUnstagedFilePaths.Contains(file.Path));
     private int HiddenStashCount => _stashes.Count(stash => _hiddenStashCommitHashes.Contains(stash.CommitHash));
     private IReadOnlyList<GitStashEntry> VisibleStashes => _stashes.Where(stash => _showHiddenStashes || !_hiddenStashCommitHashes.Contains(stash.CommitHash)).ToList();
@@ -758,6 +760,9 @@
 
     private async Task StageAsync(GitFileChange file)
     {
+        if (file.IsConflicted)
+            return;
+
         await RunFileOperationAsync(() => GitBranchService.StageFileAsync(RepositoryPath, file.Path));
     }
 
@@ -771,8 +776,9 @@
         _isOperating = true;
         try
         {
+            var conflictedCount = UnstagedFiles.Count(file => file.IsConflicted);
             var failed = 0;
-            foreach (var file in UnstagedFiles)
+            foreach (var file in StageableUnstagedFiles)
             {
                 var result = await GitBranchService.StageFileAsync(RepositoryPath, file.Path);
                 if (!result.Success)
@@ -780,6 +786,8 @@
             }
             if (failed > 0)
                 Snackbar.Add(L.T("Stage failed for {0} file(s).", failed), Severity.Error);
+            if (conflictedCount > 0)
+                Snackbar.Add(L.T("Skipped {0} conflicted file(s).", conflictedCount), Severity.Warning);
             await RefreshAsync();
         }
         finally
@@ -790,9 +798,14 @@
 
     private async Task StageSelectedAsync()
     {
-        var files = SelectedUnstagedFiles.ToList();
+        var files = SelectedStageableUnstagedFiles.ToList();
+        var conflictedCount = SelectedUnstagedFiles.Count(file => file.IsConflicted);
         if (files.Count == 0)
+        {
+            if (conflictedCount > 0)
+                Snackbar.Add(L.T("Skipped {0} conflicted file(s).", conflictedCount), Severity.Warning);
             return;
+        }
 
         _isOperating = true;
         try
@@ -810,6 +823,8 @@
             await RefreshAsync();
             if (failed > 0)
                 Snackbar.Add(L.T("Stage failed for {0} file(s).", failed), Severity.Error);
+            if (conflictedCount > 0)
+                Snackbar.Add(L.T("Skipped {0} conflicted file(s).", conflictedCount), Severity.Warning);
         }
         finally
         {
@@ -954,6 +969,10 @@
         <button class="git-file-select" @onclick="@(() => SelectFileAsync(file, staged))" title="@file.Path">
             <MudIcon Class="git-file-status-icon" Icon="@GetFileStatusIcon(file)" Size="Size.Small" Color="@GetFileStatusColor(file)" />
             <span class="git-file-path">@file.Path</span>
+            @if (file.IsConflicted)
+            {
+                <span class="git-file-conflict-label">@L.T("Conflict")</span>
+            }
             <span class="git-file-status">@file.Status</span>
         </button>
         @if (!file.IsConflicted)

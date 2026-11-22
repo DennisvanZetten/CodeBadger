@@ -166,7 +166,11 @@ public sealed class GitBranchService
         if (!result.Success)
             return [];
 
-        return result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+        return ParseFileChanges(result.Output);
+    }
+
+    private static IReadOnlyList<GitFileChange> ParseFileChanges(string output) =>
+        output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(line => line.TrimEnd('\r'))
             .Where(line => line.Length >= 4)
             .Select(line =>
@@ -185,7 +189,6 @@ public sealed class GitBranchService
                     line[..2]);
             })
             .ToList();
-    }
 
     public async Task<IReadOnlyList<GitStashEntry>> GetStashesAsync(string path)
     {
@@ -464,11 +467,39 @@ public sealed class GitBranchService
         return await RunGitAsync(path, "merge", "--no-edit", $"refs/heads/{sourceBranch}");
     }
 
-    public async Task<GitOperationResult> StageFileAsync(string path, string filePath) =>
-        await RunGitAsync(path, "add", "--", filePath);
+    public async Task<GitOperationResult> StageFileAsync(string path, string filePath)
+    {
+        var unmerged = await RunGitAsync(path, "--literal-pathspecs", "ls-files", "-u", "--", filePath);
+        if (!unmerged.Success)
+            return unmerged;
+        if (!string.IsNullOrWhiteSpace(unmerged.Output))
+            return new GitOperationResult(false, _localization.T("Resolve the conflict before staging this file."), string.Empty);
 
-    public async Task<GitOperationResult> StageAllChangesAsync(string path) =>
-        await RunGitAsync(path, "add", "--all");
+        return await RunGitAsync(path, "add", "--", filePath);
+    }
+
+    public async Task<GitOperationResult> StageAllChangesAsync(string path)
+    {
+        var status = await RunGitAsync(path, "status", "--porcelain=v1", "-uall");
+        if (!status.Success)
+            return status;
+
+        var files = ParseFileChanges(status.Output);
+        var failed = new List<string>();
+        foreach (var file in files.Where(file => (file.IsUnstaged || file.IsUntracked) && !file.IsConflicted))
+        {
+            var result = await StageFileAsync(path, file.Path);
+            if (!result.Success)
+                failed.Add(file.Path);
+        }
+
+        if (files.Any(file => file.IsConflicted))
+            return new GitOperationResult(false, _localization.T("Resolve conflicts before staging all changes."), string.Empty);
+        if (failed.Count > 0)
+            return new GitOperationResult(false, _localization.T("Stage failed for {0} file(s).", failed.Count), string.Join(Environment.NewLine, failed));
+
+        return new GitOperationResult(true, string.Empty, string.Empty);
+    }
 
     public async Task<GitOperationResult> UnstageFileAsync(string path, string filePath) =>
         await RunGitAsync(path, "restore", "--staged", "--", filePath);

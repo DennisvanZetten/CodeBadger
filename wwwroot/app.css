@@ -1981,6 +1981,16 @@ h1:focus {
     box-shadow: var(--mud-elevation-8);
 }
 
+.git-stash-context-menu {
+    position: fixed;
+    z-index: 1501;
+}
+
+.git-stash-context-backdrop {
+    position: fixed;
+    z-index: 1500;
+}
+
 .git-commit-context-menu-item {
     display: flex;
     align-items: center;
@@ -2268,6 +2278,38 @@ h1:focus {
     overflow-x: hidden;
     overflow-y: auto;
     scrollbar-gutter: stable;
+}
+
+.git-history-workspace .git-stash-item {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 0.1rem;
+}
+
+.git-history-workspace .git-stash-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0.4rem 0.3rem 0.4rem 0.45rem;
+    border-radius: 0.35rem;
+    cursor: pointer;
+    overflow: hidden;
+}
+
+.git-history-workspace .git-stash-main:hover,
+.git-history-workspace .git-stash-main:focus-visible {
+    background: var(--mud-palette-action-default-hover);
+    outline: none;
+}
+
+.git-history-workspace .git-stash-menu-button {
+    flex: 0 0 auto;
+    opacity: 0;
+}
+
+.git-history-workspace .git-stash-item:hover .git-stash-menu-button,
+.git-history-workspace .git-stash-item:focus-within .git-stash-menu-button {
+    opacity: 1;
 }
 
 .git-history-workspace .git-branch-group > summary > span:first-of-type {

@@ -189,14 +189,14 @@ public sealed class GitBranchService
 
     public async Task<IReadOnlyList<GitStashEntry>> GetStashesAsync(string path)
     {
-        var result = await RunGitAsync(path, "stash", "list", "--format=%gd%x1f%gs%x1f%ci");
+        var result = await RunGitAsync(path, "stash", "list", "--format=%gd%x1f%gs%x1f%ci%x1f%H");
         if (!result.Success)
             return [];
 
         return result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(line => line.TrimEnd('\r').Split('\u001f'))
-            .Where(parts => parts.Length == 3)
-            .Select(parts => new GitStashEntry(parts[0], parts[1], parts[2]))
+            .Where(parts => parts.Length == 4)
+            .Select(parts => new GitStashEntry(parts[0], parts[1], parts[2], parts[3]))
             .ToList();
     }
 
@@ -213,6 +213,37 @@ public sealed class GitBranchService
 
     public Task<GitOperationResult> PopStashAsync(string path, string stashReference) =>
         RunGitAsync(path, "stash", "pop", stashReference);
+
+    public Task<GitOperationResult> ApplyStashAsync(string path, string stashReference) =>
+        RunGitAsync(path, "stash", "apply", stashReference);
+
+    public Task<GitOperationResult> DropStashAsync(string path, string stashReference) =>
+        RunGitAsync(path, "stash", "drop", stashReference);
+
+    public async Task<GitOperationResult> EditStashMessageAsync(string path, GitStashEntry stash, string message)
+    {
+        message = message.Trim();
+        if (string.IsNullOrWhiteSpace(message))
+            return new GitOperationResult(false, _localization.T("Enter a stash message."), string.Empty);
+
+        var currentStashes = await GetStashesAsync(path);
+        var currentIndex = currentStashes.ToList().FindIndex(entry => string.Equals(entry.Reference, stash.Reference, StringComparison.Ordinal));
+        if (currentIndex < 0)
+            currentIndex = currentStashes.ToList().FindIndex(entry => string.Equals(entry.CommitHash, stash.CommitHash, StringComparison.Ordinal));
+        if (currentIndex < 0)
+            return new GitOperationResult(false, _localization.T("The selected stash is no longer available."), string.Empty);
+
+        // Git has no in-place rename operation: store a replacement, then remove the original reflog entry.
+        // The renamed entry moves to the top of the stash list.
+        var storeResult = await RunGitAsync(path, "stash", "store", "--message", message, stash.CommitHash);
+        if (!storeResult.Success)
+            return storeResult;
+
+        var removeOriginal = await RunGitAsync(path, "stash", "drop", $"stash@{{{currentIndex + 1}}}");
+        if (!removeOriginal.Success)
+            return new GitOperationResult(false, _localization.T("The new stash message was stored, but the old stash entry could not be removed: {0}", removeOriginal.Message), string.Empty);
+        return new GitOperationResult(true, string.Empty, string.Empty);
+    }
 
     public async Task<GitRepositoryStatus> GetRepositoryStatusAsync(string path)
     {
@@ -1004,7 +1035,7 @@ public sealed record GitFileChange(string Path, bool IsStaged, bool IsUnstaged, 
 {
     public bool IsUntracked => Status == "??";
 }
-public sealed record GitStashEntry(string Reference, string Message, string Date);
+public sealed record GitStashEntry(string Reference, string Message, string Date, string CommitHash);
 public sealed record GitOperationResult(bool Success, string Message, string Output, int ExitCode = 0);
 public sealed record GitConflictVersions(string Ours, string Theirs, string WorkingContent, string Fingerprint, string LineEnding, bool HasUtf8Bom);
 public sealed record GitCommitBranchCheck(bool? IsOnCurrentBranch, string? Error);

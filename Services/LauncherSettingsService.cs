@@ -55,6 +55,7 @@ public sealed class LauncherSettingsService
                 repository.TicketProjectKey ??= string.Empty;
                 ClearLegacyTicketMcpServer(repository);
                 repository.TaskStoryTemplate ??= RepositoryEntry.DefaultTaskStoryTemplate;
+                repository.HiddenStashCommitHashes ??= [];
             }
             settings.AiApiKey = await SecureStorage.Default.GetAsync(AiApiKeyStorageKey) ?? string.Empty;
             settings.SlackBotToken = await SecureStorage.Default.GetAsync(SlackBotTokenStorageKey) ?? string.Empty;

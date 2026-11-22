@@ -49,6 +49,7 @@ public sealed class RepositoryEntry
     public string TicketProjectKey { get; set; } = string.Empty;
     public string TaskStoryTemplate { get; set; } = DefaultTaskStoryTemplate;
     public bool SlackNotificationsMuted { get; set; }
+    public List<string> HiddenStashCommitHashes { get; set; } = [];
 }
 
 public static class TicketSystems

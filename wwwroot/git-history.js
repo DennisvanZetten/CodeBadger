@@ -2,7 +2,15 @@ const attachedSplitters = new WeakMap();
 const activeSplitters = new Set();
 
 export function positionCommitContextMenu(clientX, clientY) {
-    const menu = document.querySelector(".git-commit-context-menu");
+    positionContextMenu(".git-commit-context-menu", clientX, clientY);
+}
+
+export function positionStashContextMenu(clientX, clientY) {
+    positionContextMenu(".git-stash-context-menu", clientX, clientY);
+}
+
+function positionContextMenu(selector, clientX, clientY) {
+    const menu = document.querySelector(selector);
     const backdrop = menu?.closest(".git-context-menu-backdrop");
     if (!menu || !backdrop)
         return;

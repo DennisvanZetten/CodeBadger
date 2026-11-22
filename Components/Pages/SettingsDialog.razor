@@ -264,7 +264,10 @@
             </MudTabPanel>
             <MudTabPanel Text="@L.T("AI provider")" Icon="@Icons.Material.Filled.AutoAwesome">
                 <MudStack Spacing="3">
+                    <MudPaper Outlined="true" Elevation="0" Class="pa-4">
+                    <MudStack Spacing="3">
                     <MudText Typo="Typo.h6">@L.T("AI for commit messages")</MudText>
+                    <MudText Typo="Typo.subtitle2">@L.T("Commit message")</MudText>
                     <MudSelect T="string" Label="@L.T("Provider")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.AiProvider" @bind-Value:after="ResetModelList">
                         @foreach (var provider in AiProviders)
                         {
@@ -276,7 +279,7 @@
                         <MudTextField @bind-Value="Settings.AiCustomUrl" @bind-Value:after="ResetModelList" Label="@L.T("Provider URL")" Margin="Margin.Dense" Variant="Variant.Outlined"
                                       HelperText="@L.T("OpenAI-compatible base URL (e.g. https://host/v1) or full /chat/completions endpoint; Azure: deployment URL including api-version.")" />
                     }
-                    <MudSelect T="string" Label="@L.T("Model")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.AiModel"
+                    <MudSelect T="string" Label="@L.T("Commit message model")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.AiModel"
                                Disabled="@(!_hasTestedConnection || _availableModels.Count == 0)"
                                 HelperText="@(_hasTestedConnection ? L.T("Choose a model from the provider.") : L.T("Test the connection first to load models."))">
                         @foreach (var model in _availableModels)
@@ -298,6 +301,21 @@
                                OnClick="TestAiConnectionAsync" Disabled="@_isTestingAi" Class="align-self-start">
                          @(_isTestingAi ? L.T("Loading connection and models...") : L.T("Test connection & load models"))
                     </MudButton>
+                    </MudStack>
+                    </MudPaper>
+                    <MudPaper Outlined="true" Elevation="0" Class="pa-4">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6">@L.T("AI conflict resolution")</MudText>
+                            <MudSelect T="string" Label="@L.T("Conflict resolution model")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.AiConflictModel"
+                                       Disabled="@(!_hasTestedConnection || _availableModels.Count == 0)"
+                                       HelperText="@(_hasTestedConnection ? L.T("Choose the model to suggest resolved conflict content.") : L.T("Test the connection first to load models."))">
+                                @foreach (var model in _availableModels)
+                                {
+                                    <MudSelectItem T="string" Value="@model">@model</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudStack>
+                    </MudPaper>
                 </MudStack>
             </MudTabPanel>
             <MudTabPanel Text="@L.T("Notifications")" Icon="@Icons.Material.Filled.NotificationsActive">
@@ -702,6 +720,8 @@
                 _hasTestedConnection = true;
                 if (!_availableModels.Contains(Settings.AiModel, StringComparer.OrdinalIgnoreCase))
                     Settings.AiModel = _availableModels[0];
+                if (!_availableModels.Contains(Settings.AiConflictModel, StringComparer.OrdinalIgnoreCase))
+                    Settings.AiConflictModel = _availableModels[0];
             }
             Snackbar.Add(result.Success ? L.T("Connection successful. {0} models found.", _availableModels.Count) : result.Error,
                 result.Success ? Severity.Success : Severity.Error);

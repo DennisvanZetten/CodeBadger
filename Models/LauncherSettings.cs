@@ -13,6 +13,7 @@ public sealed class LauncherSettings
     public string AiProvider { get; set; } = "OpenAI";
     public string AiCustomUrl { get; set; } = string.Empty;
     public string AiModel { get; set; } = "gpt-4o-mini";
+    public string AiConflictModel { get; set; } = "gpt-4o-mini";
     public int AiMaxInputTokens { get; set; } = 12000;
     public string AiCustomInstruction { get; set; } = string.Empty;
     public int SandboxMaxFileMb { get; set; } = 64;

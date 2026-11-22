@@ -1,6 +1,8 @@
 @implements IAsyncDisposable
 @inject LocalizationService L
 @inject GitBranchService GitBranchService
+@inject AiCommitMessageService AiCommitMessageService
+@inject LauncherSettingsService LauncherSettingsService
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 
@@ -18,6 +20,9 @@
                     <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" aria-label="@L.T("Next conflict")" title="@L.T("Next conflict")" OnClick="NextConflict" Disabled="@(_saving || _conflictChunks.Count == 0 || _activeConflictIndex >= _conflictChunks.Count - 1)" />
                 </MudStack>
                 <MudStack Row="true" Spacing="1">
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AutoAwesome" OnClick="ResolveWithAiAsync" Disabled="@(_loading || _saving || _isResolvingWithAi)">
+                        @(_isResolvingWithAi ? L.T("AI is preparing a proposal...") : L.T("AI resolve"))
+                    </MudButton>
                     <MudButton Variant="Variant.Outlined" OnClick="TakeAllOurs" Disabled="@(_loading || _saving)">@L.T("Take all left")</MudButton>
                     <MudButton Variant="Variant.Outlined" OnClick="TakeAllTheirs" Disabled="@(_loading || _saving)">@L.T("Take all right")</MudButton>
                 </MudStack>
@@ -104,6 +109,8 @@
     private string _ours = string.Empty;
     private string _theirs = string.Empty;
     private string _result = string.Empty;
+    private string _workingContent = string.Empty;
+    private string _aiOriginalResult = string.Empty;
     private string _fingerprint = string.Empty;
     private string _lineEnding = "\n";
     private bool _hasUtf8Bom;
@@ -111,6 +118,8 @@
     private List<ConflictChunkBase> _chunks = [];
     private bool _loading = true;
     private bool _saving;
+    private bool _isResolvingWithAi;
+    private bool _hasAiConflictProposal;
     private string? _error;
     private int _activeConflictIndex;
     private int? _pendingConflictSourceRow;
@@ -143,10 +152,12 @@
         _lineEnding = response.Versions.LineEnding;
         _hasUtf8Bom = response.Versions.HasUtf8Bom;
         _hasTrailingNewline = HasTrailingNewline(response.Versions.WorkingContent);
+        _workingContent = response.Versions.WorkingContent;
         _chunks = ParseConflictChunks(response.Versions.WorkingContent);
         if (!_chunks.OfType<ConflictChunk>().Any())
             _chunks = [new ConflictChunk(AlignLines(_ours, _theirs))];
         UpdateResult();
+        _aiOriginalResult = _result;
         _pendingResultEditorValue = _result;
                     _resultRenderPending = true;
         _loading = false;
@@ -212,6 +223,8 @@
             row.Selection = takeRight;
         else if (row.Selection == takeRight)
             row.Selection = null;
+        _hasAiConflictProposal = false;
+        _aiOriginalResult = string.Empty;
         UpdateResult();
         _resultRenderPending = true;
         _pendingResultEditorValue = _result;
@@ -221,6 +234,11 @@
     private async Task HandleResultInput(ChangeEventArgs args)
     {
         _result = args.Value?.ToString() ?? string.Empty;
+        if (_hasAiConflictProposal && _result != _aiOriginalResult)
+        {
+            _hasAiConflictProposal = false;
+            _aiOriginalResult = string.Empty;
+        }
         _hasTrailingNewline = HasTrailingNewline(_result);
         _resultRenderPending = true;
         _pendingResultEditorValue = null;
@@ -264,6 +282,8 @@
 
     private void SelectAll(bool takeRight)
     {
+        _hasAiConflictProposal = false;
+        _aiOriginalResult = string.Empty;
         var conflicts = _chunks.OfType<ConflictChunk>().ToArray();
         foreach (var row in conflicts.SelectMany(chunk => chunk.Rows).Where(row => row.RequiresSelection))
             row.Selection = takeRight;
@@ -271,6 +291,42 @@
         _resultRenderPending = true;
         _pendingResultEditorValue = _result;
         _alignResultOnNextRender = true;
+    }
+
+    private async Task ResolveWithAiAsync()
+    {
+        _isResolvingWithAi = true;
+        try
+        {
+            var settings = await LauncherSettingsService.LoadAsync();
+            var result = await AiCommitMessageService.ResolveConflictAsync(settings, _workingContent);
+            if (!result.Success)
+            {
+                Snackbar.Add(result.Error, Severity.Error);
+                return;
+            }
+
+            _result = result.Title;
+            _hasTrailingNewline = HasTrailingNewline(_result);
+            _hasAiConflictProposal = true;
+            foreach (var conflict in _conflictChunks)
+            {
+                foreach (var row in conflict.Rows.Where(row => row.RequiresSelection))
+                {
+                    var leftLine = row.LeftLine is not null && _result.Contains(row.LeftLine, StringComparison.Ordinal);
+                    var rightLine = row.RightLine is not null && _result.Contains(row.RightLine, StringComparison.Ordinal);
+                    row.Selection = leftLine ? false : rightLine ? true : null;
+                }
+            }
+            _resultRenderPending = true;
+            _pendingResultEditorValue = _result;
+            _alignResultOnNextRender = true;
+            Snackbar.Add(L.T("AI conflict proposal ready. Review it before saving."), Severity.Success);
+        }
+        finally
+        {
+            _isResolvingWithAi = false;
+        }
     }
 
     private void UpdateResult()
@@ -321,6 +377,11 @@
                         sourceRowIndex++;
                         continue;
                     }
+                    if (_hasAiConflictProposal && row.RequiresSelection)
+                    {
+                        sourceRowIndex++;
+                        continue;
+                    }
                     var text = row.Selection == true ? row.RightLine : row.LeftLine;
                     if (text is not null)
                     {
@@ -332,6 +393,27 @@
         }
 
         var editedLines = SplitLines(_result);
+        if (_hasAiConflictProposal)
+        {
+            var proposalRows = new List<ConflictResultRow>(editedLines.Length);
+            var searchFrom = 0;
+            for (var index = 0; index < editedLines.Length; index++)
+            {
+                var line = editedLines[index];
+                var matchedSourceRow = (int?)null;
+                for (var candidate = searchFrom; candidate < sourceRowIndex; candidate++)
+                {
+                    if (GetSourceLine(candidate) != line)
+                        continue;
+                    matchedSourceRow = candidate;
+                    searchFrom = candidate + 1;
+                    break;
+                }
+                proposalRows.Add(new ConflictResultRow(line, "chosen", index + 1, matchedSourceRow, true));
+            }
+            return proposalRows;
+        }
+
         var rows = new List<ConflictResultRow>(editedLines.Length);
         var sourceIndex = 0;
         for (var resultIndex = 0; resultIndex < editedLines.Length; resultIndex++)
@@ -361,6 +443,31 @@
         var normalized = value.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
         var lines = normalized.Split('\n');
         return lines.Length > 0 && lines[^1].Length == 0 ? lines[..^1] : lines;
+    }
+
+    private string? GetSourceLine(int sourceRowIndex)
+    {
+        var currentIndex = 0;
+        foreach (var chunk in _chunks)
+        {
+            if (chunk is ContextChunk context)
+            {
+                foreach (var line in context.Lines)
+                {
+                    if (currentIndex++ == sourceRowIndex)
+                        return line;
+                }
+            }
+            else if (chunk is ConflictChunk conflict)
+            {
+                foreach (var row in conflict.Rows)
+                {
+                    if (currentIndex++ == sourceRowIndex)
+                        return row.LeftLine ?? row.RightLine;
+                }
+            }
+        }
+        return null;
     }
 
     private IReadOnlyList<ConflictDisplayRow> BuildSideRows(bool right)

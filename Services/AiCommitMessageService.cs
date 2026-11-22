@@ -12,30 +12,55 @@ public sealed class AiCommitMessageService
     public AiCommitMessageService(LocalizationService localization) => _localization = localization;
 
     public async Task<AiCommitMessageResult> GenerateAsync(LauncherSettings settings, string diff, string? branchName = null)
+        => await GenerateAsync(settings, diff, branchName, settings.AiModel, commitMessage: true);
+
+    public async Task<AiCommitMessageResult> ResolveConflictAsync(LauncherSettings settings, string conflictContent)
     {
-        if (string.IsNullOrWhiteSpace(diff))
+        if (string.IsNullOrWhiteSpace(conflictContent))
+            return new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("The conflict has no content to resolve."));
+
+        var prompt = new StringBuilder("Resolve the Git conflict(s) in this file and return the complete resolved file. Keep all text outside conflict markers exactly as it is. Within each conflict, prefer preserving compatible edits from both sides; if edits directly disagree and cannot both be applied, use the incoming/right side's version. Remove all conflict markers. Respond only as JSON with a string property named \"content\".");
+        prompt.Append("\n\nConflict file content:\n").Append(conflictContent);
+        var response = await GenerateAsync(settings, prompt.ToString(), null, settings.AiConflictModel, commitMessage: false);
+        return response.Success
+            ? response with { Title = response.Title.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n') }
+            : response;
+    }
+
+    private async Task<AiCommitMessageResult> GenerateAsync(LauncherSettings settings, string promptText, string? branchName, string model, bool commitMessage)
+    {
+        if (string.IsNullOrWhiteSpace(promptText))
             return new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("Please stage at least one change before generating a commit message."));
 
         var provider = settings.AiProvider;
-        var endpoint = ResolveCompletionEndpoint(settings);
+        var endpoint = ResolveCompletionEndpoint(settings, commitMessage ? null : model);
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
             return new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("Enter a valid provider URL."));
 
-        var boundedDiff = LimitInput(diff, settings.AiMaxInputTokens);
         try
         {
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
-            using var request = CreateRequest(provider, uri, settings, boundedDiff, branchName);
+            using var request = commitMessage
+                ? CreateRequest(provider, uri, settings, LimitInput(promptText, settings.AiMaxInputTokens), branchName)
+                : CreateConflictRequest(provider, uri, settings, promptText, model);
             using var response = await client.SendAsync(request);
             var responseBody = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
                 return new AiCommitMessageResult(false, string.Empty, string.Empty,
                     _localization.T("Provider returned status {0} for {1}: {2}", (int)response.StatusCode, uri.AbsolutePath, ExtractError(responseBody)));
 
-            var (title, description) = ExtractMessage(provider, responseBody);
-            return string.IsNullOrWhiteSpace(title)
-                ? new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("The provider returned no commit title."))
-                : new AiCommitMessageResult(true, title.Trim().Trim('`'), description.Trim().Trim('`'), string.Empty);
+            if (commitMessage)
+            {
+                var (title, description) = ExtractMessage(provider, responseBody);
+                return string.IsNullOrWhiteSpace(title)
+                    ? new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("The provider returned no commit title."))
+                    : new AiCommitMessageResult(true, title.Trim().Trim('`'), description.Trim().Trim('`'), string.Empty);
+            }
+
+            var resolvedContent = ExtractConflictContent(provider, responseBody);
+            return string.IsNullOrWhiteSpace(resolvedContent)
+                ? new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("The AI provider returned no resolved content."))
+                : new AiCommitMessageResult(true, resolvedContent, string.Empty, string.Empty);
         }
         catch (TaskCanceledException)
         {
@@ -122,6 +147,42 @@ public sealed class AiCommitMessageService
         return request;
     }
 
+    private static HttpRequestMessage CreateConflictRequest(string provider, Uri endpoint, LauncherSettings settings, string prompt, string model)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        if (provider.Equals("Anthropic", StringComparison.OrdinalIgnoreCase))
+        {
+            request.Headers.TryAddWithoutValidation("x-api-key", settings.AiApiKey);
+            request.Headers.TryAddWithoutValidation("anthropic-version", "2023-06-01");
+            request.Content = JsonContent(new { model, max_tokens = Math.Clamp(settings.AiMaxInputTokens, 256, 200000), messages = new[] { new { role = "user", content = prompt } } });
+        }
+        else if (provider.Equals("Google Gemini", StringComparison.OrdinalIgnoreCase))
+        {
+            var builder = new UriBuilder(endpoint);
+            builder.Query = string.IsNullOrWhiteSpace(builder.Query)
+                ? $"key={Uri.EscapeDataString(settings.AiApiKey)}"
+                : $"{builder.Query.TrimStart('?')}&key={Uri.EscapeDataString(settings.AiApiKey)}";
+            request.RequestUri = builder.Uri;
+            request.Content = JsonContent(new { contents = new[] { new { parts = new[] { new { text = prompt } } } }, generationConfig = new { maxOutputTokens = 4096, responseMimeType = "application/json" } });
+        }
+        else if (provider.Equals("Ollama", StringComparison.OrdinalIgnoreCase))
+        {
+            request.Content = JsonContent(new { model, stream = false, messages = new[] { new { role = "user", content = prompt } }, format = "json" });
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(settings.AiApiKey))
+            {
+                if (provider.Equals("Azure OpenAI", StringComparison.OrdinalIgnoreCase))
+                    request.Headers.TryAddWithoutValidation("api-key", settings.AiApiKey);
+                else
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.AiApiKey);
+            }
+            request.Content = JsonContent(new { model, max_tokens = 4096, response_format = new { type = "json_object" }, messages = new[] { new { role = "user", content = prompt } } });
+        }
+        return request;
+    }
+
     public async Task<AiModelListResult> GetAvailableModelsAsync(LauncherSettings settings)
     {
         var provider = settings.AiProvider;
@@ -159,7 +220,7 @@ public sealed class AiCommitMessageService
         }
     }
 
-    private static string ResolveCompletionEndpoint(LauncherSettings settings)
+    private static string ResolveCompletionEndpoint(LauncherSettings settings, string? modelOverride = null)
     {
         if (settings.AiProvider.Equals("Custom URL", StringComparison.OrdinalIgnoreCase))
             return NormalizeOpenAiCompatibleUrl(settings.AiCustomUrl, "chat/completions");
@@ -167,11 +228,22 @@ public sealed class AiCommitMessageService
         if (settings.AiProvider.Equals("Anthropic", StringComparison.OrdinalIgnoreCase))
             return "https://api.anthropic.com/v1/messages";
         if (settings.AiProvider.Equals("Google Gemini", StringComparison.OrdinalIgnoreCase))
-            return $"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(settings.AiModel)}:generateContent";
+            return $"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(modelOverride ?? settings.AiModel)}:generateContent";
         if (settings.AiProvider.Equals("Ollama", StringComparison.OrdinalIgnoreCase))
             return "http://localhost:11434/api/chat";
         if (settings.AiProvider.Equals("Azure OpenAI", StringComparison.OrdinalIgnoreCase))
-            return settings.AiCustomUrl;
+        {
+            if (string.IsNullOrWhiteSpace(settings.AiCustomUrl) || string.IsNullOrWhiteSpace(modelOverride) ||
+                !Uri.TryCreate(settings.AiCustomUrl, UriKind.Absolute, out var azureUri))
+                return settings.AiCustomUrl;
+            var segments = azureUri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var deploymentIndex = Array.FindIndex(segments, segment => segment.Equals("deployments", StringComparison.OrdinalIgnoreCase));
+            if (deploymentIndex < 0 || deploymentIndex + 1 >= segments.Length)
+                return settings.AiCustomUrl;
+            segments[deploymentIndex + 1] = Uri.EscapeDataString(modelOverride);
+            var builder = new UriBuilder(azureUri) { Path = "/" + string.Join('/', segments) };
+            return builder.Uri.ToString();
+        }
         return "https://api.openai.com/v1/chat/completions";
     }
 
@@ -302,6 +374,24 @@ public sealed class AiCommitMessageService
             var lines = text.Split('\n', 2, StringSplitOptions.TrimEntries);
             return (lines[0].Trim().Trim('`'), lines.Length > 1 ? lines[1].Trim() : string.Empty);
         }
+    }
+
+    private static string ExtractConflictContent(string provider, string response)
+    {
+        using var document = JsonDocument.Parse(response);
+        var root = document.RootElement;
+        var text = provider.Equals("Anthropic", StringComparison.OrdinalIgnoreCase)
+            ? root.GetProperty("content").EnumerateArray().FirstOrDefault().GetProperty("text").GetString() ?? string.Empty
+            : provider.Equals("Google Gemini", StringComparison.OrdinalIgnoreCase)
+                ? root.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString() ?? string.Empty
+                : provider.Equals("Ollama", StringComparison.OrdinalIgnoreCase)
+                    ? root.GetProperty("message").GetProperty("content").GetString() ?? string.Empty
+                    : root.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
+
+        using var contentDocument = JsonDocument.Parse(text);
+        return contentDocument.RootElement.TryGetProperty("content", out var content)
+            ? content.GetString() ?? string.Empty
+            : string.Empty;
     }
 
     private static string ExtractError(string response)

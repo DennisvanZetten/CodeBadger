@@ -181,6 +181,7 @@ public sealed class LocalizationService
         ["Destination folder"] = ["Destination folder", "Doelmap", "Zielordner", "Dossier de destination"],
         ["Browse for destination folder"] = ["Browse for destination folder", "Doelmap kiezen", "Zielordner auswählen", "Parcourir les dossiers de destination"],
         ["Local folder name"] = ["Local folder name", "Lokale mapnaam", "Lokaler Ordnername", "Nom du dossier local"],
+        ["Local folder name is filled from the repository name and can be changed."] = ["Local folder name is filled from the repository name and can be changed.", "De lokale mapnaam wordt ingevuld met de repositorynaam en kan worden aangepast.", "Der lokale Ordnername wird aus dem Repositorynamen übernommen und kann geändert werden.", "Le nom du dossier local est repris du nom du dépôt et peut être modifié."],
         ["Repository name"] = ["Repository name", "Repositorynaam", "Repositoryname", "Nom du dépôt"],
         ["GitHub"] = ["GitHub", "GitHub", "GitHub", "GitHub"],
         ["Azure DevOps"] = ["Azure DevOps", "Azure DevOps", "Azure DevOps", "Azure DevOps"],

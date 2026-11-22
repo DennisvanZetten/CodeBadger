@@ -31,10 +31,6 @@
         {
             <MudStack Spacing="3">
                 <MudSelect T="string" @bind-Value="_provider" Label="@L.T("Git provider")" Variant="Variant.Outlined" Margin="Margin.Dense">
-                    @if (_mode == SetupMode.Create)
-                    {
-                        <MudSelectItem T="string" Value="@("existing")">@L.T("Use existing remote")</MudSelectItem>
-                    }
                     @if (_mode == SetupMode.Clone)
                     {
                         <MudSelectItem T="string" Value="@("manual")">@L.T("Git URL")</MudSelectItem>
@@ -55,7 +51,7 @@
 
                 @if (_mode == SetupMode.Clone && _provider == "manual")
                 {
-                    <MudTextField @bind-Value="_cloneUrl" Label="@L.T("Repository URL")" Placeholder="https://..." Variant="Variant.Outlined" />
+                    <MudTextField T="string" Value="@_cloneUrl" ValueChanged="@(value => OnCloneUrlChanged(value))" Label="@L.T("Repository URL")" Placeholder="https://..." Immediate="true" Variant="Variant.Outlined" />
                 }
                 else if (_mode == SetupMode.Clone && _provider == "github")
                 {
@@ -63,7 +59,7 @@
                         <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="LoadGitHubRepositoriesAsync">@L.T("Load repositories")</MudButton>
                         @if (_githubRepositories.Count > 0)
                         {
-                            <MudSelect T="string" @bind-Value="_cloneUrl" Label="@L.T("Repository")" Variant="Variant.Outlined" Class="flex-grow-1">
+                            <MudSelect T="string" Value="@_cloneUrl" ValueChanged="OnGitHubRepositorySelected" Label="@L.T("Repository")" Variant="Variant.Outlined" Class="flex-grow-1">
                                 @foreach (var repo in _githubRepositories)
                                 {
                                     <MudSelectItem T="string" Value="@repo.Url">@repo.FullName</MudSelectItem>
@@ -87,7 +83,7 @@
                     }
                     @if (_azureRepositories.Count > 0)
                     {
-                        <MudSelect T="string" @bind-Value="_cloneUrl" Label="@L.T("Repository")" Variant="Variant.Outlined">
+                        <MudSelect T="string" Value="@_cloneUrl" ValueChanged="OnAzureRepositorySelected" Label="@L.T("Repository")" Variant="Variant.Outlined">
                             @foreach (var repo in _azureRepositories)
                             {
                                 <MudSelectItem T="string" Value="@repo.Url">@repo.Name</MudSelectItem>
@@ -145,6 +141,10 @@
                                    Disabled="@(!FolderPicker.IsSupported || _busy)" OnClick="BrowseDestinationAsync" />
                 </MudStack>
                 <MudTextField @bind-Value="_folderName" Label="@L.T(_mode == SetupMode.Clone ? "Local folder name" : "Repository name")" Variant="Variant.Outlined" />
+                @if (_mode == SetupMode.Clone)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Local folder name is filled from the repository name and can be changed.")</MudText>
+                }
             </MudStack>
         }
 
@@ -241,7 +241,44 @@
             _githubRepositories = await GitHostService.ListGitHubRepositoriesAsync();
             if (_githubRepositories.Count == 0)
                 _error = L.T("No repositories were found.");
+            else
+                OnGitHubRepositorySelected(_githubRepositories[0].Url);
         });
+    }
+
+    private void OnGitHubRepositorySelected(string url)
+    {
+        _cloneUrl = url;
+        var repository = _githubRepositories.FirstOrDefault(candidate => candidate.Url == url);
+        if (repository is not null)
+            _folderName = repository.Name;
+    }
+
+    private void OnAzureRepositorySelected(string url)
+    {
+        _cloneUrl = url;
+        var repository = _azureRepositories.FirstOrDefault(candidate => candidate.Url == url);
+        if (repository is not null)
+            _folderName = repository.Name;
+    }
+
+    private void OnCloneUrlChanged(string? url)
+    {
+        _cloneUrl = url ?? string.Empty;
+        var name = GetRepositoryNameFromUrl(_cloneUrl);
+        if (!string.IsNullOrWhiteSpace(name))
+            _folderName = name;
+    }
+
+    private static string GetRepositoryNameFromUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return string.Empty;
+
+        var trimmed = url.Trim().TrimEnd('/');
+        var lastSeparator = Math.Max(trimmed.LastIndexOf('/'), trimmed.LastIndexOf(':'));
+        var name = lastSeparator >= 0 ? trimmed[(lastSeparator + 1)..] : trimmed;
+        return name.EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? name[..^4] : name;
     }
 
     private async Task LoadAzureProjectsAsync()
@@ -253,7 +290,10 @@
                 throw new InvalidOperationException(_azure.Status);
             _azureProjects = await GitHostService.ListAzureProjectsAsync(_azureOrganization);
             if (_mode == SetupMode.Clone)
+            {
                 _azureRepositories = [];
+                _azureProject = string.Empty;
+            }
             else if (_azureProjects.Count > 0 && string.IsNullOrWhiteSpace(_azureProject))
                 _azureProject = _azureProjects[0].Name;
             if (_azureProjects.Count == 0)
@@ -265,7 +305,14 @@
     {
         _azureProject = project;
         _cloneUrl = string.Empty;
-        await RunBusyAsync(async () => _azureRepositories = await GitHostService.ListAzureRepositoriesAsync(_azureOrganization, project));
+        await RunBusyAsync(async () =>
+        {
+            _azureRepositories = await GitHostService.ListAzureRepositoriesAsync(_azureOrganization, project);
+            if (_azureRepositories.Count > 0)
+                OnAzureRepositorySelected(_azureRepositories[0].Url);
+            else
+                _error = L.T("No repositories were found.");
+        });
     }
 
     private async Task CloneAsync()

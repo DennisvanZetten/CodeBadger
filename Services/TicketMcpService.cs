@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Net;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -8,6 +10,10 @@ namespace CodeBadger.Services;
 
 public sealed class TicketMcpService
 {
+    private static readonly HttpClient Http = new(new HttpClientHandler { AllowAutoRedirect = false })
+    {
+        Timeout = TimeSpan.FromSeconds(30)
+    };
     private readonly AgentConfigService _agentConfig;
 
     public TicketMcpService(AgentConfigService agentConfig) => _agentConfig = agentConfig;
@@ -35,19 +41,34 @@ public sealed class TicketMcpService
             throw new InvalidOperationException($"The selected ticket MCP server '{repository.TicketMcpServerName}' was not found in the global or repository-specific {AgentTools.GetDisplayName(agentTool)} configuration.");
         if (server["disabled"]?.GetValue<bool>() == true)
             throw new InvalidOperationException($"The selected ticket MCP server '{repository.TicketMcpServerName}' is disabled.");
-        if (server["url"] is JsonValue)
-            throw new InvalidOperationException("Ticket creation through remote HTTP MCP servers is not supported yet; configure a local stdio MCP server.");
-        if (server["command"] is not JsonArray command || command.Count == 0 || command[0]?.GetValue<string>() is not { Length: > 0 } executable)
-            throw new InvalidOperationException("Ticket creation currently requires a local stdio MCP server with a command.");
+        var hasUrl = server["url"] is JsonValue;
+        var hasCommand = server["command"] is JsonArray;
+        if (hasUrl == hasCommand)
+            throw new InvalidOperationException("The selected MCP server must define exactly one transport: a remote 'url' or a local 'command'.");
 
         JsonObject? toolResult;
+        JsonArray? command = null;
+        string? endpoint = null;
         try
         {
-            toolResult = await CallServerAsync(repository.Path, command, server, cancellationToken);
+            if (hasUrl)
+            {
+                endpoint = server["url"]?.GetValue<string>();
+                if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+                    throw new InvalidOperationException("The remote MCP server URL must be an absolute HTTP or HTTPS URL.");
+                toolResult = await CallRemoteServerAsync(uri, server, cancellationToken);
+            }
+            else
+            {
+                command = server["command"] as JsonArray;
+                if (command is null || command.Count == 0 || string.IsNullOrWhiteSpace(command[0]?.GetValue<string>()))
+                    throw new InvalidOperationException("The local MCP server must define a command.");
+                toolResult = await CallServerAsync(repository.Path, command, server, cancellationToken);
+            }
         }
         catch (Exception exception)
         {
-            throw new InvalidOperationException($"Could not start MCP server '{repository.TicketMcpServerName}' or list its tools: {exception.Message}", exception);
+            throw new InvalidOperationException($"Could not connect to MCP server '{repository.TicketMcpServerName}' or list its tools: {exception.Message}", exception);
         }
         var tools = toolResult?[("tools")] as JsonArray ??
             throw new InvalidOperationException("The ticket MCP server did not return a tool list.");
@@ -68,20 +89,35 @@ public sealed class TicketMcpService
                         ? candidate.Name
                         : $"{candidate.Name}: {candidate.Description}"))}.");
 
+        var githubRepository = TicketSystems.Normalize(repository.TicketSystem) == TicketSystems.GitHub
+            ? await GetGitHubRepositoryAsync(repository.Path, cancellationToken)
+            : (Owner: string.Empty, Name: string.Empty);
         var arguments = BuildArguments(createTool.Tool["inputSchema"] as JsonObject, title, description,
-            repository.TicketProjectKey, GetJiraIssueType(itemType));
+            repository.TicketProjectKey, GetJiraIssueType(itemType), githubRepository.Owner, githubRepository.Name);
         JsonObject? callResult;
         try
         {
-            callResult = await CallServerAsync(repository.Path, command, server, cancellationToken,
-                createTool.Name, arguments);
+            callResult = endpoint is not null
+                ? await CallRemoteServerAsync(new Uri(endpoint), server, cancellationToken, createTool.Name, arguments)
+                : await CallServerAsync(repository.Path, command!, server, cancellationToken, createTool.Name, arguments);
         }
         catch (Exception exception)
         {
             throw new InvalidOperationException($"MCP server '{repository.TicketMcpServerName}' failed while calling tool '{createTool.Name}': {exception.Message}", exception);
         }
+        if (callResult?["isError"]?.GetValue<bool>() == true)
+            throw new InvalidOperationException($"MCP server '{repository.TicketMcpServerName}' returned an error: {callResult.ToJsonString()}");
         var text = callResult?.ToJsonString() ?? string.Empty;
-        var ticketNumber = Regex.Match(text, @"\b[A-Z][A-Z0-9_]+-\d+\b|#\d+", RegexOptions.IgnoreCase).Value;
+        var ticketMatch = Regex.Match(text,
+            @"\b[A-Z][A-Z0-9_]+-\d+\b|#\d+|/issues/(\d+)\b|""number""\s*:\s*(\d+)",
+            RegexOptions.IgnoreCase);
+        var ticketNumber = ticketMatch.Success
+            ? ticketMatch.Value.StartsWith("/issues/", StringComparison.OrdinalIgnoreCase)
+                ? "#" + ticketMatch.Groups[1].Value
+                : ticketMatch.Value.StartsWith("\"number\"", StringComparison.OrdinalIgnoreCase)
+                    ? "#" + ticketMatch.Groups[2].Value
+                    : ticketMatch.Value
+            : string.Empty;
         if (string.IsNullOrWhiteSpace(ticketNumber))
             throw new InvalidOperationException("The ticket tool returned, but no ticket number could be identified. Response: " + text);
         return ticketNumber;
@@ -111,7 +147,7 @@ public sealed class TicketMcpService
     }
 
     private static JsonObject BuildArguments(JsonObject? schema, string title, string description,
-        string projectKey, string issueType)
+        string projectKey, string issueType, string githubOwner, string githubRepository)
     {
         var properties = schema?["properties"] as JsonObject ?? new JsonObject();
         var args = new JsonObject();
@@ -126,6 +162,12 @@ public sealed class TicketMcpService
                 args[name] = projectKey;
             else if (normalized is "issue_type" or "issuetype" or "issue-type" or "type")
                 args[name] = issueType;
+            else if (normalized is "owner" or "repository_owner" or "repositoryowner")
+                args[name] = githubOwner;
+            else if (normalized is "repo" or "repository" or "repository_name" or "repositoryname")
+                args[name] = githubRepository;
+            else if ((normalized is "method" or "action") && githubRepository.Length > 0)
+                args[name] = "create";
         }
 
         if (schema?["required"] is JsonArray required)
@@ -137,6 +179,152 @@ public sealed class TicketMcpService
                 throw new InvalidOperationException($"The ticket tool requires additional fields that CodeBadger cannot infer: {string.Join(", ", missing)}.");
         }
         return args;
+    }
+
+    private static async Task<(string Owner, string Name)> GetGitHubRepositoryAsync(string path, CancellationToken cancellationToken)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "git", WorkingDirectory = path, UseShellExecute = false,
+            RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true
+        };
+        startInfo.ArgumentList.Add("remote");
+        startInfo.ArgumentList.Add("get-url");
+        startInfo.ArgumentList.Add("origin");
+        using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not inspect the repository's origin remote.");
+        var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var error = await process.StandardError.ReadToEndAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken);
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException("Could not determine the GitHub repository from the origin remote: " + error.Trim());
+
+        var remote = output.Trim();
+        var match = Regex.Match(remote, @"(?:https?://|ssh://(?:[^@/]+@)?|[^@]+@)[^/:]+[:/](?<owner>[^/]+)/(?<repo>[^/]+?)(?:\.git)?/?$", RegexOptions.IgnoreCase);
+        if (!match.Success)
+            throw new InvalidOperationException("The origin remote is not a recognized GitHub repository URL. Configure it as https://github.com/owner/repository.git or git@github.com:owner/repository.git.");
+        return (match.Groups["owner"].Value, match.Groups["repo"].Value);
+    }
+
+    private static async Task<JsonObject?> CallRemoteServerAsync(Uri endpoint, JsonObject server,
+        CancellationToken cancellationToken, string? toolName = null, JsonObject? arguments = null)
+    {
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (server["headers"] is JsonObject configuredHeaders)
+        {
+            foreach (var (name, node) in configuredHeaders)
+            {
+                var value = node?.GetValue<string>();
+                if (value is not null)
+                    headers[name] = Regex.Replace(value, @"\{env:([^}]+)\}", match =>
+                        Environment.GetEnvironmentVariable(match.Groups[1].Value)
+                        ?? throw new InvalidOperationException($"Environment variable '{match.Groups[1].Value}' referenced by MCP header '{name}' is not set."));
+            }
+        }
+
+        string? sessionId = null;
+        string protocolVersion = "2025-03-26";
+        var initialize = await SendRemoteRequestAsync(endpoint, headers, null, protocolVersion,
+            new { jsonrpc = "2.0", id = 1, method = "initialize", @params = new
+            {
+                protocolVersion, capabilities = new { }, clientInfo = new { name = "CodeBadger", version = "1.0" }
+            } }, 1, cancellationToken);
+        sessionId = initialize.SessionId;
+        if (initialize.Result?["protocolVersion"]?.GetValue<string>() is { Length: > 0 } negotiatedVersion)
+            protocolVersion = negotiatedVersion;
+
+        await SendRemoteNotificationAsync(endpoint, headers, sessionId, protocolVersion,
+            new { jsonrpc = "2.0", method = "notifications/initialized" }, cancellationToken);
+
+        var requestId = 2;
+        if (toolName is null)
+        {
+            var response = await SendRemoteRequestAsync(endpoint, headers, sessionId, protocolVersion,
+                new { jsonrpc = "2.0", id = requestId, method = "tools/list", @params = new { } }, requestId, cancellationToken);
+            return response.Result;
+        }
+
+        var call = await SendRemoteRequestAsync(endpoint, headers, sessionId, protocolVersion,
+            new { jsonrpc = "2.0", id = requestId, method = "tools/call", @params = new { name = toolName, arguments } }, requestId, cancellationToken);
+        return call.Result;
+    }
+
+    private static async Task<(JsonObject? Result, string? SessionId)> SendRemoteRequestAsync(Uri endpoint,
+        IReadOnlyDictionary<string, string> headers, string? sessionId, string protocolVersion, object message,
+        int id, CancellationToken cancellationToken)
+    {
+        using var request = CreateRemoteRequest(endpoint, headers, sessionId, protocolVersion, message);
+        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var authHelp = response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
+                ? " Check the remote server's configured headers or authentication; OAuth credentials managed internally by OpenCode are not automatically available to CodeBadger."
+                : string.Empty;
+            throw new InvalidOperationException($"Remote MCP server returned HTTP {(int)response.StatusCode} ({response.ReasonPhrase}).{authHelp} {responseText}");
+        }
+        var result = ParseRemoteResponse(responseText, id);
+        if (result?["error"] is JsonObject error)
+            throw new InvalidOperationException(error["message"]?.GetValue<string>() ?? "The remote MCP request failed.");
+        var returnedSessionId = response.Headers.TryGetValues("Mcp-Session-Id", out var sessionValues)
+            ? sessionValues.FirstOrDefault()
+            : null;
+        return (result?["result"] as JsonObject, returnedSessionId ?? sessionId);
+    }
+
+    private static async Task SendRemoteNotificationAsync(Uri endpoint, IReadOnlyDictionary<string, string> headers,
+        string? sessionId, string protocolVersion, object message, CancellationToken cancellationToken)
+    {
+        using var request = CreateRemoteRequest(endpoint, headers, sessionId, protocolVersion, message);
+        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Remote MCP server rejected initialization notification with HTTP {(int)response.StatusCode} ({response.ReasonPhrase}).");
+    }
+
+    private static HttpRequestMessage CreateRemoteRequest(Uri endpoint, IReadOnlyDictionary<string, string> headers,
+        string? sessionId, string protocolVersion, object message)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+        request.Content = new StringContent(JsonSerializer.Serialize(message), System.Text.Encoding.UTF8, "application/json");
+        if (!string.IsNullOrWhiteSpace(sessionId))
+            request.Headers.TryAddWithoutValidation("Mcp-Session-Id", sessionId);
+        if (!string.IsNullOrWhiteSpace(protocolVersion))
+            request.Headers.TryAddWithoutValidation("MCP-Protocol-Version", protocolVersion);
+        foreach (var (name, value) in headers)
+            if (!name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase) &&
+                !name.Equals("Accept", StringComparison.OrdinalIgnoreCase))
+                request.Headers.TryAddWithoutValidation(name, value);
+        return request;
+    }
+
+    private static JsonObject? ParseRemoteResponse(string responseText, int id)
+    {
+        if (string.IsNullOrWhiteSpace(responseText))
+            throw new InvalidOperationException("The remote MCP server returned an empty response.");
+        try
+        {
+            if (JsonNode.Parse(responseText) is JsonObject json && json["id"]?.GetValue<int>() == id)
+                return json;
+        }
+        catch (JsonException) { }
+
+        foreach (var line in responseText.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (!trimmed.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var payload = trimmed[5..].Trim();
+            if (payload.Length == 0 || payload == "[DONE]")
+                continue;
+            try
+            {
+                if (JsonNode.Parse(payload) is JsonObject json && json["id"]?.GetValue<int>() == id)
+                    return json;
+            }
+            catch (JsonException) { }
+        }
+        throw new InvalidOperationException("The remote MCP server response did not contain the expected JSON-RPC response.");
     }
 
     private static async Task<JsonObject?> CallServerAsync(string workingDirectory, JsonArray command, JsonObject server,

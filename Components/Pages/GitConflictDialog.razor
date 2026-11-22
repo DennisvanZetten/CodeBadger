@@ -53,7 +53,7 @@
                                             @if (row.Conflict is { RequiresSelection: true } line)
                                             {
                                                 <div data-conflict-row="true" data-source-row-index="@row.SourceRowIndex" class="git-conflict-code-line git-conflict-diff-line git-conflict-change @(row.Text is null ? "git-conflict-empty-line" : "") @(line.Selection == false ? "selected" : "")">
-                                                    <input type="checkbox" checked="@(line.Selection == false)" aria-label="@L.T("Add left line")" @onchange="args => SetLineSelection(line, false, args)" />
+                                                    <button type="button" class="git-conflict-line-add @(line.Selection == false ? "selected" : "")" aria-label="@L.T("Add left line")" title="@L.T("Add left line")" @onclick="() => SelectLine(line, false)"><MudIcon Icon="@(line.Selection == false ? Icons.Material.Filled.Check : Icons.Material.Filled.Add)" Size="Size.Small" /></button>
                                                     <span class="git-conflict-line-number">@row.LineNumber</span><code>@row.Text</code>
                                                 </div>
                                             }
@@ -88,7 +88,7 @@
                                             @if (row.Conflict is { RequiresSelection: true } line)
                                             {
                                                 <div data-conflict-row="true" data-source-row-index="@row.SourceRowIndex" class="git-conflict-code-line git-conflict-diff-line git-conflict-change @(row.Text is null ? "git-conflict-empty-line" : "") @(line.Selection == true ? "selected" : "")">
-                                                    <input type="checkbox" checked="@(line.Selection == true)" aria-label="@L.T("Add right line")" @onchange="args => SetLineSelection(line, true, args)" />
+                                                    <button type="button" class="git-conflict-line-add @(line.Selection == true ? "selected" : "")" aria-label="@L.T("Add right line")" title="@L.T("Add right line")" @onclick="() => SelectLine(line, true)"><MudIcon Icon="@(line.Selection == true ? Icons.Material.Filled.Check : Icons.Material.Filled.Add)" Size="Size.Small" /></button>
                                                     <span class="git-conflict-line-number">@row.LineNumber</span><code>@row.Text</code>
                                                 </div>
                                             }
@@ -250,8 +250,10 @@
         }
     }
 
-    private void SetLineSelection(ConflictLine row, bool takeRight, ChangeEventArgs args)
+    private void SelectLine(ConflictLine row, bool takeRight)
     {
+        if (!row.RequiresSelection)
+            return;
         var wasDefaultProposal = _hasDefaultConflictProposal && ReferenceEquals(_aiDefaultChunk, row.Chunk);
         if (!_aiDefaultApplied && wasDefaultProposal)
         {
@@ -260,11 +262,7 @@
             _aiDefaultChunk = null;
             _aiDefaultApplied = true;
         }
-        var selected = args.Value is bool value && value;
-        if (selected)
-            row.Selection = takeRight;
-        else if (row.Selection == takeRight)
-            row.Selection = null;
+        row.Selection = takeRight;
         _hasAiConflictProposal = false;
         if (wasDefaultProposal)
             _hasDefaultConflictProposal = false;

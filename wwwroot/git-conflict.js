@@ -40,10 +40,14 @@ export function initializeConflictScroll(left, right, editor) {
     requestAnimationFrame(() => {
         const firstDiff = left.querySelector(".git-conflict-diff-line[data-conflict-row='true']");
         if (firstDiff) {
+            const conflictArea = firstDiff.closest(".git-conflict-area");
+            const target = conflictArea?.querySelector(":scope > header") ?? firstDiff;
             const containerTop = left.getBoundingClientRect().top;
-            const diffTop = firstDiff.getBoundingClientRect().top;
-            left.scrollTop = Math.max(0, left.scrollTop + diffTop - containerTop);
-            right.scrollTop = left.scrollTop;
+            const targetTop = target.getBoundingClientRect().top;
+            left.scrollTop = Math.max(0, left.scrollTop + targetTop - containerTop);
+            const leftRange = left.scrollHeight - left.clientHeight;
+            const rightRange = right.scrollHeight - right.clientHeight;
+            right.scrollTop = leftRange > 0 ? left.scrollTop / leftRange * rightRange : 0;
         }
         onSourceScroll();
     });

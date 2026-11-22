@@ -1,0 +1,168 @@
+.git-conflict-dialog {
+    width: min(96vw, 1800px) !important;
+    max-width: 96vw !important;
+    height: min(92vh, 1200px);
+    max-height: 92vh;
+}
+
+.git-conflict-dialog .mud-dialog-content {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.git-conflict-editor {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.git-conflict-toolbar,
+.git-conflict-footer { flex: 0 0 auto; }
+
+.git-conflict-sides {
+    display: grid;
+    flex: 1 1 58%;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.75rem;
+    min-height: 0;
+}
+
+.git-conflict-side,
+.git-conflict-result {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 4px;
+}
+
+.git-conflict-side > header {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    background: var(--mud-palette-background-grey);
+}
+
+.git-conflict-code {
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 0;
+    overflow: auto;
+    font: 0.75rem/1.45 Consolas, 'Courier New', monospace;
+}
+
+.git-conflict-code-line {
+    display: flex;
+    align-items: stretch;
+    min-width: max-content;
+    min-height: 1.45em;
+    white-space: pre;
+}
+
+.git-conflict-code-line code {
+    min-width: 0;
+    padding: 0 0.45rem;
+    color: inherit;
+    font: inherit;
+    white-space: pre;
+}
+
+.git-conflict-diff-line { cursor: pointer; }
+.git-conflict-change { background: color-mix(in srgb, #d29922 22%, transparent); color: #eac54f; }
+.git-conflict-diff-line.selected { outline: 1px solid color-mix(in srgb, var(--mud-palette-primary) 45%, transparent); outline-offset: -1px; }
+:root[data-theme-mode="light"] .git-conflict-change { color: #805600; }
+
+.git-conflict-diff-line input {
+    flex: 0 0 1rem;
+    width: 0.85rem;
+    height: 0.85rem;
+    align-self: center;
+    margin: 0 0.35rem;
+    accent-color: var(--mud-palette-primary);
+}
+
+.git-conflict-selector-placeholder { flex: 0 0 1.55rem; }
+
+.git-conflict-line-number {
+    flex: 0 0 4ch;
+    padding: 0 0.35rem;
+    color: var(--mud-palette-text-secondary);
+    text-align: right;
+    user-select: none;
+}
+
+.git-conflict-empty-line { min-height: 1.45em; }
+.git-conflict-result { flex: 1 1 42%; padding: 0.5rem; }
+.git-conflict-result-editor {
+    display: grid;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 4px;
+    background: var(--mud-palette-background);
+    color: var(--mud-palette-text-primary);
+    font: 0.75rem/1.45 Consolas, 'Courier New', monospace;
+    white-space: pre;
+}
+.git-conflict-result-preview,
+.git-conflict-result-textarea {
+    grid-area: 1 / 1;
+    min-width: 0;
+    min-height: 0;
+    margin: 0;
+    padding: 0.4rem;
+    overflow: auto;
+    border: 0;
+    font: inherit;
+    line-height: inherit;
+    white-space: pre;
+}
+.git-conflict-result-preview { pointer-events: none; }
+.git-conflict-result-textarea {
+    width: 100%;
+    height: 100%;
+    resize: none;
+    outline: none;
+    background: transparent;
+    color: transparent;
+    caret-color: var(--mud-palette-text-primary);
+    -webkit-text-fill-color: transparent;
+}
+.git-conflict-result-editor:focus-within { border-color: var(--mud-palette-primary); }
+.git-conflict-result-editor:focus-within .git-conflict-result-preview { visibility: hidden; }
+.git-conflict-result-editor:focus-within .git-conflict-result-textarea {
+    color: var(--mud-palette-text-primary);
+    -webkit-text-fill-color: var(--mud-palette-text-primary);
+}
+.git-conflict-result-line { display: flex; min-width: max-content; min-height: 1.45em; white-space: pre; }
+.git-conflict-result-line code { min-width: 0; padding: 0 0.45rem; color: inherit; font: inherit; white-space: pre; }
+.git-conflict-result-number {
+    flex: 0 0 4ch;
+    padding: 0 0.35rem;
+    color: var(--mud-palette-text-secondary);
+    text-align: right;
+    user-select: none;
+}
+.git-conflict-result-chosen { background: color-mix(in srgb, #3fb950 20%, transparent); color: #7ee787; }
+.git-conflict-result-context { color: var(--mud-palette-text-primary); }
+:root[data-theme-mode="light"] .git-conflict-result-chosen { color: #176b35; }
+
+@media (max-width: 760px) {
+    .git-conflict-sides {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    }
+}

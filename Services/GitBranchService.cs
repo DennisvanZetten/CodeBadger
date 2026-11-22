@@ -169,6 +169,9 @@ public sealed class GitBranchService
         return ParseFileChanges(result.Output);
     }
 
+    public Task<GitOperationResult> GetWorkingTreeStatusAsync(string path) =>
+        RunGitAsync(path, "status", "--porcelain=v1", "-uall");
+
     private static IReadOnlyList<GitFileChange> ParseFileChanges(string output) =>
         output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(line => line.TrimEnd('\r'))

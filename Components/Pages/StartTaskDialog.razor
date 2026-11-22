@@ -9,6 +9,14 @@
     <DialogContent>
         <MudStack Spacing="2">
             <MudText Typo="Typo.body2">@L.T("Task: {0}", Task.Title)</MudText>
+            @if (_workingTreeHasChanges)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("Commit or stash all staged and unstaged files before starting a task in a new session.")</MudAlert>
+            }
+            else if (_workingTreeCheckFailed)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("Could not check repository changes. The task cannot be started until the working tree can be checked.")</MudAlert>
+            }
             @if (TicketRequired)
             {
                 <MudText Typo="Typo.subtitle2">@L.T("Ticket choice")</MudText>
@@ -89,8 +97,10 @@
     private string _existingBranch = string.Empty;
     private IReadOnlyList<string> _branches = [];
     private bool _working;
+    private bool _workingTreeHasChanges;
+    private bool _workingTreeCheckFailed;
     private string _errorDetails = string.Empty;
-    private bool CanContinue => !_working && (TicketRequired
+    private bool CanContinue => !_working && !_workingTreeHasChanges && !_workingTreeCheckFailed && (TicketRequired
         ? _ticketMode switch
         {
             "new-branch-existing-ticket" => !string.IsNullOrWhiteSpace(_ticketNumber),
@@ -105,6 +115,7 @@
         _currentBranch = (await Git.GetCurrentBranchAsync(Repository.Path)).Branch;
         _developmentBranch = await Git.GetDevelopmentStartPointAsync(Repository.Path);
         _branches = await Git.GetLocalBranchNamesAsync(Repository.Path);
+        await CheckWorkingTreeAsync();
         if (_branches.Count > 0)
             _existingBranch = _branches.FirstOrDefault(branch => branch == _currentBranch) ?? _branches[0];
         if (_currentBranch is null)
@@ -119,6 +130,10 @@
         var stage = "preparing the ticket";
         try
         {
+            await CheckWorkingTreeAsync();
+            if (_workingTreeHasChanges || _workingTreeCheckFailed)
+                return;
+
             var createTicket = TicketRequired
                 ? _ticketMode == "new-ticket"
                 : TicketConfigured && _optionalTicketChoice == "yes";
@@ -163,6 +178,13 @@
             });
         }
         finally { _working = false; }
+    }
+
+    private async Task CheckWorkingTreeAsync()
+    {
+        var status = await Git.GetWorkingTreeStatusAsync(Repository.Path);
+        _workingTreeCheckFailed = !status.Success;
+        _workingTreeHasChanges = status.Success && !string.IsNullOrWhiteSpace(status.Output);
     }
 
     private async Task CopyErrorDetailsAsync(Snackbar snackbar)

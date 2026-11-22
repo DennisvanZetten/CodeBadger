@@ -11,6 +11,7 @@ namespace CodeBadger.Services;
 public sealed class SlackNotificationService : IAsyncDisposable
 {
     private const string ThreadLinksStorageKey = "codebadger-slack-session-threads";
+    private const string ThreadLinksFileName = "slack-session-threads.json";
     private const string MutedSessionsStorageKey = "codebadger-slack-muted-sessions";
     private readonly LauncherSettingsService _settingsService;
     private readonly OpenCodeActivityService _openCodeActivity;
@@ -26,8 +27,10 @@ public sealed class SlackNotificationService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte> _announcedInteractions = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _seenReplies = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _submittedMessageTexts = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> _publishedSessionMessages = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _mutedSessions = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _configurationGate = new(1, 1);
+    private readonly SemaphoreSlim _threadLinksStorageGate = new(1, 1);
     private CancellationTokenSource? _connectionCancellation;
     private Task? _connectionTask;
     private string _botToken = string.Empty;
@@ -58,8 +61,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
     public sealed record SlackChannel(string Id, string Name, bool IsMember, bool IsPrivate);
     public sealed record SessionNotification(string Id, string Title, string Agent, string Directory, bool IsMuted);
     private sealed record ThreadLink(string ThreadTs, string ChannelId, string Directory, string Agent, string Title,
-        DateTime CreatedAt, bool InitialPromptPublished = false, string[]? PublishedMessageIds = null,
-        bool RootMessageIsTitle = false);
+        DateTime CreatedAt, bool InitialPromptPublished = false, bool RootMessageIsTitle = false);
     private sealed class PendingNewSession(IReadOnlyList<RepositoryEntry> repositories)
     {
         public IReadOnlyList<RepositoryEntry> Repositories { get; } = repositories;
@@ -246,27 +248,24 @@ public sealed class SlackNotificationService : IAsyncDisposable
         var title = IsGenericTitle(session.Title)
             ? GetTitleFromPrompt(initialMessage?.Text ?? messages.FirstOrDefault()?.Text) : session.Title;
         var thread = await EnsureSessionThreadLinkAsync(session, title, cancellationToken);
-        var published = new HashSet<string>(thread.PublishedMessageIds ?? [], StringComparer.Ordinal);
+        var published = _publishedSessionMessages.GetOrAdd(session.Id,
+            _ => new ConcurrentDictionary<string, byte>(StringComparer.Ordinal));
         if (initialMessage is not null && !thread.InitialPromptPublished && !string.IsNullOrWhiteSpace(initialMessage.Id) &&
-            !string.IsNullOrWhiteSpace(initialMessage.Text))
+            !string.IsNullOrWhiteSpace(initialMessage.Text) && published.TryAdd(initialMessage.Id, 0))
         {
             await PostLongThreadMessageAsync(thread, "*Eerste opdracht:*", initialMessage.Text, cancellationToken);
-            published.Add(initialMessage.Id);
-            thread = thread with { InitialPromptPublished = true, PublishedMessageIds = published.TakeLast(200).ToArray() };
+            thread = thread with { InitialPromptPublished = true };
             _sessionThreads[session.Id] = thread;
             await SaveThreadLinksAsync();
         }
         foreach (var message in messages)
         {
-            if (string.IsNullOrWhiteSpace(message.Id) || string.IsNullOrWhiteSpace(message.Text) || published.Contains(message.Id))
+            if (string.IsNullOrWhiteSpace(message.Id) || string.IsNullOrWhiteSpace(message.Text) || published.ContainsKey(message.Id))
                 continue;
             var textHash = GetMessageHash(session.Id, message.Text);
             if (_submittedMessageTexts.TryRemove(textHash, out _))
             {
-                published.Add(message.Id);
-                thread = thread with { PublishedMessageIds = published.TakeLast(200).ToArray() };
-                _sessionThreads[session.Id] = thread;
-                await SaveThreadLinksAsync();
+                published.TryAdd(message.Id, 0);
                 continue;
             }
             if (!thread.InitialPromptPublished)
@@ -276,10 +275,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
             }
             else
                 await PostLongThreadMessageAsync(thread, "*Gebruiker:*", message.Text, cancellationToken);
-            published.Add(message.Id);
-            thread = thread with { PublishedMessageIds = published.TakeLast(200).ToArray() };
-            _sessionThreads[session.Id] = thread;
-            await SaveThreadLinksAsync();
+            published.TryAdd(message.Id, 0);
         }
     }
 
@@ -1242,7 +1238,18 @@ public sealed class SlackNotificationService : IAsyncDisposable
     private async Task LoadThreadLinksAsync(string channelId)
     {
         _sessionThreads.Clear();
-        var json = await SecureStorage.Default.GetAsync(ThreadLinksStorageKey);
+        string? json = null;
+        var filePath = Path.Combine(FileSystem.AppDataDirectory, ThreadLinksFileName);
+        if (File.Exists(filePath))
+            json = await File.ReadAllTextAsync(filePath);
+        else
+        {
+            try { json = await SecureStorage.Default.GetAsync(ThreadLinksStorageKey); }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "Could not read legacy Slack thread links from secure storage; they will be recreated as needed.");
+            }
+        }
         if (string.IsNullOrWhiteSpace(json))
             return;
         try
@@ -1254,15 +1261,29 @@ public sealed class SlackNotificationService : IAsyncDisposable
                          .OrderByDescending(pair => pair.Value.CreatedAt).Take(100))
                 if (pair.Key.StartsWith("ses_", StringComparison.Ordinal))
                     _sessionThreads[pair.Key] = pair.Value;
+            await SaveThreadLinksAsync();
         }
         catch (JsonException) { }
     }
 
     private async Task SaveThreadLinksAsync()
     {
-        var links = _sessionThreads.OrderByDescending(pair => pair.Value.CreatedAt).Take(100)
-            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
-        await SecureStorage.Default.SetAsync(ThreadLinksStorageKey, JsonSerializer.Serialize(links));
+        await _threadLinksStorageGate.WaitAsync();
+        try
+        {
+            var links = _sessionThreads.OrderByDescending(pair => pair.Value.CreatedAt).Take(100)
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+            var filePath = Path.Combine(FileSystem.AppDataDirectory, ThreadLinksFileName);
+            var temporaryPath = filePath + ".tmp";
+            await File.WriteAllTextAsync(temporaryPath, JsonSerializer.Serialize(links));
+            File.Move(temporaryPath, filePath, overwrite: true);
+            try { SecureStorage.Default.Remove(ThreadLinksStorageKey); }
+            catch (Exception exception)
+            {
+                _logger.LogDebug(exception, "Could not remove legacy Slack thread links from secure storage.");
+            }
+        }
+        finally { _threadLinksStorageGate.Release(); }
     }
 
     private static async Task<Uri> OpenSocketAsync(string appToken, CancellationToken cancellationToken)

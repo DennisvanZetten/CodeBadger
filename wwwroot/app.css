@@ -509,7 +509,7 @@ h1:focus {
 
 .repository-setting-row {
     display: grid;
-    grid-template-columns: 58px minmax(145px, 0.8fr) minmax(220px, 1.8fr) minmax(180px, 0.8fr) 104px;
+    grid-template-columns: 58px minmax(0, 1fr) 104px;
     align-items: center;
     gap: 0.5rem;
     width: 100%;
@@ -523,34 +523,10 @@ h1:focus {
     justify-content: flex-end;
 }
 
-.repository-sandbox-toggle,
-.repository-notifications-toggle,
-.repository-commit-instructions,
-.repository-ticket-settings {
-    grid-column: 2 / 5;
-    min-width: 0;
-}
-
-.repository-sandbox-toggle {
-    grid-row: 5;
-}
-
-.repository-notifications-toggle {
-    grid-row: 4;
-}
-
-.repository-commit-instructions {
-    grid-row: 3;
-}
-
-.repository-ticket-settings {
-    grid-column: 2 / 5;
-    grid-row: 2;
-    min-width: 0;
-    margin: 0;
-    padding: 0.2rem 0.75rem 0.65rem;
-    border: 1px solid var(--mud-palette-divider);
-    border-radius: var(--mud-default-borderradius);
+.repository-name-display {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .repository-ticket-settings legend {
@@ -721,56 +697,35 @@ h1:focus {
         grid-row: 1;
     }
 
-    .repository-path-control {
-        grid-column: 1 / -1;
-        grid-row: 2;
-    }
-
-    .repository-agent-control {
-        grid-column: 1 / -1;
-        grid-row: 3;
-    }
-
-    .repository-ticket-settings {
-        grid-column: 1 / -1;
-        grid-row: 4;
-    }
-
-    .repository-commit-instructions {
-        grid-column: 1 / -1;
-        grid-row: 5;
-    }
-
-    .repository-ticket-controls {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .repository-ticket-controls > .mud-input-control:first-child,
-    .repository-ticket-controls > .mud-input-control:not(:first-child) {
-        flex: 1 1 auto;
-        width: 100%;
-        min-width: 0;
-    }
-
-    .repository-story-template-dialog .mud-dialog-content {
-        min-width: 0;
-    }
-
-    .repository-notifications-toggle {
-        grid-column: 1 / -1;
-        grid-row: 6;
-    }
-
     .repository-order-controls {
         grid-column: 3;
         grid-row: 1;
     }
+}
 
-    .repository-sandbox-toggle {
-        grid-column: 1 / -1;
-        grid-row: 7;
-    }
+.repository-settings-dialog .mud-dialog-content {
+    max-height: min(78vh, 900px);
+    overflow-y: auto;
+}
+
+.repository-instruction-editor textarea {
+    min-height: 15rem !important;
+    line-height: 1.5;
+}
+
+.repository-dialog-section {
+    min-width: 0;
+    margin: 0;
+    padding: 0.2rem 0.75rem 0.65rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: var(--mud-default-borderradius);
+}
+
+.repository-dialog-section legend {
+    width: auto;
+    padding: 0 0.35rem;
+    font-size: 0.8rem;
+    color: var(--mud-palette-text-secondary);
 }
 
 .repository-sandbox-indicator,

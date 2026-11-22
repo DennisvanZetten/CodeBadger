@@ -1,11 +1,9 @@
 @inject LauncherSettingsService SettingsService
 @inject LocalizationService L
 @inject AiCommitMessageService AiCommitMessageService
-@inject RepositoryFolderPicker FolderPicker
 @inject AgentConfigService AgentConfigService
 @inject SlackNotificationService SlackNotificationService
 @inject StartupDetectionService StartupDetection
-@inject OpenCodeRepositoryConfigService OpenCodeConfigService
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @inject IDialogService DialogService
@@ -28,7 +26,7 @@
                             <MudText Typo="Typo.h6">@L.T("Manage repositories")</MudText>
                             <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Active repositories get their own tab on the home screen.")</MudText>
                         </div>
-                         <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddRepository">@L.T("Add")</MudButton>
+                         <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddRepositoryAsync">@L.T("Add")</MudButton>
                     </MudStack>
                     @if (Settings.Repositories.Count == 0)
                     {
@@ -36,165 +34,18 @@
                     }
                     @foreach (var repository in Settings.Repositories)
                     {
-                        <MudPaper @key="repository" Class="pa-3 repository-setting-row" Outlined="true" Elevation="0">
+                        <MudPaper @key="repository.Id" Class="pa-3 repository-setting-row" Outlined="true" Elevation="0">
                             <div class="repository-active-toggle">
-                                <MudSwitch @bind-Value="repository.IsActive" Color="Color.Primary" />
+                                <MudSwitch @bind-Value="repository.IsActive" Color="Color.Primary" aria-label="@L.T("Active")" />
                             </div>
                             <div class="repository-name-control">
-                                 <MudTextField @bind-Value="repository.Name" Label="@L.T("Name")" Placeholder="@L.T("New repository")" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                <MudText Typo="Typo.body1" Class="repository-name-display">
+                                    @(string.IsNullOrWhiteSpace(repository.Name) ? repository.Path : repository.Name)
+                                </MudText>
                             </div>
-                            <div class="repository-path-control">
-                                 <MudTextField @bind-Value="repository.Path" Placeholder="@L.T("Path")" aria-label="@L.T("Path")" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.FolderOpen" Color="Color.Primary" aria-label="@L.T("Browse for repository folder")"
-                                                Disabled="@(!FolderPicker.IsSupported)" OnClick="@(() => BrowseRepositoryAsync(repository))" />
-                            </div>
-                            <div class="repository-agent-control">
-                                <MudSelect T="string" Value="@AgentTools.Normalize(repository.AgentTool)"
-                                           ValueChanged="@(agent => OnRepositoryAgentChangedAsync(repository, agent))"
-                                           Label="@L.T("Agent tool")" Variant="Variant.Outlined" Margin="Margin.Dense">
-                                    <MudSelectItem T="string" Value="@AgentTools.OpenCode">OpenCode</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@AgentTools.ClaudeCode">Claude Code</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@AgentTools.Codex">Codex</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@AgentTools.Hermes">Hermes</MudSelectItem>
-                                </MudSelect>
-                                @if (!StartupDetection.IsAgentAvailable(repository.AgentTool))
-                                {
-                                    <MudTooltip Text="@L.T("Agent command not found")">
-                                        <MudIcon Icon="@Icons.Material.Filled.Warning" Color="Color.Warning" Size="Size.Small" />
-                                    </MudTooltip>
-                                }
-                                @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.ClaudeCode && !string.IsNullOrWhiteSpace(repository.Path))
-                                {
-                                    <MudIconButton Size="Size.Small" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.SettingsSuggest"
-                                                   aria-label="@L.T("Claude Code config")"
-                                                   OnClick="@(() => OpenClaudeRepositoryConfigAsync(repository))" />
-                                }
-                                else if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && !string.IsNullOrWhiteSpace(repository.Path))
-                                {
-                                    <MudIconButton Size="Size.Small" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.SettingsSuggest"
-                                                   aria-label="@L.T("OpenCode project config & skills")"
-                                                     OnClick="@(() => OpenOpenCodeRepositoryConfigAsync(repository))" />
-                                }
-                                else if (AgentTools.Normalize(repository.AgentTool) == AgentTools.Codex && !string.IsNullOrWhiteSpace(repository.Path))
-                                {
-                                    <MudIconButton Size="Size.Small" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.SettingsSuggest"
-                                                   aria-label="@L.T("Codex project config & skills")"
-                                                   OnClick="@(() => OpenCodexRepositoryConfigAsync(repository))" />
-                                }
-                            </div>
-                            <fieldset class="repository-ticket-settings">
-                                <legend>@L.T("Tickets")</legend>
-                                <div class="repository-ticket-required-control">
-                                    <MudSwitch T="bool" @bind-Value="repository.TicketRequired" Color="Color.Primary"
-                                               Label="@L.T("Ticket required")" />
-                                </div>
-                                <div class="repository-ticket-controls">
-                                    <MudSelect T="string" Value="@TicketSystems.Normalize(repository.TicketSystem)"
-                                               ValueChanged="@(value => repository.TicketSystem = value)"
-                                               Label="@L.T("Ticket system")"
-                                               HelperText="@(repository.TicketRequired && TicketSystems.Normalize(repository.TicketSystem) == TicketSystems.None ? L.T("Choose a ticket system when tickets are required.") : null)"
-                                               Variant="Variant.Outlined" Margin="Margin.Dense">
-                                        <MudSelectItem T="string" Value="@TicketSystems.None">@L.T("None")</MudSelectItem>
-                                        <MudSelectItem T="string" Value="@TicketSystems.Jira">Jira</MudSelectItem>
-                                        <MudSelectItem T="string" Value="@TicketSystems.GitHub">GitHub Issues</MudSelectItem>
-                                    </MudSelect>
-                                    @if (TicketSystems.Normalize(repository.TicketSystem) == TicketSystems.Jira)
-                                    {
-                                        <MudTextField @bind-Value="repository.TicketProjectKey"
-                                                      Label="@L.T("Jira project key")"
-                                                      Placeholder="PROJ"
-                                                      HelperText="@L.T("The project key used when creating Jira issues.")"
-                                                      Variant="Variant.Outlined" Margin="Margin.Dense" />
-                                    }
-                                    @if (TicketSystems.Normalize(repository.TicketSystem) != TicketSystems.None)
-                                    {
-                                    <MudSelect T="string" @bind-Value="repository.TicketMcpServerName"
-                                               Label="@L.T("MCP server")"
-                                                HelperText="@L.T("Select an MCP server configured for this repository's AI tool.")"
-                                               Variant="Variant.Outlined" Margin="Margin.Dense"
-                                               Disabled="@GetRepositoryMcpOptions(repository).IsLoading">
-                                        @if (!string.IsNullOrWhiteSpace(repository.TicketMcpServerName) &&
-                                             !GetRepositoryMcpOptions(repository).Servers.Any(server => server.Name == repository.TicketMcpServerName))
-                                        {
-                                            <MudSelectItem T="string" Value="@repository.TicketMcpServerName">
-                                                @repository.TicketMcpServerName (@L.T("not found in this repository config"))
-                                            </MudSelectItem>
-                                        }
-                                        @foreach (var server in GetRepositoryMcpOptions(repository).Servers)
-                                        {
-                                            <MudSelectItem T="string" Value="@server.Name" Disabled="@(!server.Enabled)">
-                                                @(server.Enabled ? server.Name : $"{server.Name} ({L.T("disabled")})")
-                                            </MudSelectItem>
-                                        }
-                                    </MudSelect>
-                                    <MudTooltip Text="@L.T("Refresh MCP list")">
-                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Refresh"
-                                                       aria-label="@L.T("Refresh MCP list")"
-                                                       Disabled="@(string.IsNullOrWhiteSpace(repository.Path) || GetRepositoryMcpOptions(repository).IsLoading)"
-                                                       OnClick="@(() => LoadRepositoryMcpServersAsync(repository))" />
-                                    </MudTooltip>
-                                }
-                                @if (GetRepositoryMcpOptions(repository).Error is { } mcpError)
-                                {
-                                    <MudText Typo="Typo.caption" Color="Color.Error" Class="repository-ticket-mcp-status">
-                                        @L.T("Could not load MCP servers: {0}", mcpError)
-                                    </MudText>
-                                }
-                                else if (TicketSystems.Normalize(repository.TicketSystem) != TicketSystems.None &&
-                                          !GetRepositoryMcpOptions(repository).IsLoading &&
-                                          GetRepositoryMcpOptions(repository).Servers.Count == 0)
-                                {
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="repository-ticket-mcp-status">
-                                        @L.T("No MCP servers found in this AI tool's configuration.")
-                                    </MudText>
-                                }
-                                <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.EditNote"
-                                           OnClick="@(() => OpenStoryTemplateAsync(repository))">
-                                    @L.T("AI story template")
-                                </MudButton>
-                            </div>
-                            </fieldset>
-                            <div class="repository-commit-instructions">
-                                <MudTextField @bind-Value="repository.AiCustomInstruction"
-                                              Label="@L.T("Custom instructions for commit messages")"
-                                              HelperText="@L.T("For example: use Conventional Commits and write in English.")"
-                                              Lines="2" Margin="Margin.Dense" Variant="Variant.Outlined" />
-                            </div>
-                            @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
-                            {
-                                <fieldset class="repository-sandbox-toggle">
-                                    <legend>Sandbox</legend>
-                                    <div class="repository-sandbox-controls">
-                                    <MudSwitch T="bool" @bind-Value="repository.OpenCodeSandboxEnabled" Color="Color.Warning"
-                                               Label="@L.T("Enabled")" />
-                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Security"
-                                               OnClick="@(() => OpenSandboxPermissionsAsync(repository))">@L.T("Permissions")</MudButton>
-                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Tune"
-                                               OnClick="@(() => OpenSandboxSettingsAsync(repository))">@L.T("Settings")</MudButton>
-                                    </div>
-                                </fieldset>
-                            }
-                            @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
-                            {
-                                <fieldset class="repository-notifications-toggle">
-                                    <legend>@L.T("Slack notifications")</legend>
-                                    <MudSwitch T="bool" Value="@repository.SlackNotificationsMuted"
-                                               ValueChanged="@(value => SetRepositorySlackMutedAsync(repository, value))"
-                                               Color="Color.Primary" Label="@L.T("Mute Slack notifications for this repository")"
-                                               Disabled="@(!Settings.SlackNotificationsEnabled || _isSavingRepositorySlackSetting)" />
-                                </fieldset>
-                            }
                             <div class="repository-order-controls">
-                                <MudTooltip Text="@L.T("Move up")">
-                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.KeyboardArrowUp" aria-label="@L.T("Move up")"
-                                                   Disabled="@(Settings.Repositories.IndexOf(repository) == 0)"
-                                                   OnClick="@(() => MoveRepository(repository, -1))" />
-                                </MudTooltip>
-                                <MudTooltip Text="@L.T("Move down")">
-                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.KeyboardArrowDown" aria-label="@L.T("Move down")"
-                                                   Disabled="@(Settings.Repositories.IndexOf(repository) == Settings.Repositories.Count - 1)"
-                                                   OnClick="@(() => MoveRepository(repository, 1))" />
-                                </MudTooltip>
+                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" aria-label="@L.T("Edit")"
+                                               OnClick="@(() => EditRepositoryAsync(repository))" />
                                 <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" aria-label="@L.T("Remove repository")"
                                                OnClick="@(() => Settings.Repositories.Remove(repository))" />
                             </div>
@@ -436,8 +287,6 @@
         SlackNotificationService.ConnectionChanged += HandleSlackConnectionChanged;
         _slackConnected = SlackNotificationService.IsConnected;
         _slackConnectionStatus = SlackNotificationService.ConnectionStatus;
-        foreach (var repository in Settings.Repositories.Where(repository => !string.IsNullOrWhiteSpace(repository.Path)))
-            await LoadRepositoryMcpServersAsync(repository);
     }
 
     private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);
@@ -459,7 +308,6 @@
 
     private bool _isTestingAi;
     private bool _isSaving;
-    private bool _isSavingRepositorySlackSetting;
     private bool _hasTestedConnection;
     private IReadOnlyList<string> _availableModels = [];
     private static readonly string[] AiProviders = ["OpenAI", "Azure OpenAI", "Anthropic", "Google Gemini", "Ollama", "Custom URL"];
@@ -475,43 +323,6 @@
     private bool _slackConnected;
     private string _slackConnectionStatus = "Slack notifications are not connected.";
     private IReadOnlyList<SlackNotificationService.SlackChannel> _slackChannels = [];
-    private readonly Dictionary<Guid, RepositoryMcpOptions> _repositoryMcpOptions = [];
-
-    private sealed record RepositoryMcpOptions(
-        bool IsLoading,
-        IReadOnlyList<AgentMcpServer> Servers,
-        string? Error = null);
-
-    private RepositoryMcpOptions GetRepositoryMcpOptions(RepositoryEntry repository) =>
-        _repositoryMcpOptions.GetValueOrDefault(repository.Id, new RepositoryMcpOptions(false, []));
-
-    private async Task LoadRepositoryMcpServersAsync(RepositoryEntry repository)
-    {
-        if (string.IsNullOrWhiteSpace(repository.Path))
-        {
-            _repositoryMcpOptions[repository.Id] = new RepositoryMcpOptions(false, []);
-            return;
-        }
-
-        _repositoryMcpOptions[repository.Id] = new RepositoryMcpOptions(true, GetRepositoryMcpOptions(repository).Servers);
-        try
-        {
-            var agentTool = AgentTools.Normalize(repository.AgentTool);
-            var servers = await AgentConfigService.GetRepositoryMcpServersAsync(agentTool, repository, Settings.Repositories);
-            _repositoryMcpOptions[repository.Id] = new RepositoryMcpOptions(false, servers);
-        }
-        catch (Exception exception)
-        {
-            _repositoryMcpOptions[repository.Id] = new RepositoryMcpOptions(false, [], exception.Message);
-        }
-    }
-
-    private async Task OnRepositoryAgentChangedAsync(RepositoryEntry repository, string agentTool)
-    {
-        repository.AgentTool = AgentTools.Normalize(agentTool);
-        await LoadRepositoryMcpServersAsync(repository);
-    }
-
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
@@ -555,9 +366,6 @@
             _agentConfigJson = await AgentConfigService.SetMcpServerEnabledAsync(
                 _selectedAgent, _agentConfigJson, serverName, enabled, Settings.Repositories);
             _agentMcpServers = await AgentConfigService.GetMcpServersAsync(_selectedAgent, _agentConfigJson, Settings.Repositories);
-            foreach (var repository in Settings.Repositories.Where(repository =>
-                         AgentTools.Normalize(repository.AgentTool) == _selectedAgent && !string.IsNullOrWhiteSpace(repository.Path)))
-                await LoadRepositoryMcpServersAsync(repository);
             Snackbar.Add(L.T("MCP server updated. Backup created when an existing config was changed."), Severity.Success);
         }
         catch (Exception exception)
@@ -593,125 +401,56 @@
         }
     }
 
-    private void AddRepository() => Settings.Repositories.Add(new RepositoryEntry());
-
-    private async Task SetRepositorySlackMutedAsync(RepositoryEntry repository, bool muted)
+    private async Task AddRepositoryAsync()
     {
-        if (_isSavingRepositorySlackSetting)
-            return;
-        _isSavingRepositorySlackSetting = true;
-        var previous = repository.SlackNotificationsMuted;
-        repository.SlackNotificationsMuted = muted;
-        try
-        {
-            await SettingsService.SaveAsync(Settings);
-        }
-        catch (Exception exception)
-        {
-            repository.SlackNotificationsMuted = previous;
-            Snackbar.Add(L.T("Could not save repository settings: {0}", exception.Message), Severity.Error);
-        }
-        finally { _isSavingRepositorySlackSetting = false; }
+        var repository = new RepositoryEntry();
+        Settings.Repositories.Add(repository);
+        if (!await EditRepositoryAsync(repository))
+            Settings.Repositories.Remove(repository);
     }
 
-    private void MoveRepository(RepositoryEntry repository, int offset)
+    private async Task<bool> EditRepositoryAsync(RepositoryEntry repository)
     {
-        var currentIndex = Settings.Repositories.IndexOf(repository);
-        var targetIndex = currentIndex + offset;
-        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= Settings.Repositories.Count)
-            return;
+        var editedRepository = System.Text.Json.JsonSerializer.Deserialize<RepositoryEntry>(
+            System.Text.Json.JsonSerializer.Serialize(repository))!;
+        var dialog = await DialogService.ShowAsync<RepositorySettingsDialog>(
+            L.T("Repository settings"),
+            new DialogParameters<RepositorySettingsDialog>
+            {
+                { component => component.Repository, editedRepository },
+                { component => component.Settings, Settings }
+            },
+            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Large, CloseButton = true, CloseOnEscapeKey = true });
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: RepositoryEntry savedRepository })
+            return false;
 
-        Settings.Repositories.RemoveAt(currentIndex);
-        Settings.Repositories.Insert(targetIndex, repository);
+        var index = Settings.Repositories.FindIndex(candidate => candidate.Id == repository.Id);
+        if (index >= 0)
+            CopyRepositorySettings(savedRepository, repository);
+        return true;
     }
 
-    private bool IsRepositoryConfigReadOnly(RepositoryEntry repository) =>
-        !StartupDetection.IsAgentAvailable(repository.AgentTool);
+    private static void CopyRepositorySettings(RepositoryEntry source, RepositoryEntry target)
+    {
+        target.Name = source.Name;
+        target.Path = source.Path;
+        target.IsActive = source.IsActive;
+        target.AgentTool = source.AgentTool;
+        target.OpenCodeSandboxEnabled = source.OpenCodeSandboxEnabled;
+        target.OpenCodeSandboxModel = source.OpenCodeSandboxModel;
+        target.OpenCodeSandboxFiles = source.OpenCodeSandboxFiles;
+        target.TicketRequired = source.TicketRequired;
+        target.TicketSystem = source.TicketSystem;
+        target.TicketMcpServerName = source.TicketMcpServerName;
+        target.TicketProjectKey = source.TicketProjectKey;
+        target.TaskStoryTemplate = source.TaskStoryTemplate;
+        target.AiCustomInstruction = source.AiCustomInstruction;
+        target.SlackNotificationsMuted = source.SlackNotificationsMuted;
+        target.HiddenStashCommitHashes = source.HiddenStashCommitHashes.ToList();
+    }
 
     private AgentStartupState? GetAgentStartupState(string agent) => StartupDetection.GetAgentState(agent);
-
-    private async Task OpenClaudeRepositoryConfigAsync(RepositoryEntry repository)
-    {
-        var parameters = new DialogParameters<ClaudeRepositoryConfigDialog>
-        {
-            { dialog => dialog.RepositoryPath, repository.Path },
-            { dialog => dialog.RepositoryName, repository.Name },
-            { dialog => dialog.ReadOnly, IsRepositoryConfigReadOnly(repository) }
-        };
-        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Large, CloseButton = true, CloseOnEscapeKey = true };
-        await DialogService.ShowAsync<ClaudeRepositoryConfigDialog>(L.T("Claude Code project config"), parameters, options);
-    }
-
-    private async Task OpenOpenCodeRepositoryConfigAsync(RepositoryEntry repository)
-    {
-        var parameters = new DialogParameters<OpenCodeRepositoryConfigDialog>
-        {
-            { dialog => dialog.RepositoryPath, repository.Path },
-            { dialog => dialog.RepositoryName, repository.Name },
-            { dialog => dialog.ReadOnly, IsRepositoryConfigReadOnly(repository) }
-        };
-        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Large, CloseButton = true, CloseOnEscapeKey = true };
-        await DialogService.ShowAsync<OpenCodeRepositoryConfigDialog>(L.T("OpenCode project config & skills"), parameters, options);
-    }
-
-    private async Task OpenSandboxPermissionsAsync(RepositoryEntry repository)
-    {
-        var parameters = new DialogParameters<SandboxPermissionsDialog>
-        {
-            { dialog => dialog.RepositoryName, string.IsNullOrWhiteSpace(repository.Name) ? repository.Path : repository.Name },
-            { dialog => dialog.RepositoryId, repository.Id },
-            { dialog => dialog.RepositoryPath, repository.Path }
-        };
-        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Small, CloseButton = true, CloseOnEscapeKey = true };
-        await DialogService.ShowAsync<SandboxPermissionsDialog>(L.T("Sandbox permissions"), parameters, options);
-    }
-
-    private async Task OpenSandboxSettingsAsync(RepositoryEntry repository)
-    {
-        await DialogService.ShowAsync<SandboxSettingsDialog>(L.T("Sandbox settings"),
-            new DialogParameters<SandboxSettingsDialog> { { dialog => dialog.Repository, repository } },
-            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Medium, CloseButton = true });
-    }
-
-    private async Task OpenStoryTemplateAsync(RepositoryEntry repository)
-    {
-        var dialog = await DialogService.ShowAsync<RepositoryStoryTemplateDialog>(
-            L.T("AI story template — {0}", string.IsNullOrWhiteSpace(repository.Name) ? repository.Path : repository.Name),
-            new DialogParameters<RepositoryStoryTemplateDialog>
-            {
-                { component => component.Template, repository.TaskStoryTemplate }
-            },
-            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Medium, CloseButton = true, CloseOnEscapeKey = true });
-        var result = await dialog.Result;
-        if (result is { Canceled: false, Data: string template })
-            repository.TaskStoryTemplate = template;
-    }
-
-    private async Task OpenCodexRepositoryConfigAsync(RepositoryEntry repository)
-    {
-        var parameters = new DialogParameters<CodexRepositoryConfigDialog>
-        {
-            { dialog => dialog.RepositoryPath, repository.Path },
-            { dialog => dialog.RepositoryName, repository.Name },
-            { dialog => dialog.ReadOnly, IsRepositoryConfigReadOnly(repository) }
-        };
-        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Large, CloseButton = true, NoHeader = true, CloseOnEscapeKey = true };
-        await DialogService.ShowAsync<CodexRepositoryConfigDialog>(L.T("Codex project config & skills"), parameters, options);
-    }
-
-    private async Task BrowseRepositoryAsync(RepositoryEntry repository)
-    {
-        var path = await FolderPicker.PickFolderAsync();
-        if (string.IsNullOrWhiteSpace(path))
-            return;
-        repository.Path = path;
-        if (string.IsNullOrWhiteSpace(repository.Name) || IsDefaultRepositoryName(repository.Name))
-            repository.Name = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
-        await LoadRepositoryMcpServersAsync(repository);
-    }
-
-    private static bool IsDefaultRepositoryName(string name) =>
-        name is "New repository" or "Nieuwe repository" or "Neues Repository" or "Nouveau dépôt";
 
     private async Task TestAiConnectionAsync()
     {

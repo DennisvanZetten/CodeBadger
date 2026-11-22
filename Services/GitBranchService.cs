@@ -186,8 +186,8 @@ public sealed class GitBranchService
                                  line.StartsWith("DD", StringComparison.Ordinal);
                 return new GitFileChange(
                     filePath,
-                    indexStatus != ' ' && indexStatus != '?',
-                    workTreeStatus != ' ' || line.StartsWith("??", StringComparison.Ordinal),
+                    !conflicted && indexStatus != ' ' && indexStatus != '?',
+                    conflicted || workTreeStatus != ' ' || line.StartsWith("??", StringComparison.Ordinal),
                     conflicted,
                     line[..2]);
             })

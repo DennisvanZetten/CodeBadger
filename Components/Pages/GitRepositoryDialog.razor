@@ -636,7 +636,7 @@
     private IReadOnlyList<GitBranchEntry> RemoteBranches => _snapshot?.Branches.Where(branch => branch.IsRemote).ToList() ?? [];
     private IReadOnlyList<BranchFolder> LocalBranchFolders => GroupBranchesIntoFolders(LocalBranches);
     private IReadOnlyList<BranchFolder> RemoteBranchFolders => GroupBranchesIntoFolders(RemoteBranches);
-    private IReadOnlyList<GitFileChange> StagedFiles => _files.Where(file => file.IsStaged).ToList();
+    private IReadOnlyList<GitFileChange> StagedFiles => _files.Where(file => file.IsStaged && !file.IsConflicted).ToList();
     private IReadOnlyList<GitFileChange> UnstagedFiles => _files.Where(file => file.IsUnstaged || file.IsUntracked).ToList();
     private IReadOnlyList<GitFileChange> StageableUnstagedFiles => UnstagedFiles.Where(file => !file.IsConflicted).ToList();
     private IReadOnlyList<GitFileChange> SelectedUnstagedFiles => UnstagedFiles.Where(file => _selectedUnstagedFilePaths.Contains(file.Path)).ToList();

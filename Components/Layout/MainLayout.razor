@@ -66,6 +66,16 @@ else
     private bool _isStarting = true;
     private string _startupStage = "Detecting OpenCode...";
     private double _startupProgress;
+    private IDialogReference? _activeDialog;
+    private AppDialog? _activeDialogKind;
+    private int _dialogGeneration;
+
+    private enum AppDialog
+    {
+        Settings,
+        Ideas,
+        Help
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -273,14 +283,25 @@ else
 
     private async Task OpenSettingsAsync()
     {
+        var generation = BeginDialog(AppDialog.Settings);
+        if (generation is null)
+            return;
+
         var settings = await SettingsService.LoadAsync();
+        if (generation != _dialogGeneration)
+            return;
+
         var parameters = new DialogParameters<SettingsDialog>
         {
             { dialog => dialog.Settings, settings }
         };
         var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.ExtraExtraLarge, CloseButton = true };
         var dialog = await DialogService.ShowAsync<SettingsDialog>(L.T("Settings"), parameters, options);
+        if (!SetActiveDialog(generation.Value, dialog))
+            return;
+
         var result = await dialog.Result;
+        ClearActiveDialog(dialog);
         if (result is { Canceled: false, Data: true })
         {
             _appliedLanguage = null;
@@ -291,9 +312,17 @@ else
 
     private async Task OpenHelpMenuAsync()
     {
+        var generation = BeginDialog(AppDialog.Help);
+        if (generation is null)
+            return;
+
         var dialog = await DialogService.ShowAsync<HelpMenuDialog>(L.T("Help menu"),
             options: new DialogOptions { CloseButton = true, CloseOnEscapeKey = true, MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+        if (!SetActiveDialog(generation.Value, dialog))
+            return;
+
         var result = await dialog.Result;
+        ClearActiveDialog(dialog);
         if (result is { Canceled: false, Data: true })
         {
             if (WindowTitleBar.UsesNativeTitleBar)
@@ -305,8 +334,57 @@ else
 
     private async Task OpenIdeasAsync()
     {
-        await DialogService.ShowAsync<IdeaListDialog>(L.T("Ideas and tasks"),
+        var generation = BeginDialog(AppDialog.Ideas);
+        if (generation is null)
+            return;
+
+        var dialog = await DialogService.ShowAsync<IdeaListDialog>(L.T("Ideas and tasks"),
             options: new DialogOptions { CloseButton = true, CloseOnEscapeKey = true, MaxWidth = MaxWidth.Medium, FullWidth = true });
+        if (!SetActiveDialog(generation.Value, dialog))
+            return;
+
+        await dialog.Result;
+        ClearActiveDialog(dialog);
+    }
+
+    private int? BeginDialog(AppDialog kind)
+    {
+        if (_activeDialogKind == kind)
+        {
+            _dialogGeneration++;
+            _activeDialog?.Close();
+            _activeDialog = null;
+            _activeDialogKind = null;
+            return null;
+        }
+
+        _dialogGeneration++;
+        _activeDialog?.Close();
+        _activeDialog = null;
+        _activeDialogKind = kind;
+        return _dialogGeneration;
+    }
+
+    private bool SetActiveDialog(int generation, IDialogReference dialog)
+    {
+        if (generation != _dialogGeneration)
+        {
+            dialog.Close();
+            return false;
+        }
+
+        _activeDialog = dialog;
+        return true;
+    }
+
+    private void ClearActiveDialog(IDialogReference dialog)
+    {
+        if (!ReferenceEquals(_activeDialog, dialog))
+            return;
+
+        _activeDialog = null;
+        _activeDialogKind = null;
+        _dialogGeneration++;
     }
 
     private bool IsManualWindowRoute() =>

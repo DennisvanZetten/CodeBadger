@@ -125,6 +125,7 @@
     private readonly HashSet<Guid> _questionSessions = [];
     private readonly Dictionary<string, OpenCodeActivityService.ActiveSession> _runningOpenCodeSessions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTime> _pendingSlackCompletions = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DateTime> _lastSlackMessageSync = new(StringComparer.Ordinal);
     private readonly HashSet<string> _slackStartedSessions = new(StringComparer.Ordinal);
     private readonly Dictionary<Guid, string> _selectedOpenCodeSessions = [];
     private bool _activityNeedsBaseline = true;
@@ -685,6 +686,30 @@
                         StateHasChanged();
                     if (_settings.SlackNotificationsEnabled && SlackNotifications.CanSendNotifications)
                     {
+                        foreach (var pair in activeOpenCodeSessions)
+                        {
+                            if (_lastSlackMessageSync.TryGetValue(pair.Key, out var lastSync) &&
+                                DateTime.UtcNow - lastSync < TimeSpan.FromSeconds(9))
+                                continue;
+                            _lastSlackMessageSync[pair.Key] = DateTime.UtcNow;
+                            try
+                            {
+                                var repository = _activeRepositories.FirstOrDefault(candidate =>
+                                    AgentTools.Normalize(candidate.AgentTool) == AgentTools.OpenCode &&
+                                    string.Equals(OpenCodeActivityService.NormalizePath(candidate.Path), pair.Value.Directory,
+                                        StringComparison.OrdinalIgnoreCase));
+                                if (repository?.SlackNotificationsMuted == true || SlackNotifications.IsSessionMuted(pair.Key))
+                                    continue;
+                                var initialMessage = await OpenCodeActivity.GetInitialUserMessageAsync(pair.Key, pair.Value.Directory, cancellationToken);
+                                var messages = await OpenCodeActivity.GetRecentUserMessagesAsync(pair.Key, pair.Value.Directory, cancellationToken);
+                                await SlackNotifications.PublishApplicationMessagesAsync(pair.Value, initialMessage, messages, cancellationToken);
+                            }
+                            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+                            catch (Exception exception)
+                            {
+                                Logger.LogWarning(exception, "Could not synchronize user messages for OpenCode session {SessionId} to Slack.", pair.Key);
+                            }
+                        }
                         try
                         {
                             await SlackNotifications.UpdatePendingInteractionsAsync(activeOpenCodeSessions,
@@ -736,10 +761,14 @@
                                 }
                                 if (!string.IsNullOrWhiteSpace(answer))
                                 {
+                                    var initialMessage = await OpenCodeActivity.GetInitialUserMessageAsync(session.Id, session.Directory, cancellationToken);
+                                    var userMessages = await OpenCodeActivity.GetRecentUserMessagesAsync(session.Id, session.Directory, cancellationToken);
+                                    await SlackNotifications.PublishApplicationMessagesAsync(session, initialMessage, userMessages, cancellationToken);
                                     await SlackNotifications.PublishCompletionAsync(session, answer, cancellationToken);
                                     _pendingSlackCompletions.Remove(session.Id);
                                     _runningOpenCodeSessions.Remove(session.Id);
                                     _slackStartedSessions.Remove(session.Id);
+                                    _lastSlackMessageSync.Remove(session.Id);
                                 }
                             }
                             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
@@ -779,6 +808,7 @@
             }
             await OpenCodeActivity.SendPromptAsync(session.Id, session.Directory, prompt, _statusMonitorCancellation.Token,
                 command.Success ? command.Groups[1].Value.ToLowerInvariant() : null);
+            SlackNotifications.RememberSlackSubmittedMessage(session.Id, prompt);
             await SlackNotifications.PublishReplyStatusAsync(session.Id,
                 "✅ OpenCode heeft je opdracht ontvangen en is gestart.", _statusMonitorCancellation.Token);
         }

@@ -6,6 +6,7 @@ namespace CodeBadger.Services;
 public sealed class OpenCodeActivityService
 {
     public sealed record ActiveSession(string Id, string Directory, string Agent, string Title);
+    public sealed record SessionTextMessage(string Id, string Role, string Text);
     public sealed record FormField(string Key, string Title, string Description, string Type, bool Required,
         IReadOnlyList<(string Value, string Label)> Options, bool Custom);
     public sealed record PendingInteraction(string Id, string Kind, string Title, string Details,
@@ -197,6 +198,82 @@ public sealed class OpenCodeActivityService
                 .Where(partText => !string.IsNullOrWhiteSpace(partText))).Trim();
             if (!string.IsNullOrWhiteSpace(text))
                 return text.Length > 3500 ? text[..3500] + "\n…" : text;
+        }
+        return null;
+    }
+
+    public async Task<IReadOnlyList<SessionTextMessage>> GetRecentUserMessagesAsync(string sessionId, string directory,
+        CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId))
+            return [];
+        using var response = await RequestAsync($"/api/session/{sessionId}/message?order=desc&limit=100", cancellationToken,
+            workingDirectory: directory);
+        if (response is null || !response.RootElement.TryGetProperty("data", out var messages) ||
+            messages.ValueKind != JsonValueKind.Array)
+            return [];
+
+        var result = new List<SessionTextMessage>();
+        foreach (var message in messages.EnumerateArray().Reverse())
+        {
+            var info = message.TryGetProperty("info", out var infoValue) && infoValue.ValueKind == JsonValueKind.Object
+                ? infoValue : message;
+            var roleProperty = info.TryGetProperty("role", out var roleValue) ? roleValue :
+                info.TryGetProperty("type", out var typeValue) ? typeValue : default;
+            if (roleProperty.ValueKind != JsonValueKind.String || roleProperty.GetString() != "user")
+                continue;
+            var id = info.TryGetProperty("id", out var idValue) && idValue.ValueKind == JsonValueKind.String
+                ? idValue.GetString() : null;
+            if (string.IsNullOrWhiteSpace(id))
+                continue;
+            var parts = message.TryGetProperty("parts", out var partsValue) && partsValue.ValueKind == JsonValueKind.Array
+                ? partsValue
+                : info.TryGetProperty("content", out var contentValue) && contentValue.ValueKind == JsonValueKind.Array
+                    ? contentValue : default;
+            if (parts.ValueKind != JsonValueKind.Array)
+                continue;
+            var text = string.Join("\n", parts.EnumerateArray()
+                .Where(part => part.TryGetProperty("type", out var partType) && partType.GetString() == "text")
+                .Select(part => part.TryGetProperty("text", out var partText) ? partText.GetString() : null)
+                .Where(partText => !string.IsNullOrWhiteSpace(partText))).Trim();
+            if (!string.IsNullOrWhiteSpace(text))
+                result.Add(new SessionTextMessage(id, "user", text));
+        }
+        return result;
+    }
+
+    public async Task<SessionTextMessage?> GetInitialUserMessageAsync(string sessionId, string directory,
+        CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId))
+            return null;
+        using var response = await RequestAsync($"/api/session/{sessionId}/message?order=asc&limit=1", cancellationToken,
+            workingDirectory: directory);
+        if (response is null || !response.RootElement.TryGetProperty("data", out var messages) ||
+            messages.ValueKind != JsonValueKind.Array)
+            return null;
+        foreach (var message in messages.EnumerateArray())
+        {
+            var info = message.TryGetProperty("info", out var infoValue) && infoValue.ValueKind == JsonValueKind.Object
+                ? infoValue : message;
+            var role = info.TryGetProperty("role", out var roleValue) ? roleValue :
+                info.TryGetProperty("type", out var typeValue) ? typeValue : default;
+            if (role.ValueKind != JsonValueKind.String || role.GetString() != "user")
+                continue;
+            var id = info.TryGetProperty("id", out var idValue) && idValue.ValueKind == JsonValueKind.String
+                ? idValue.GetString() : null;
+            var parts = message.TryGetProperty("parts", out var partsValue) && partsValue.ValueKind == JsonValueKind.Array
+                ? partsValue
+                : info.TryGetProperty("content", out var contentValue) && contentValue.ValueKind == JsonValueKind.Array
+                    ? contentValue : default;
+            if (string.IsNullOrWhiteSpace(id) || parts.ValueKind != JsonValueKind.Array)
+                continue;
+            var text = string.Join("\n", parts.EnumerateArray()
+                .Where(part => part.TryGetProperty("type", out var partType) && partType.GetString() == "text")
+                .Select(part => part.TryGetProperty("text", out var partText) ? partText.GetString() : null)
+                .Where(partText => !string.IsNullOrWhiteSpace(partText))).Trim();
+            if (!string.IsNullOrWhiteSpace(text))
+                return new SessionTextMessage(id, "user", text);
         }
         return null;
     }

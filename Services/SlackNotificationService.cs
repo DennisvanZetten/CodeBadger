@@ -25,6 +25,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, PendingInteractionThread> _pendingInteractionThreads = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _announcedInteractions = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _seenReplies = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, byte> _submittedMessageTexts = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _mutedSessions = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _configurationGate = new(1, 1);
     private CancellationTokenSource? _connectionCancellation;
@@ -56,7 +57,9 @@ public sealed class SlackNotificationService : IAsyncDisposable
 
     public sealed record SlackChannel(string Id, string Name, bool IsMember, bool IsPrivate);
     public sealed record SessionNotification(string Id, string Title, string Agent, string Directory, bool IsMuted);
-    private sealed record ThreadLink(string ThreadTs, string ChannelId, string Directory, string Agent, string Title, DateTime CreatedAt);
+    private sealed record ThreadLink(string ThreadTs, string ChannelId, string Directory, string Agent, string Title,
+        DateTime CreatedAt, bool InitialPromptPublished = false, string[]? PublishedMessageIds = null,
+        bool RootMessageIsTitle = false);
     private sealed class PendingNewSession(IReadOnlyList<RepositoryEntry> repositories)
     {
         public IReadOnlyList<RepositoryEntry> Repositories { get; } = repositories;
@@ -149,28 +152,14 @@ public sealed class SlackNotificationService : IAsyncDisposable
     {
         if (!CanSendNotifications || IsSessionMuted(session.Id))
             return;
-        var title = string.IsNullOrWhiteSpace(session.Title) ? "OpenCode session" : session.Title;
+        var title = string.IsNullOrWhiteSpace(session.Title) || session.Title.Equals("New session", StringComparison.OrdinalIgnoreCase)
+            ? "OpenCode session" : session.Title;
         if (_sessionThreads.TryGetValue(session.Id, out var existingThread))
             title = string.IsNullOrWhiteSpace(existingThread.Title) ? title : existingThread.Title;
-        string? threadTs = null;
-        if (_sessionThreads.TryGetValue(session.Id, out var previous))
-            threadTs = previous.ThreadTs;
-        var safeAnswer = answer.Length > 3500 ? answer[..3500] + "\n…" : answer;
-        var heading = threadTs is null
-            ? $"✅ *OpenCode klaar: {EscapeSlack(title)}*\n"
-            : "✅ *OpenCode klaar*\n";
-        var message = heading +
-            $"Agent: `{EscapeSlack(session.Agent)}` · Sessie: `{EscapeSlack(session.Id)}`\n" +
-            EscapeSlack(safeAnswer);
         try
         {
-            var result = await PostMessageAsync(_botToken, _channelId, message, threadTs, cancellationToken);
-            if (threadTs is null && result is not null)
-            {
-                _sessionThreads[session.Id] = new ThreadLink(result, _channelId, session.Directory, session.Agent, title, DateTime.UtcNow);
-                await SaveThreadLinksAsync();
-                SessionNotificationsChanged?.Invoke();
-            }
+            var thread = await EnsureSessionThreadLinkAsync(session, title, cancellationToken);
+            await PostLongThreadMessageAsync(thread, "✅ *OpenCode klaar*", answer, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -246,6 +235,145 @@ public sealed class SlackNotificationService : IAsyncDisposable
         await PostMessageAsync(_botToken, link.ChannelId, text, link.ThreadTs, cancellationToken);
     }
 
+    public async Task PublishApplicationMessagesAsync(OpenCodeActivityService.ActiveSession session,
+        OpenCodeActivityService.SessionTextMessage? initialMessage,
+        IReadOnlyList<OpenCodeActivityService.SessionTextMessage> messages, CancellationToken cancellationToken = default)
+    {
+        if (!CanSendNotifications || IsSessionMuted(session.Id))
+            return;
+        if (!_sessionThreads.ContainsKey(session.Id) && initialMessage is null && messages.Count == 0)
+            return;
+        var title = IsGenericTitle(session.Title)
+            ? GetTitleFromPrompt(initialMessage?.Text ?? messages.FirstOrDefault()?.Text) : session.Title;
+        var thread = await EnsureSessionThreadLinkAsync(session, title, cancellationToken);
+        var published = new HashSet<string>(thread.PublishedMessageIds ?? [], StringComparer.Ordinal);
+        if (initialMessage is not null && !thread.InitialPromptPublished && !string.IsNullOrWhiteSpace(initialMessage.Id) &&
+            !string.IsNullOrWhiteSpace(initialMessage.Text))
+        {
+            await PostLongThreadMessageAsync(thread, "*Eerste opdracht:*", initialMessage.Text, cancellationToken);
+            published.Add(initialMessage.Id);
+            thread = thread with { InitialPromptPublished = true, PublishedMessageIds = published.TakeLast(200).ToArray() };
+            _sessionThreads[session.Id] = thread;
+            await SaveThreadLinksAsync();
+        }
+        foreach (var message in messages)
+        {
+            if (string.IsNullOrWhiteSpace(message.Id) || string.IsNullOrWhiteSpace(message.Text) || published.Contains(message.Id))
+                continue;
+            var textHash = GetMessageHash(session.Id, message.Text);
+            if (_submittedMessageTexts.TryRemove(textHash, out _))
+            {
+                published.Add(message.Id);
+                thread = thread with { PublishedMessageIds = published.TakeLast(200).ToArray() };
+                _sessionThreads[session.Id] = thread;
+                await SaveThreadLinksAsync();
+                continue;
+            }
+            if (!thread.InitialPromptPublished)
+            {
+                await PostLongThreadMessageAsync(thread, "*Eerste opdracht:*", message.Text, cancellationToken);
+                thread = thread with { InitialPromptPublished = true };
+            }
+            else
+                await PostLongThreadMessageAsync(thread, "*Gebruiker:*", message.Text, cancellationToken);
+            published.Add(message.Id);
+            thread = thread with { PublishedMessageIds = published.TakeLast(200).ToArray() };
+            _sessionThreads[session.Id] = thread;
+            await SaveThreadLinksAsync();
+        }
+    }
+
+    public void RememberSlackSubmittedMessage(string sessionId, string text)
+    {
+        _submittedMessageTexts[GetMessageHash(sessionId, text)] = 0;
+    }
+
+    private static string GetMessageHash(string sessionId, string text) =>
+        sessionId + ":" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(text.Trim())));
+
+    private static string GetTitleFromPrompt(string? prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+            return "OpenCode session";
+        var lines = prompt.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var taskLabel = Array.FindIndex(lines, line => line.Equals("Task:", StringComparison.OrdinalIgnoreCase));
+        var title = taskLabel >= 0 && taskLabel + 1 < lines.Length
+            ? lines[taskLabel + 1]
+            : lines.FirstOrDefault(line => !line.StartsWith("Ticket:", StringComparison.OrdinalIgnoreCase) &&
+                                           !line.StartsWith("Branch:", StringComparison.OrdinalIgnoreCase)) ?? prompt.Trim();
+        return NormalizeTitle(title);
+    }
+
+    private static bool IsGenericTitle(string? title) => string.IsNullOrWhiteSpace(title) ||
+        title.Equals("New session", StringComparison.OrdinalIgnoreCase) ||
+        title.Equals("OpenCode session", StringComparison.OrdinalIgnoreCase);
+
+    private static string NormalizeTitle(string? title)
+    {
+        var normalized = string.Join(' ', (title ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (string.IsNullOrWhiteSpace(normalized))
+            return "OpenCode session";
+        return normalized.Length > 120 ? normalized[..120].TrimEnd() + "…" : normalized;
+    }
+
+    private async Task PostLongThreadMessageAsync(ThreadLink thread, string heading, string text,
+        CancellationToken cancellationToken)
+    {
+        const int chunkSize = 3500;
+        for (var offset = 0; offset < text.Length; offset += chunkSize)
+        {
+            var chunk = text.Substring(offset, Math.Min(chunkSize, text.Length - offset));
+            var chunkHeading = offset == 0 ? heading + "\n" : "*Vervolg:*\n";
+            await PostMessageAsync(_botToken, thread.ChannelId, chunkHeading + EscapeSlack(chunk),
+                thread.ThreadTs, cancellationToken);
+        }
+    }
+
+    private async Task<ThreadLink> EnsureSessionThreadLinkAsync(OpenCodeActivityService.ActiveSession session, string title,
+        CancellationToken cancellationToken)
+    {
+        title = NormalizeTitle(title);
+        if (_sessionThreads.TryGetValue(session.Id, out var existing) && existing.ChannelId == _channelId)
+        {
+            var updatedTitle = !string.IsNullOrWhiteSpace(title) && title != "OpenCode session" ? title : existing.Title;
+            if (!existing.RootMessageIsTitle || updatedTitle != existing.Title)
+            {
+                await UpdateThreadTitleAsync(existing.ThreadTs, updatedTitle, cancellationToken);
+                existing = existing with { Title = updatedTitle, RootMessageIsTitle = true };
+                _sessionThreads[session.Id] = existing;
+                await SaveThreadLinksAsync();
+                SessionNotificationsChanged?.Invoke();
+            }
+            return existing;
+        }
+
+        var threadTs = await PostMessageAsync(_botToken, _channelId,
+            $"*{EscapeSlack(title)}*", null, cancellationToken);
+        var link = new ThreadLink(threadTs, _channelId, session.Directory, session.Agent, title,
+            DateTime.UtcNow, RootMessageIsTitle: true);
+        _sessionThreads[session.Id] = link;
+        await SaveThreadLinksAsync();
+        SessionNotificationsChanged?.Invoke();
+        SessionLinked?.Invoke(session with { Title = title });
+        return link;
+    }
+
+    private async Task UpdateThreadTitleAsync(string threadTs, string title, CancellationToken cancellationToken)
+    {
+        await UpdateRootMessageAsync(threadTs, title, cancellationToken);
+    }
+
+    private async Task UpdateRootMessageAsync(string threadTs, string title, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "chat.update");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _botToken);
+        request.Content = JsonContent.Create(new { channel = _channelId, ts = threadTs, text = $"*{EscapeSlack(title)}*" });
+        using var response = await Http.SendAsync(request, cancellationToken);
+        using var json = await ReadSlackResponseAsync(response, cancellationToken);
+        _ = json.RootElement.GetProperty("ts").GetString();
+    }
+
     public async Task UpdatePendingInteractionsAsync(
         IReadOnlyDictionary<string, OpenCodeActivityService.ActiveSession> sessions,
         IReadOnlyDictionary<string, IReadOnlyList<OpenCodeActivityService.PendingInteraction>> interactions,
@@ -260,19 +388,9 @@ public sealed class SlackNotificationService : IAsyncDisposable
             if (!sessions.TryGetValue(pair.Key, out var session))
                 continue;
 
-            if (!_sessionThreads.TryGetValue(pair.Key, out var link) || link.ChannelId != _channelId)
-            {
-                var title = string.IsNullOrWhiteSpace(session.Title) ? "OpenCode session" : session.Title;
-                var threadTs = await PostMessageAsync(_botToken, _channelId,
-                    $"⏳ *OpenCode wacht op je antwoord: {EscapeSlack(title)}*\n" +
-                    $"Agent: `{EscapeSlack(session.Agent)}` · Sessie: `{EscapeSlack(session.Id)}`",
-                    null, cancellationToken);
-                link = new ThreadLink(threadTs, _channelId, session.Directory, session.Agent, title, DateTime.UtcNow);
-                _sessionThreads[session.Id] = link;
-                await SaveThreadLinksAsync();
-                SessionNotificationsChanged?.Invoke();
-                SessionLinked?.Invoke(session);
-            }
+            var title = string.IsNullOrWhiteSpace(session.Title) || session.Title.Equals("New session", StringComparison.OrdinalIgnoreCase)
+                ? "OpenCode session" : session.Title;
+            var link = await EnsureSessionThreadLinkAsync(session, title, cancellationToken);
 
             var current = pair.Value;
             _pendingInteractionThreads[link.ThreadTs] = new PendingInteractionThread(session, current);
@@ -1088,11 +1206,16 @@ public sealed class SlackNotificationService : IAsyncDisposable
             return;
         }
 
-        var title = string.IsNullOrWhiteSpace(session.Title) ? text : session.Title;
-        _sessionThreads[session.Id] = new ThreadLink(threadTs, _channelId, session.Directory, session.Agent, title, DateTime.UtcNow);
+        var title = IsGenericTitle(session.Title)
+            ? GetTitleFromPrompt(text) : session.Title;
+        _sessionThreads[session.Id] = new ThreadLink(threadTs, _channelId, session.Directory, session.Agent, title,
+            DateTime.UtcNow, InitialPromptPublished: true, RootMessageIsTitle: true);
+        RememberSlackSubmittedMessage(session.Id, text);
         await SaveThreadLinksAsync();
         SessionNotificationsChanged?.Invoke();
         SessionStarted?.Invoke(session with { Title = title });
+        await UpdateRootMessageAsync(threadTs, title, cancellationToken);
+        await SaveThreadLinksAsync();
         var selectedName = string.IsNullOrWhiteSpace(repository.Name)
             ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path)) : repository.Name;
         await PostMessageAsync(_botToken, _channelId,

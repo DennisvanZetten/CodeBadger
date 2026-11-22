@@ -9,9 +9,9 @@ Under **AI provider**, configure the provider and model used to generate commit 
 1. Choose a provider, such as OpenAI, Azure OpenAI, Anthropic, Google Gemini, Ollama, or Custom URL.
 2. Enter the provider URL and API key when required. API keys are stored securely on the device.
 3. Test the connection and load the available models.
-4. Choose a model and optionally set the maximum input-token budget and custom instructions.
+4. Choose a model and optionally set the maximum input-token budget.
 
-Custom instructions can specify a commit convention or language. AI generation is optional: you can always write the commit message yourself. Review generated titles and descriptions before committing.
+Custom instructions for commit messages are configured separately for each repository in its repository settings. They can specify a commit convention or language. AI generation is optional: you can always write the commit message yourself. Review generated titles and descriptions before committing.
 
 ## Notifications
 

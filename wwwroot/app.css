@@ -515,16 +515,21 @@ h1:focus {
 
 .repository-sandbox-toggle,
 .repository-notifications-toggle,
+.repository-commit-instructions,
 .repository-ticket-settings {
     grid-column: 2 / 5;
     min-width: 0;
 }
 
 .repository-sandbox-toggle {
-    grid-row: 4;
+    grid-row: 5;
 }
 
 .repository-notifications-toggle {
+    grid-row: 4;
+}
+
+.repository-commit-instructions {
     grid-row: 3;
 }
 
@@ -721,6 +726,11 @@ h1:focus {
         grid-row: 4;
     }
 
+    .repository-commit-instructions {
+        grid-column: 1 / -1;
+        grid-row: 5;
+    }
+
     .repository-ticket-controls {
         flex-direction: column;
         align-items: stretch;
@@ -739,7 +749,7 @@ h1:focus {
 
     .repository-notifications-toggle {
         grid-column: 1 / -1;
-        grid-row: 5;
+        grid-row: 6;
     }
 
     .repository-order-controls {
@@ -749,7 +759,7 @@ h1:focus {
 
     .repository-sandbox-toggle {
         grid-column: 1 / -1;
-        grid-row: 6;
+        grid-row: 7;
     }
 }
 

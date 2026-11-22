@@ -31,6 +31,7 @@ public sealed class LauncherSettingsService
                 var json = await File.ReadAllTextAsync(_settingsPath);
                 var root = JsonNode.Parse(json);
                 MigrateLegacyTicketSettings(root);
+                MigrateLegacyAiCommitInstruction(root);
                 settings = root?.Deserialize<LauncherSettings>(JsonOptions) ?? new LauncherSettings();
             }
             catch (JsonException)
@@ -56,6 +57,7 @@ public sealed class LauncherSettingsService
                 repository.TicketProjectKey ??= string.Empty;
                 ClearLegacyTicketMcpServer(repository);
                 repository.TaskStoryTemplate ??= RepositoryEntry.DefaultTaskStoryTemplate;
+                repository.AiCustomInstruction ??= string.Empty;
                 repository.HiddenStashCommitHashes ??= [];
             }
             settings.AiApiKey = await SecureStorage.Default.GetAsync(AiApiKeyStorageKey) ?? string.Empty;
@@ -92,6 +94,7 @@ public sealed class LauncherSettingsService
                 repository.TicketProjectKey = repository.TicketProjectKey?.Trim() ?? string.Empty;
                 ClearLegacyTicketMcpServer(repository);
                 repository.TaskStoryTemplate ??= RepositoryEntry.DefaultTaskStoryTemplate;
+                repository.AiCustomInstruction = repository.AiCustomInstruction?.Trim() ?? string.Empty;
             }
             settings.NotificationChannel = "Slack";
             Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
@@ -139,6 +142,24 @@ public sealed class LauncherSettingsService
             repository.Remove("JiraMcpHosting");
             repository.Remove("JiraMcpUrl");
         }
+    }
+
+    private static void MigrateLegacyAiCommitInstruction(JsonNode? root)
+    {
+        if (root is not JsonObject settings || settings["AiCustomInstruction"] is not JsonValue legacyInstruction ||
+            !legacyInstruction.TryGetValue<string>(out var instruction))
+            return;
+
+        if (settings["Repositories"] is JsonArray repositories)
+        {
+            foreach (var repository in repositories.OfType<JsonObject>())
+            {
+                if (!repository.ContainsKey("AiCustomInstruction"))
+                    repository["AiCustomInstruction"] = instruction;
+            }
+        }
+
+        settings.Remove("AiCustomInstruction");
     }
 
     private static void ClearLegacyTicketMcpServer(RepositoryEntry repository)

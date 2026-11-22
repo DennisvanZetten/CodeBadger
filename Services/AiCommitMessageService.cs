@@ -12,8 +12,9 @@ public sealed class AiCommitMessageService
 
     public AiCommitMessageService(LocalizationService localization) => _localization = localization;
 
-    public async Task<AiCommitMessageResult> GenerateAsync(LauncherSettings settings, string diff, string? branchName = null)
-        => await GenerateAsync(settings, diff, branchName, settings.AiModel, commitMessage: true);
+    public async Task<AiCommitMessageResult> GenerateAsync(LauncherSettings settings, string diff, string? branchName = null,
+        string? customInstruction = null)
+        => await GenerateAsync(settings, diff, branchName, settings.AiModel, commitMessage: true, customInstruction);
 
     public async Task<AiCommitMessageResult> ResolveConflictAsync(LauncherSettings settings, string conflictContent)
     {
@@ -22,13 +23,14 @@ public sealed class AiCommitMessageService
 
         var prompt = new StringBuilder("Resolve the Git conflict(s) in this file and return the complete resolved file as plain text. Keep all text outside conflict markers exactly as it is. Within each conflict, prefer preserving compatible edits from both sides; if edits directly disagree and cannot both be applied, use the incoming/right side's version. Remove all conflict markers. Do not wrap the result in JSON, Markdown, code fences, or an explanation.");
         prompt.Append("\n\nConflict file content:\n").Append(conflictContent);
-        var response = await GenerateAsync(settings, prompt.ToString(), null, settings.AiConflictModel, commitMessage: false);
+        var response = await GenerateAsync(settings, prompt.ToString(), null, settings.AiConflictModel, commitMessage: false, null);
         return response.Success
             ? response with { Title = response.Title.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n') }
             : response;
     }
 
-    private async Task<AiCommitMessageResult> GenerateAsync(LauncherSettings settings, string promptText, string? branchName, string model, bool commitMessage)
+    private async Task<AiCommitMessageResult> GenerateAsync(LauncherSettings settings, string promptText, string? branchName,
+        string model, bool commitMessage, string? customInstruction)
     {
         if (string.IsNullOrWhiteSpace(promptText))
             return new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("Please stage at least one change before generating a commit message."));
@@ -42,7 +44,7 @@ public sealed class AiCommitMessageService
         {
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
             using var request = commitMessage
-                ? CreateRequest(provider, uri, settings, LimitInput(promptText, settings.AiMaxInputTokens), branchName)
+                ? CreateRequest(provider, uri, settings, LimitInput(promptText, settings.AiMaxInputTokens), branchName, customInstruction)
                 : CreateConflictRequest(provider, uri, settings, promptText, model);
             using var response = await client.SendAsync(request);
             var responseBody = await response.Content.ReadAsStringAsync();
@@ -85,12 +87,13 @@ public sealed class AiCommitMessageService
             : new AiCommitMessageResult(false, string.Empty, string.Empty, result.Error);
     }
 
-    private static HttpRequestMessage CreateRequest(string provider, Uri endpoint, LauncherSettings settings, string diff, string? branchName)
+    private static HttpRequestMessage CreateRequest(string provider, Uri endpoint, LauncherSettings settings, string diff,
+        string? branchName, string? customInstruction)
     {
         var prompt = new StringBuilder("Generate a Git commit title and description for the staged changes. Respond only as JSON with string properties \"title\" and \"description\". The title must be concise, imperative mood, and at most 72 characters. The description may be empty.");
         prompt.Append("\n\nCurrent branch name: ").Append(string.IsNullOrWhiteSpace(branchName) ? "(unavailable)" : branchName.Trim());
-        if (!string.IsNullOrWhiteSpace(settings.AiCustomInstruction))
-            prompt.Append("\n\nAdditional user instructions:\n").Append(settings.AiCustomInstruction.Trim());
+        if (!string.IsNullOrWhiteSpace(customInstruction))
+            prompt.Append("\n\nAdditional user instructions:\n").Append(customInstruction.Trim());
         prompt.Append("\n\nStaged diff:\n").Append(diff);
         var userPrompt = prompt.ToString();
         var request = new HttpRequestMessage(HttpMethod.Post, endpoint);

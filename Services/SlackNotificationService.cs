@@ -1112,7 +1112,8 @@ public sealed class SlackNotificationService : IAsyncDisposable
         if (canGenerate)
         {
             var branch = await _gitBranchService.GetCurrentBranchAsync(thread.Directory);
-            var generated = await _aiCommitMessageService.GenerateAsync(promptSettings, diff.Output, branch.Branch);
+            var generated = await _aiCommitMessageService.GenerateAsync(promptSettings, diff.Output, branch.Branch,
+                repository.AiCustomInstruction);
             if (generated.Success)
             {
                 await CommitStagedChangesAsync(thread.Directory, generated.Title, generated.Description, threadTs, cancellationToken);

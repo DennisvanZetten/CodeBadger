@@ -154,6 +154,12 @@
                                 </MudButton>
                             </div>
                             </fieldset>
+                            <div class="repository-commit-instructions">
+                                <MudTextField @bind-Value="repository.AiCustomInstruction"
+                                              Label="@L.T("Custom instructions for commit messages")"
+                                              HelperText="@L.T("For example: use Conventional Commits and write in English.")"
+                                              Lines="2" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                            </div>
                             @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
                             {
                                 <fieldset class="repository-sandbox-toggle">
@@ -302,9 +308,6 @@
                                     <MudSelectItem T="string" Value="@model">@model</MudSelectItem>
                                 }
                             </MudSelect>
-                            <MudTextField @bind-Value="Settings.AiCustomInstruction" Label="@L.T("Custom instructions for commit messages")"
-                                          HelperText="@L.T("For example: use Conventional Commits and write in English.")"
-                                          Lines="3" Margin="Margin.Dense" Variant="Variant.Outlined" />
                         </MudStack>
                     </MudPaper>
                     <MudPaper Outlined="true" Elevation="0" Class="pa-4">

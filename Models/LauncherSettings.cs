@@ -15,7 +15,6 @@ public sealed class LauncherSettings
     public string AiModel { get; set; } = "gpt-4o-mini";
     public string AiConflictModel { get; set; } = "gpt-4o-mini";
     public int AiMaxInputTokens { get; set; } = 12000;
-    public string AiCustomInstruction { get; set; } = string.Empty;
     public int SandboxMaxFileMb { get; set; } = 64;
     public int SandboxMaxTotalMb { get; set; } = 1024;
     public string TaskBranchPrefix { get; set; } = "feature";
@@ -49,6 +48,7 @@ public sealed class RepositoryEntry
     public string TicketMcpServerName { get; set; } = string.Empty;
     public string TicketProjectKey { get; set; } = string.Empty;
     public string TaskStoryTemplate { get; set; } = DefaultTaskStoryTemplate;
+    public string AiCustomInstruction { get; set; } = string.Empty;
     public bool SlackNotificationsMuted { get; set; }
     public List<string> HiddenStashCommitHashes { get; set; } = [];
 }

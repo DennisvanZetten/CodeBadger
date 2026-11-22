@@ -78,12 +78,14 @@ public sealed class TicketMcpService
             .Where(candidate => !string.IsNullOrWhiteSpace(candidate.Name))
             .ToArray();
         var createTool = availableTools
-            .Where(candidate => IsIssueCreationTool(candidate.Name, candidate.Description))
+            .Where(candidate => IsIssueCreationTool(candidate.Name, candidate.Description) &&
+                !RequiresExistingIssueNumber(candidate.Tool["inputSchema"] as JsonObject))
             .OrderBy(candidate => candidate.Name.Contains("issue", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
             .FirstOrDefault();
         if (createTool.Tool is null)
             throw new InvalidOperationException(
-                $"No Jira issue-creation tool was recognized on MCP server '{repository.TicketMcpServerName}'. " +
+                $"No issue-creation tool that can create a new issue was recognized on MCP server '{repository.TicketMcpServerName}'. " +
+                "Tools requiring an issue_number are treated as tools for existing issues and are skipped. " +
                 $"Available tools: {string.Join("; ", availableTools.Select(candidate =>
                     string.IsNullOrWhiteSpace(candidate.Description)
                         ? candidate.Name
@@ -145,6 +147,12 @@ public sealed class TicketMcpService
         return (lowerDescription.Contains("create") || lowerDescription.Contains("create a") || lowerDescription.Contains("create an")) &&
             (lowerDescription.Contains("issue") || lowerDescription.Contains("ticket"));
     }
+
+    private static bool RequiresExistingIssueNumber(JsonObject? schema) =>
+        schema?["required"] is JsonArray required && required
+            .Select(value => value?.GetValue<string>())
+            .Any(name => string.Equals(name, "issue_number", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(name, "issue_id", StringComparison.OrdinalIgnoreCase)) == true;
 
     private static JsonObject BuildArguments(JsonObject? schema, string title, string description,
         string projectKey, string issueType, string githubOwner, string githubRepository)

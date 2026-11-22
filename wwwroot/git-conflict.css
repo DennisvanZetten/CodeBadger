@@ -88,6 +88,9 @@
 }
 .git-conflict-area-select { display: inline-flex; align-items: center; cursor: pointer; }
 .git-conflict-area-select input { width: 0.9rem; height: 0.9rem; margin: 0.1rem 0.3rem; accent-color: var(--mud-palette-primary); }
+.git-conflict-area.has-default-proposal > header { background: color-mix(in srgb, #a855f7 24%, transparent); color: #d8b4fe; }
+.git-conflict-area.has-default-proposal .git-conflict-area-select input { accent-color: #a855f7; }
+:root[data-theme-mode="light"] .git-conflict-area.has-default-proposal > header { color: #6b21a8; }
 
 .git-conflict-code-line {
     display: flex;

@@ -46,7 +46,7 @@
                             {
                                 @if (displayChunk.Conflict is { } conflict)
                                 {
-                    <section @key="conflict" class="git-conflict-area">
+                                    <section @key="conflict" class="git-conflict-area @(IsDefaultProposal(conflict) ? "has-default-proposal" : "")">
                                         <header><MudText Typo="Typo.caption">@L.T("Conflicting changes")</MudText><label class="git-conflict-area-select"><input type="checkbox" checked="@IsBlockSelected(conflict, false)" aria-label="@L.T("Select entire left conflict block")" @onchange="args => SelectBlock(conflict, false, args)" /></label></header>
                                         @foreach (var row in displayChunk.Rows)
                                         {
@@ -81,7 +81,7 @@
                             {
                                 @if (displayChunk.Conflict is { } conflict)
                                 {
-                    <section @key="conflict" class="git-conflict-area">
+                                    <section @key="conflict" class="git-conflict-area @(IsDefaultProposal(conflict) ? "has-default-proposal" : "")">
                                         <header><MudText Typo="Typo.caption">@L.T("Conflicting changes")</MudText><label class="git-conflict-area-select"><input type="checkbox" checked="@IsBlockSelected(conflict, true)" aria-label="@L.T("Select entire right conflict block")" @onchange="args => SelectBlock(conflict, true, args)" /></label></header>
                                         @foreach (var row in displayChunk.Rows)
                                         {
@@ -345,6 +345,8 @@
         return rows.Length > 0 && rows.All(row => row.Selection == takeRight);
     }
 
+    private bool IsDefaultProposal(ConflictChunk chunk) => _hasDefaultConflictProposal && ReferenceEquals(_aiDefaultChunk, chunk);
+
     private void InitializeDefaultConflictProposal()
     {
         var defaultChunk = _conflictChunks.FirstOrDefault(chunk => chunk.Rows.Any(row => row.RequiresSelection));
@@ -517,7 +519,8 @@
                     if (text is not null)
                     {
                         var rowKind = !row.RequiresSelection ? "context" : _hasAiConflictProposal ? "ai" : _hasDefaultConflictProposal && ReferenceEquals(_aiDefaultChunk, row.Chunk) ? "ai" : row.Selection == false ? "left" : "right";
-                        selectedRows.Add(new ConflictResultRow(text, rowKind, selectedRows.Count + 1, sourceRowIndex, row.RequiresSelection, row.Chunk));
+                        selectedRows.Add(new ConflictResultRow(text, rowKind, selectedRows.Count + 1, sourceRowIndex, row.RequiresSelection,
+                            row.RequiresSelection && ReferenceEquals(row.Chunk, _aiDefaultChunk)));
                     }
                     sourceRowIndex++;
                 }
@@ -525,7 +528,7 @@
         }
 
         if (_hasDefaultConflictProposal && !_hasAiConflictProposal)
-            return selectedRows.Select(row => ReferenceEquals(row.ConflictChunk, _aiDefaultChunk) && row.IsConflictLine
+            return selectedRows.Select(row => row.IsDefaultProposal && row.IsConflictLine
                 ? row with { Kind = "ai" }
                 : row).ToArray();
 
@@ -771,5 +774,5 @@
 
     private sealed record ConflictDisplayRow(string? Text, int? LineNumber, ConflictLine? Conflict, int SourceRowIndex);
     private sealed record ConflictDisplayChunk(ConflictChunk? Conflict, IReadOnlyList<ConflictDisplayRow> Rows);
-    private sealed record ConflictResultRow(string Text, string Kind, int LineNumber, int? SourceRowIndex, bool IsConflictLine = false, ConflictChunk? ConflictChunk = null);
+    private sealed record ConflictResultRow(string Text, string Kind, int LineNumber, int? SourceRowIndex, bool IsConflictLine = false, bool IsDefaultProposal = false);
 }

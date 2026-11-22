@@ -78,6 +78,7 @@
 }
 
 .git-conflict-area { display: block; min-width: max-content; }
+.git-conflict-area > header .mud-typography { color: inherit; }
 .git-conflict-area > header {
     display: flex;
     align-items: center;
@@ -87,7 +88,7 @@
     color: var(--mud-palette-text-secondary);
 }
 .git-conflict-area-select { display: inline-flex; align-items: center; cursor: pointer; }
-.git-conflict-area-select input { width: 0.9rem; height: 0.9rem; margin: 0.1rem 0.3rem; accent-color: var(--mud-palette-primary); }
+.git-conflict-area-select input { display: block; width: 1rem; height: 1rem; margin: 0.2rem 0.45rem; accent-color: var(--mud-palette-primary); cursor: pointer; }
 .git-conflict-area.has-default-proposal > header { background: color-mix(in srgb, #a855f7 24%, transparent); color: #d8b4fe; }
 .git-conflict-area.has-default-proposal .git-conflict-area-select input { accent-color: #a855f7; }
 :root[data-theme-mode="light"] .git-conflict-area.has-default-proposal > header { color: #6b21a8; }

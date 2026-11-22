@@ -20,9 +20,9 @@
                     <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" aria-label="@L.T("Next conflict")" title="@L.T("Next conflict")" OnClick="NextConflict" Disabled="@(_saving || _conflictChunks.Count == 0 || _activeConflictIndex >= _conflictChunks.Count - 1)" />
                 </MudStack>
                 <MudStack Row="true" Spacing="1">
-            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AutoAwesome" OnClick="ResolveWithAiAsync" Disabled="@(_loading || _saving || _isResolvingWithAi)">
-                @(_isResolvingWithAi ? L.T("AI is preparing a proposal...") : L.T("AI resolve"))
-            </MudButton>
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AutoAwesome" OnClick="ResolveWithAiAsync" Disabled="@(_loading || _saving || _isResolvingWithAi)">
+                        @(_isResolvingWithAi ? L.T("AI is preparing a proposal...") : L.T("AI resolve"))
+                    </MudButton>
                     <MudButton Variant="Variant.Outlined" OnClick="TakeAllOurs" Disabled="@(_loading || _saving)">@L.T("Take all left")</MudButton>
                     <MudButton Variant="Variant.Outlined" OnClick="TakeAllTheirs" Disabled="@(_loading || _saving)">@L.T("Take all right")</MudButton>
                 </MudStack>
@@ -276,7 +276,7 @@
         UpdateResult();
         _resultRenderPending = true;
         _pendingResultEditorValue = _result;
-        _alignResultOnNextRender = false;
+        _alignResultOnNextRender = true;
     }
 
     private void SelectLine(ConflictLine row, bool takeRight)
@@ -298,7 +298,7 @@
         UpdateResult();
         _resultRenderPending = true;
         _pendingResultEditorValue = _result;
-        _alignResultOnNextRender = false;
+        _alignResultOnNextRender = true;
     }
 
     private void SelectBlock(ConflictChunk chunk, bool takeRight, ChangeEventArgs args)
@@ -336,7 +336,7 @@
         UpdateResult();
         _resultRenderPending = true;
         _pendingResultEditorValue = _result;
-        _alignResultOnNextRender = false;
+        _alignResultOnNextRender = true;
     }
 
     private static bool IsBlockSelected(ConflictChunk chunk, bool takeRight)

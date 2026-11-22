@@ -119,12 +119,17 @@ export function alignConflictResultToVisibleLine(source, textarea) {
 export function alignConflictResultToSourceRow(textarea, sourceRowIndex) {
     const editor = textarea.previousElementSibling;
     const resultRows = Array.from(editor.querySelectorAll("[data-source-row-index]"));
-    const line = resultRows.find(row => Number(row.dataset.sourceRowIndex) >= sourceRowIndex) ?? resultRows.at(-1);
+    const line = resultRows.find(row => Number(row.dataset.sourceRowIndex) === sourceRowIndex)
+        ?? resultRows.find(row => Number(row.dataset.sourceRowIndex) >= sourceRowIndex)
+        ?? resultRows.at(-1);
     if (!line) return;
     const editorBounds = editor.getBoundingClientRect();
     const lineBounds = line.getBoundingClientRect();
-    editor.scrollTop = Math.max(0, Math.min(editor.scrollHeight - editor.clientHeight, editor.scrollTop + lineBounds.top - editorBounds.top));
+    const targetScrollTop = editor.scrollTop + lineBounds.top - editorBounds.top - (editor.clientHeight - lineBounds.height) / 2;
+    editor.scrollTop = Math.max(0, Math.min(editor.scrollHeight - editor.clientHeight, targetScrollTop));
     textarea.scrollTop = editor.scrollTop;
+    editor.scrollLeft = 0;
+    textarea.scrollLeft = 0;
 }
 
 export function disposeConflictScroll(left, right, editor) {

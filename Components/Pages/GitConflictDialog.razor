@@ -20,9 +20,9 @@
                     <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" aria-label="@L.T("Next conflict")" title="@L.T("Next conflict")" OnClick="NextConflict" Disabled="@(_saving || _conflictChunks.Count == 0 || _activeConflictIndex >= _conflictChunks.Count - 1)" />
                 </MudStack>
                 <MudStack Row="true" Spacing="1">
-                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AutoAwesome" OnClick="ResolveWithAiAsync" Disabled="@(_loading || _saving || _isResolvingWithAi)">
-                        @(_isResolvingWithAi ? L.T("AI is preparing a proposal...") : L.T("AI resolve"))
-                    </MudButton>
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AutoAwesome" OnClick="ResolveWithAiAsync" Disabled="@(_loading || _saving || _isResolvingWithAi)">
+                @(_isResolvingWithAi ? L.T("AI is preparing a proposal...") : L.T("AI resolve"))
+            </MudButton>
                     <MudButton Variant="Variant.Outlined" OnClick="TakeAllOurs" Disabled="@(_loading || _saving)">@L.T("Take all left")</MudButton>
                     <MudButton Variant="Variant.Outlined" OnClick="TakeAllTheirs" Disabled="@(_loading || _saving)">@L.T("Take all right")</MudButton>
                 </MudStack>
@@ -42,18 +42,34 @@
                     <section class="git-conflict-side git-conflict-side-current">
                         <header><MudText Typo="Typo.subtitle2"><span class="git-conflict-source-badge git-conflict-source-a">A</span>@L.T("Current (left)")</MudText><MudButton Size="Size.Small" OnClick="TakeAllOurs">@L.T("Take all")</MudButton></header>
                         <div class="git-conflict-code" @ref="_leftCode">
-                            @foreach (var row in BuildSideRows(false))
+                            @foreach (var displayChunk in BuildSideChunks(false))
                             {
-                                @if (row.Conflict is { RequiresSelection: true } conflict)
+                                @if (displayChunk.Conflict is { } conflict)
                                 {
-                                    <label @key="conflict" data-conflict-row="true" data-source-row-index="@row.SourceRowIndex" class="git-conflict-code-line git-conflict-diff-line git-conflict-change @(row.Text is null ? "git-conflict-empty-line" : "") @(conflict.Selection == false ? "selected" : "")">
-                                        <input type="checkbox" checked="@(conflict.Selection == false)" aria-label="@L.T("Choose left line")" @onchange="args => SetLineSelection(conflict, false, args)" />
-                                        <span class="git-conflict-line-number">@row.LineNumber</span><code>@row.Text</code>
-                                    </label>
+                    <section @key="conflict" class="git-conflict-area">
+                                        <header><MudText Typo="Typo.caption">@L.T("Conflicting changes")</MudText><label class="git-conflict-area-select"><input type="checkbox" checked="@IsBlockSelected(conflict, false)" aria-label="@L.T("Select entire left conflict block")" @onchange="args => SelectBlock(conflict, false, args)" /></label></header>
+                                        @foreach (var row in displayChunk.Rows)
+                                        {
+                                            @if (row.Conflict is { RequiresSelection: true } line)
+                                            {
+                                                <div data-conflict-row="true" data-source-row-index="@row.SourceRowIndex" class="git-conflict-code-line git-conflict-diff-line git-conflict-change @(row.Text is null ? "git-conflict-empty-line" : "") @(line.Selection == false ? "selected" : "")">
+                                                    <button type="button" class="git-conflict-line-add @(line.Selection == false ? "selected" : "")" aria-label="@L.T("Add left line")" title="@L.T("Add left line")" @onclick="() => SelectLine(line, false)"><MudIcon Icon="@(line.Selection == false ? Icons.Material.Filled.Check : Icons.Material.Filled.Add)" Size="Size.Small" /></button>
+                                                    <span class="git-conflict-line-number">@row.LineNumber</span><code>@row.Text</code>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div data-source-row-index="@row.SourceRowIndex" class="git-conflict-code-line"><span class="git-conflict-selector-placeholder"></span><span class="git-conflict-line-number">@row.LineNumber</span><code>@row.Text</code></div>
+                                            }
+                                        }
+                                    </section>
                                 }
                                 else
                                 {
-                                    <div data-source-row-index="@row.SourceRowIndex" class="git-conflict-code-line"><span class="git-conflict-selector-placeholder"></span><span class="git-conflict-line-number">@row.LineNumber</span><code>@row.Text</code></div>
+                                    @foreach (var row in displayChunk.Rows)
+                                    {
+                                        <div data-source-row-index="@row.SourceRowIndex" class="git-conflict-code-line"><span class="git-conflict-selector-placeholder"></span><span class="git-conflict-line-number">@row.LineNumber</span><code>@row.Text</code></div>
+                                    }
                                 }
                             }
                         </div>
@@ -61,18 +77,34 @@
                     <section class="git-conflict-side git-conflict-side-incoming">
                         <header><MudText Typo="Typo.subtitle2"><span class="git-conflict-source-badge git-conflict-source-b">B</span>@L.T("Incoming (right)")</MudText><MudButton Size="Size.Small" OnClick="TakeAllTheirs">@L.T("Take all")</MudButton></header>
                         <div class="git-conflict-code" @ref="_rightCode">
-                            @foreach (var row in BuildSideRows(true))
+                            @foreach (var displayChunk in BuildSideChunks(true))
                             {
-                                @if (row.Conflict is { RequiresSelection: true } conflict)
+                                @if (displayChunk.Conflict is { } conflict)
                                 {
-                                    <label @key="conflict" data-conflict-row="true" data-source-row-index="@row.SourceRowIndex" class="git-conflict-code-line git-conflict-diff-line git-conflict-change @(row.Text is null ? "git-conflict-empty-line" : "") @(conflict.Selection == true ? "selected" : "")">
-                                        <input type="checkbox" checked="@(conflict.Selection == true)" aria-label="@L.T("Choose right line")" @onchange="args => SetLineSelection(conflict, true, args)" />
-                                        <span class="git-conflict-line-number">@row.LineNumber</span><code>@row.Text</code>
-                                    </label>
+                    <section @key="conflict" class="git-conflict-area">
+                                        <header><MudText Typo="Typo.caption">@L.T("Conflicting changes")</MudText><label class="git-conflict-area-select"><input type="checkbox" checked="@IsBlockSelected(conflict, true)" aria-label="@L.T("Select entire right conflict block")" @onchange="args => SelectBlock(conflict, true, args)" /></label></header>
+                                        @foreach (var row in displayChunk.Rows)
+                                        {
+                                            @if (row.Conflict is { RequiresSelection: true } line)
+                                            {
+                                                <div data-conflict-row="true" data-source-row-index="@row.SourceRowIndex" class="git-conflict-code-line git-conflict-diff-line git-conflict-change @(row.Text is null ? "git-conflict-empty-line" : "") @(line.Selection == true ? "selected" : "")">
+                                                    <button type="button" class="git-conflict-line-add @(line.Selection == true ? "selected" : "")" aria-label="@L.T("Add right line")" title="@L.T("Add right line")" @onclick="() => SelectLine(line, true)"><MudIcon Icon="@(line.Selection == true ? Icons.Material.Filled.Check : Icons.Material.Filled.Add)" Size="Size.Small" /></button>
+                                                    <span class="git-conflict-line-number">@row.LineNumber</span><code>@row.Text</code>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div data-source-row-index="@row.SourceRowIndex" class="git-conflict-code-line"><span class="git-conflict-selector-placeholder"></span><span class="git-conflict-line-number">@row.LineNumber</span><code>@row.Text</code></div>
+                                            }
+                                        }
+                                    </section>
                                 }
                                 else
                                 {
-                                    <div data-source-row-index="@row.SourceRowIndex" class="git-conflict-code-line"><span class="git-conflict-selector-placeholder"></span><span class="git-conflict-line-number">@row.LineNumber</span><code>@row.Text</code></div>
+                                    @foreach (var row in displayChunk.Rows)
+                                    {
+                                        <div data-source-row-index="@row.SourceRowIndex" class="git-conflict-code-line"><span class="git-conflict-selector-placeholder"></span><span class="git-conflict-line-number">@row.LineNumber</span><code>@row.Text</code></div>
+                                    }
                                 }
                             }
                         </div>
@@ -120,9 +152,12 @@
     private bool _saving;
     private bool _isResolvingWithAi;
     private bool _hasAiConflictProposal;
+    private bool _hasDefaultConflictProposal;
     private string? _error;
     private int _activeConflictIndex;
     private int? _pendingConflictSourceRow;
+    private bool _aiDefaultApplied;
+    private ConflictChunk? _aiDefaultChunk;
     private ElementReference _leftCode;
     private ElementReference _rightCode;
     private ElementReference _resultEditor;
@@ -133,7 +168,7 @@
     private bool _alignResultOnNextRender;
 
     private List<ConflictChunk> _conflictChunks => _chunks.OfType<ConflictChunk>().ToList();
-    private bool AllConflictAreasSelected => _conflictChunks.All(chunk =>
+    private bool AllConflictAreasSelected => _hasAiConflictProposal || _conflictChunks.All(chunk =>
         !chunk.Rows.Any(row => row.RequiresSelection) || chunk.Rows.Any(row => row.RequiresSelection && row.Selection is not null));
 
     protected override async Task OnInitializedAsync()
@@ -156,10 +191,9 @@
         _chunks = ParseConflictChunks(response.Versions.WorkingContent);
         if (!_chunks.OfType<ConflictChunk>().Any())
             _chunks = [new ConflictChunk(AlignLines(_ours, _theirs))];
-        UpdateResult();
-        _aiOriginalResult = _result;
+        InitializeDefaultConflictProposal();
         _pendingResultEditorValue = _result;
-                    _resultRenderPending = true;
+        _resultRenderPending = true;
         _loading = false;
     }
 
@@ -216,19 +250,121 @@
 
     private void SetLineSelection(ConflictLine row, bool takeRight, ChangeEventArgs args)
     {
-        if (!row.RequiresSelection)
-            return;
-        var isChecked = args.Value is bool value && value;
-        if (isChecked)
-            row.Selection = takeRight;
-        else if (row.Selection == takeRight)
-            row.Selection = null;
+        var wasDefaultProposal = _hasDefaultConflictProposal && ReferenceEquals(_aiDefaultChunk, row.Chunk);
+        if (!_aiDefaultApplied && wasDefaultProposal)
+        {
+            foreach (var blockLine in row.Chunk.Rows.Where(blockLine => blockLine.RequiresSelection))
+                blockLine.Selection = null;
+            _aiDefaultChunk = null;
+            _aiDefaultApplied = true;
+        }
+        var selected = args.Value is bool value && value;
+        var selectedChunk = row.Chunk;
+        if (selected)
+        {
+            foreach (var line in selectedChunk.Rows.Where(candidate => candidate.RequiresSelection))
+                line.Selection = takeRight;
+        }
+        else
+        {
+            foreach (var line in selectedChunk.Rows.Where(candidate => candidate.RequiresSelection && candidate.Selection == takeRight))
+                line.Selection = null;
+        }
         _hasAiConflictProposal = false;
+        _hasDefaultConflictProposal = false;
         _aiOriginalResult = string.Empty;
         UpdateResult();
         _resultRenderPending = true;
         _pendingResultEditorValue = _result;
-        _alignResultOnNextRender = true;
+        _alignResultOnNextRender = false;
+    }
+
+    private void SelectLine(ConflictLine row, bool takeRight)
+    {
+        if (!row.RequiresSelection)
+            return;
+        var isDefaultProposal = _hasDefaultConflictProposal && ReferenceEquals(_aiDefaultChunk, row.Chunk);
+        if (!_aiDefaultApplied && isDefaultProposal)
+        {
+            foreach (var blockLine in row.Chunk.Rows.Where(blockLine => blockLine.RequiresSelection))
+                blockLine.Selection = null;
+            _aiDefaultChunk = null;
+            _aiDefaultApplied = true;
+        }
+        row.Selection = takeRight;
+        _hasAiConflictProposal = false;
+        _hasDefaultConflictProposal = false;
+        _aiOriginalResult = string.Empty;
+        UpdateResult();
+        _resultRenderPending = true;
+        _pendingResultEditorValue = _result;
+        _alignResultOnNextRender = false;
+    }
+
+    private void SelectBlock(ConflictChunk chunk, bool takeRight, ChangeEventArgs args)
+    {
+        var selected = args.Value is bool value && value;
+        var isDefaultProposal = _hasDefaultConflictProposal && ReferenceEquals(_aiDefaultChunk, chunk);
+        if (selected)
+        {
+            if (!_aiDefaultApplied && isDefaultProposal && takeRight)
+            {
+                foreach (var blockLine in chunk.Rows.Where(blockLine => blockLine.RequiresSelection))
+                    blockLine.Selection = null;
+                _aiDefaultChunk = null;
+                _aiDefaultApplied = true;
+            }
+            else if (!_aiDefaultApplied && isDefaultProposal && !takeRight)
+            {
+                foreach (var blockLine in chunk.Rows.Where(blockLine => blockLine.RequiresSelection))
+                    blockLine.Selection = null;
+                _aiDefaultChunk = null;
+                _aiDefaultApplied = true;
+            }
+            foreach (var row in chunk.Rows.Where(row => row.RequiresSelection))
+                row.Selection = takeRight;
+        }
+        else
+        {
+            foreach (var row in chunk.Rows.Where(row => row.RequiresSelection && row.Selection == takeRight))
+                row.Selection = null;
+        }
+
+        _hasAiConflictProposal = false;
+        _hasDefaultConflictProposal = false;
+        _aiOriginalResult = string.Empty;
+        UpdateResult();
+        _resultRenderPending = true;
+        _pendingResultEditorValue = _result;
+        _alignResultOnNextRender = false;
+    }
+
+    private static bool IsBlockSelected(ConflictChunk chunk, bool takeRight)
+    {
+        var rows = chunk.Rows.Where(row => row.RequiresSelection && (takeRight ? row.RightLine is not null : row.LeftLine is not null)).ToArray();
+        return rows.Length > 0 && rows.All(row => row.Selection == takeRight);
+    }
+
+    private void InitializeDefaultConflictProposal()
+    {
+        var defaultChunk = _conflictChunks.FirstOrDefault(chunk => chunk.Rows.Any(row => row.RequiresSelection));
+        _aiDefaultChunk = defaultChunk;
+        if (defaultChunk is null)
+        {
+            _hasAiConflictProposal = false;
+            UpdateResult();
+            return;
+        }
+
+        foreach (var row in defaultChunk.Rows.Where(row => row.RequiresSelection))
+            row.Selection = true;
+        _aiDefaultApplied = false;
+        _hasAiConflictProposal = false;
+        _hasDefaultConflictProposal = true;
+        UpdateResult();
+        _aiOriginalResult = _result;
+        _pendingResultEditorValue = _result;
+        _resultRenderPending = true;
     }
 
     private async Task HandleResultInput(ChangeEventArgs args)
@@ -284,9 +420,13 @@
     {
         _hasAiConflictProposal = false;
         _aiOriginalResult = string.Empty;
+        _aiDefaultApplied = true;
+        _aiDefaultChunk = null;
         var conflicts = _chunks.OfType<ConflictChunk>().ToArray();
         foreach (var row in conflicts.SelectMany(chunk => chunk.Rows).Where(row => row.RequiresSelection))
             row.Selection = takeRight;
+        _hasAiConflictProposal = false;
+        _hasDefaultConflictProposal = false;
         UpdateResult();
         _resultRenderPending = true;
         _pendingResultEditorValue = _result;
@@ -308,17 +448,13 @@
 
             _result = result.Title;
             _hasTrailingNewline = HasTrailingNewline(_result);
-            _hasAiConflictProposal = true;
-            foreach (var conflict in _conflictChunks)
-            {
-                foreach (var row in conflict.Rows.Where(row => row.RequiresSelection))
-                {
-                    var leftLine = row.LeftLine is not null && _result.Contains(row.LeftLine, StringComparison.Ordinal);
-                    var rightLine = row.RightLine is not null && _result.Contains(row.RightLine, StringComparison.Ordinal);
-                    row.Selection = leftLine ? false : rightLine ? true : null;
-                }
-            }
-            _resultRenderPending = true;
+        _hasAiConflictProposal = true;
+        _hasDefaultConflictProposal = false;
+        _aiDefaultChunk = null;
+        _aiDefaultApplied = true;
+        foreach (var row in _conflictChunks.SelectMany(chunk => chunk.Rows).Where(row => row.RequiresSelection))
+            row.Selection = null;
+        _resultRenderPending = true;
             _pendingResultEditorValue = _result;
             _alignResultOnNextRender = true;
             Snackbar.Add(L.T("AI conflict proposal ready. Review it before saving."), Severity.Success);
@@ -377,20 +513,21 @@
                         sourceRowIndex++;
                         continue;
                     }
-                    if (_hasAiConflictProposal && row.RequiresSelection)
-                    {
-                        sourceRowIndex++;
-                        continue;
-                    }
                     var text = row.Selection == true ? row.RightLine : row.LeftLine;
                     if (text is not null)
                     {
-                        selectedRows.Add(new ConflictResultRow(text, row.RequiresSelection ? "chosen" : "context", selectedRows.Count + 1, sourceRowIndex, row.RequiresSelection));
+                        var rowKind = !row.RequiresSelection ? "context" : _hasAiConflictProposal ? "ai" : _hasDefaultConflictProposal && ReferenceEquals(_aiDefaultChunk, row.Chunk) ? "ai" : row.Selection == false ? "left" : "right";
+                        selectedRows.Add(new ConflictResultRow(text, rowKind, selectedRows.Count + 1, sourceRowIndex, row.RequiresSelection, row.Chunk));
                     }
                     sourceRowIndex++;
                 }
             }
         }
+
+        if (_hasDefaultConflictProposal && !_hasAiConflictProposal)
+            return selectedRows.Select(row => ReferenceEquals(row.ConflictChunk, _aiDefaultChunk) && row.IsConflictLine
+                ? row with { Kind = "ai" }
+                : row).ToArray();
 
         var editedLines = SplitLines(_result);
         if (_hasAiConflictProposal)
@@ -409,7 +546,7 @@
                     searchFrom = candidate + 1;
                     break;
                 }
-                proposalRows.Add(new ConflictResultRow(line, "chosen", index + 1, matchedSourceRow, true));
+                proposalRows.Add(new ConflictResultRow(line, "ai", index + 1, matchedSourceRow, true));
             }
             return proposalRows;
         }
@@ -470,30 +607,32 @@
         return null;
     }
 
-    private IReadOnlyList<ConflictDisplayRow> BuildSideRows(bool right)
+    private IReadOnlyList<ConflictDisplayChunk> BuildSideChunks(bool right)
     {
-        var rows = new List<ConflictDisplayRow>();
+        var chunks = new List<ConflictDisplayChunk>();
         var lineNumber = 0;
         var sourceRowIndex = 0;
         foreach (var chunk in _chunks)
         {
             if (chunk is ContextChunk context)
             {
+                var rows = new List<ConflictDisplayRow>();
                 foreach (var line in context.Lines)
-                {
                     rows.Add(new ConflictDisplayRow(line, ++lineNumber, null, sourceRowIndex++));
-                }
+                chunks.Add(new ConflictDisplayChunk(null, rows));
             }
             else if (chunk is ConflictChunk conflict)
             {
+                var rows = new List<ConflictDisplayRow>();
                 foreach (var row in conflict.Rows)
                 {
                     var text = right ? row.RightLine : row.LeftLine;
                     rows.Add(new ConflictDisplayRow(text, text is null ? null : ++lineNumber, row, sourceRowIndex++));
                 }
+                chunks.Add(new ConflictDisplayChunk(conflict, rows));
             }
         }
-        return rows;
+        return chunks;
     }
 
     private async Task SaveAsync()
@@ -544,21 +683,24 @@
             var right = new List<string>();
             while (i < lines.Length && !lines[i].StartsWith(">>>>>>>", StringComparison.Ordinal)) right.Add(lines[i++]);
             if (i < lines.Length) i++;
-            chunks.Add(new ConflictChunk(AlignLines(string.Join("\n", left), string.Join("\n", right))));
+            var conflictChunk = new ConflictChunk([]);
+            conflictChunk.Rows.AddRange(AlignLines(string.Join("\n", left), string.Join("\n", right), conflictChunk));
+            chunks.Add(conflictChunk);
         }
         if (context.Count > 0) chunks.Add(new ContextChunk(context));
         return chunks;
     }
 
-    private static List<ConflictLine> AlignLines(string left, string right)
+    private static List<ConflictLine> AlignLines(string left, string right, ConflictChunk? owner = null)
     {
         var leftLines = SplitLines(left);
         var rightLines = SplitLines(right);
+        var chunk = owner ?? new ConflictChunk([]);
         if ((long)leftLines.Length * rightLines.Length > 1_000_000)
         {
             var fallback = new List<ConflictLine>(Math.Max(leftLines.Length, rightLines.Length));
             for (var i = 0; i < Math.Max(leftLines.Length, rightLines.Length); i++)
-                fallback.Add(new ConflictLine(i < leftLines.Length ? leftLines[i] : null, i < rightLines.Length ? rightLines[i] : null));
+                fallback.Add(new ConflictLine(i < leftLines.Length ? leftLines[i] : null, i < rightLines.Length ? rightLines[i] : null, chunk));
             return AlignChangedRows(fallback);
         }
 
@@ -576,15 +718,15 @@
         {
             if (leftIndex < leftLines.Length && rightIndex < rightLines.Length && leftLines[leftIndex] == rightLines[rightIndex])
             {
-                rows.Add(new ConflictLine(leftLines[leftIndex++], rightLines[rightIndex++], requiresSelection: false, selection: false));
+                rows.Add(new ConflictLine(leftLines[leftIndex++], rightLines[rightIndex++], chunk, requiresSelection: false, selection: false));
             }
             else if (leftIndex < leftLines.Length && (rightIndex >= rightLines.Length || lengths[leftIndex + 1, rightIndex] >= lengths[leftIndex, rightIndex + 1]))
             {
-                rows.Add(new ConflictLine(leftLines[leftIndex++], null));
+                rows.Add(new ConflictLine(leftLines[leftIndex++], null, chunk));
             }
             else
             {
-                rows.Add(new ConflictLine(null, rightLines[rightIndex++]));
+                rows.Add(new ConflictLine(null, rightLines[rightIndex++], chunk));
             }
         }
         return AlignChangedRows(rows);
@@ -609,7 +751,8 @@
             for (var changeIndex = 0; changeIndex < Math.Max(leftChanges.Length, rightChanges.Length); changeIndex++)
                 alignedRows.Add(new ConflictLine(
                     changeIndex < leftChanges.Length ? leftChanges[changeIndex] : null,
-                    changeIndex < rightChanges.Length ? rightChanges[changeIndex] : null));
+                    changeIndex < rightChanges.Length ? rightChanges[changeIndex] : null,
+                    changedRows[0].Chunk));
         }
         return alignedRows;
     }
@@ -617,14 +760,16 @@
     private abstract record ConflictChunkBase;
     private sealed record ContextChunk(IReadOnlyList<string> Lines) : ConflictChunkBase;
     private sealed record ConflictChunk(List<ConflictLine> Rows) : ConflictChunkBase;
-    private sealed class ConflictLine(string? leftLine, string? rightLine, bool requiresSelection = true, bool? selection = null)
+    private sealed class ConflictLine(string? leftLine, string? rightLine, ConflictChunk chunk, bool requiresSelection = true, bool? selection = null)
     {
         public string? LeftLine { get; } = leftLine;
         public string? RightLine { get; } = rightLine;
+        public ConflictChunk Chunk { get; } = chunk;
         public bool RequiresSelection { get; } = requiresSelection;
         public bool? Selection { get; set; } = selection;
     }
 
     private sealed record ConflictDisplayRow(string? Text, int? LineNumber, ConflictLine? Conflict, int SourceRowIndex);
-    private sealed record ConflictResultRow(string Text, string Kind, int LineNumber, int? SourceRowIndex, bool IsConflictLine = false);
+    private sealed record ConflictDisplayChunk(ConflictChunk? Conflict, IReadOnlyList<ConflictDisplayRow> Rows);
+    private sealed record ConflictResultRow(string Text, string Kind, int LineNumber, int? SourceRowIndex, bool IsConflictLine = false, ConflictChunk? ConflictChunk = null);
 }

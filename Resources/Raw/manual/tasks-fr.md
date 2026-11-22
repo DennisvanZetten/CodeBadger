@@ -9,7 +9,7 @@ La liste **Ideas and tasks** est un espace local pour conserver le travail à re
 3. Choisissez un type : **Idea**, **Wish**, **Task** ou **Bug**.
 4. Ajoutez éventuellement une description (2 000 caractères maximum), puis enregistrez.
 
-Vous pouvez également ajouter un élément depuis Slack avec `!todo <title>`. Le préfixe facultatif est `idea:`, `wish:`, `task:` ou `bug:`. Utilisez `!todos` pour lister les éléments ouverts dans Slack ; s’il y en a plus de dix, CodeBadger affiche les dix plus récents.
+Vous pouvez également ajouter un élément depuis Slack avec `!todo <texte>`. La première phrase devient le titre et le texte restant devient la description. Les titres sont limités à 160 caractères ; si la première phrase est plus longue, elle est coupée à 160 caractères et le reste est utilisé comme description. Le préfixe facultatif est `idea:`, `wish:`, `task:`, `bug:` ou `story:`. Utilisez `!todos` pour lister les éléments ouverts dans Slack ; s’il y en a plus de dix, CodeBadger affiche les dix plus récents.
 
 ## Statut et suppression
 

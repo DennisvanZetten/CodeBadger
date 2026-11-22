@@ -9,7 +9,7 @@ De lijst **Ideeën en taken** is een lokale plek om werk te bewaren dat je later
 3. Kies een type: **Idee**, **Wens**, **Taak** of **Bug**.
 4. Voeg desgewenst een beschrijving toe (maximaal 2000 tekens) en sla op.
 
-Items kunnen ook vanuit Slack worden toegevoegd met `!todo <titel>`. Een typeprefix zoals `idea:`, `wish:`, `task:` of `bug:` is optioneel. Gebruik `!todos` om de open punten in Slack op te vragen; bij meer dan tien toont CodeBadger de tien nieuwste.
+Items kunnen ook vanuit Slack worden toegevoegd met `!todo <tekst>`. De eerste zin wordt de titel en eventuele resterende tekst de beschrijving. Titels zijn maximaal 160 tekens; is de eerste zin langer, dan wordt die op 160 tekens afgekapt en gaat de rest naar de beschrijving. Een typeprefix zoals `idea:`, `wish:`, `task:`, `bug:` of `story:` is optioneel. Gebruik `!todos` om de open punten in Slack op te vragen; bij meer dan tien toont CodeBadger de tien nieuwste.
 
 ## Status en opruimen
 

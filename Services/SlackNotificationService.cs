@@ -818,7 +818,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
             if (text.Equals("!help", StringComparison.OrdinalIgnoreCase))
             {
                 await PostMessageAsync(_botToken, _channelId,
-                "*Slack commands*\n• `!new` — start a new OpenCode session; then choose a repository and send a task in its thread.\n• `!todo <title>` — add an item to the CodeBadger ideas and tasks list (defaults to story). Optional type prefixes: `idea:`, `wish:`, `task:`, `bug:`, or `story:`.\n• `!todos` — list up to 10 most recently created open items.\n• `!help` — show this command list.",
+                "*Slack commands*\n• `!new` — start a new OpenCode session; then choose a repository and send a task in its thread.\n• `!todo <text>` — add an item; the first sentence (up to 160 characters) becomes its title and the rest its description. Optional type prefixes: `idea:`, `wish:`, `task:`, `bug:`, or `story:`.\n• `!todos` — list up to 10 most recently created open items.\n• `!help` — show this command list.",
                     null, cancellationToken);
                 return;
             }
@@ -921,11 +921,11 @@ public sealed class SlackNotificationService : IAsyncDisposable
 
     private async Task AddIdeaFromSlackAsync(string command, string? threadTs, CancellationToken cancellationToken)
     {
-        var title = command.Length > "!todo".Length ? command["!todo".Length..].Trim() : string.Empty;
-        if (string.IsNullOrWhiteSpace(title) || title.Length > 160)
+        var text = command.Length > "!todo".Length ? command["!todo".Length..].Trim() : string.Empty;
+        if (string.IsNullOrWhiteSpace(text))
         {
             await PostMessageAsync(_botToken, _channelId,
-                "Usage: `!todo <title>` (up to 160 characters). Optional prefixes: `idea:`, `wish:`, `task:`, `bug:`, or `story:`. Defaults to story.",
+                "Usage: `!todo <text>`. The first sentence becomes the title and the remaining text becomes the description. Optional prefixes: `idea:`, `wish:`, `task:`, `bug:`, or `story:`. Defaults to story.",
                 threadTs, cancellationToken);
             return;
         }
@@ -934,22 +934,63 @@ public sealed class SlackNotificationService : IAsyncDisposable
         foreach (var candidate in Enum.GetValues<IdeaType>())
         {
             var prefix = candidate.ToString().ToLowerInvariant() + ":";
-            if (!title.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            if (!text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 continue;
             type = candidate;
-            title = title[prefix.Length..].Trim();
+            text = text[prefix.Length..].Trim();
             break;
         }
-        if (string.IsNullOrWhiteSpace(title))
+        if (string.IsNullOrWhiteSpace(text))
         {
-            await PostMessageAsync(_botToken, _channelId, "Add a title after the item type.", threadTs, cancellationToken);
+            await PostMessageAsync(_botToken, _channelId, "Add text after the item type.", threadTs, cancellationToken);
             return;
         }
 
-        var item = await _ideaListService.AddAsync(title, string.Empty, type, cancellationToken);
+        var (title, description) = SplitSlackTodoTitleAndDescription(text);
+        var item = await _ideaListService.AddAsync(title, description, type, cancellationToken);
         await PostMessageAsync(_botToken, _channelId,
             $"✅ Added *{EscapeSlack(item.Title)}* to the CodeBadger ideas and tasks list ({type.ToString().ToLowerInvariant()}).",
             threadTs, cancellationToken);
+    }
+
+    private static (string Title, string Description) SplitSlackTodoTitleAndDescription(string text)
+    {
+        const int maxTitleLength = 160;
+        var firstSentenceEnd = -1;
+
+        for (var index = 0; index < text.Length; index++)
+        {
+            if (text[index] is '\r' or '\n')
+            {
+                firstSentenceEnd = index;
+                break;
+            }
+
+            if (text[index] is '.' or '!' or '?' &&
+                (index == text.Length - 1 || char.IsWhiteSpace(text[index + 1])))
+            {
+                firstSentenceEnd = index + 1;
+                break;
+            }
+        }
+
+        if (firstSentenceEnd < 0)
+            firstSentenceEnd = text.Length;
+
+        var firstSentence = text[..firstSentenceEnd].Trim();
+        if (firstSentence.Length <= maxTitleLength)
+        {
+            var descriptionStart = firstSentenceEnd;
+            while (descriptionStart < text.Length && char.IsWhiteSpace(text[descriptionStart]))
+                descriptionStart++;
+            return (firstSentence, descriptionStart < text.Length ? text[descriptionStart..].Trim() : string.Empty);
+        }
+
+        var title = text[..maxTitleLength].TrimEnd();
+        var remainderStart = maxTitleLength;
+        while (remainderStart < text.Length && char.IsWhiteSpace(text[remainderStart]))
+            remainderStart++;
+        return (title, remainderStart < text.Length ? text[remainderStart..].Trim() : string.Empty);
     }
 
     private async Task ListOpenIdeasFromSlackAsync(string? threadTs, CancellationToken cancellationToken)

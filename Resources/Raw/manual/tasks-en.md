@@ -9,7 +9,7 @@ The **Ideas and tasks** list is a local place to keep work you want to revisit. 
 3. Choose a type: **Idea**, **Wish**, **Task**, or **Bug**.
 4. Optionally add a description (up to 2,000 characters), then save.
 
-You can also add items from Slack with `!todo <title>`. An optional type prefix is `idea:`, `wish:`, `task:`, or `bug:`. Use `!todos` to list open items in Slack; if there are more than ten, CodeBadger shows the ten newest.
+You can also add items from Slack with `!todo <text>`. The first sentence becomes the title and any remaining text becomes the description. Titles are limited to 160 characters; if the first sentence is longer, it is cut off at that limit and the rest is used as the description. An optional type prefix is `idea:`, `wish:`, `task:`, `bug:`, or `story:`. Use `!todos` to list open items in Slack; if there are more than ten, CodeBadger shows the ten newest.
 
 ## Status and cleanup
 

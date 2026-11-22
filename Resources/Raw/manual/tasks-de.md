@@ -9,7 +9,7 @@ Die Liste **Ideas and tasks** ist ein lokaler Ort, um Arbeit festzuhalten, die S
 3. Wählen Sie einen Typ: **Idea**, **Wish**, **Task** oder **Bug**.
 4. Fügen Sie optional eine Beschreibung mit maximal 2.000 Zeichen hinzu und speichern Sie.
 
-Einträge können auch über Slack mit `!todo <title>` erstellt werden. Optionale Typ-Präfixe sind `idea:`, `wish:`, `task:` und `bug:`. Mit `!todos` werden offene Einträge in Slack angezeigt; bei mehr als zehn zeigt CodeBadger die zehn neuesten.
+Einträge können auch über Slack mit `!todo <text>` erstellt werden. Der erste Satz wird zum Titel, der restliche Text zur Beschreibung. Titel sind auf 160 Zeichen begrenzt; ist der erste Satz länger, wird er bei 160 Zeichen abgeschnitten und der Rest als Beschreibung verwendet. Optionale Typ-Präfixe sind `idea:`, `wish:`, `task:`, `bug:` und `story:`. Mit `!todos` werden offene Einträge in Slack angezeigt; bei mehr als zehn zeigt CodeBadger die zehn neuesten.
 
 ## Status und Aufräumen
 

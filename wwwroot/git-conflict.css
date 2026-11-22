@@ -25,6 +25,7 @@
 
 .git-conflict-toolbar,
 .git-conflict-footer { flex: 0 0 auto; }
+.git-conflict-navigation { margin-inline: auto; }
 
 .git-conflict-sides {
     display: grid;

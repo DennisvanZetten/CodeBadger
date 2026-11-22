@@ -72,6 +72,8 @@ export function renderConflictResult(textarea, rows, pendingValue) {
     editor.replaceChildren(fragment);
     editor.scrollTop = previewScrollTop;
     editor.scrollLeft = previewScrollLeft;
+    textarea.scrollTop = previewScrollTop;
+    textarea.scrollLeft = previewScrollLeft;
     if (pendingValue !== null) {
         const valueChanged = textarea.value !== pendingValue;
         if (valueChanged)
@@ -83,16 +85,14 @@ export function renderConflictResult(textarea, rows, pendingValue) {
     }
 }
 
-export function alignConflictResultToVisibleLine(source, textarea) {
-    const editor = textarea.previousElementSibling;
-    const visibleSourceRowIndex = getVisibleConflictSourceRowIndex(source);
-    const matchingLines = Array.from(editor.querySelectorAll("[data-source-row-index]"));
-    const line = matchingLines.find(item => Number(item.dataset.sourceRowIndex) >= visibleSourceRowIndex) ?? matchingLines.at(-1);
+export function scrollConflictSidesToSourceRow(left, right, sourceRowIndex) {
+    const line = Array.from(left.children).find(child => Number(child.dataset.sourceRowIndex) >= sourceRowIndex);
     if (!line) return;
-    const editorBounds = editor.getBoundingClientRect();
+    const containerBounds = left.getBoundingClientRect();
     const lineBounds = line.getBoundingClientRect();
-    editor.scrollTop = Math.max(0, Math.min(editor.scrollHeight - editor.clientHeight, editor.scrollTop + lineBounds.top - editorBounds.top));
-    textarea.scrollTop = editor.scrollTop;
+    const targetScrollTop = left.scrollTop + lineBounds.top - containerBounds.top - (left.clientHeight - lineBounds.height) / 2;
+    left.scrollTop = Math.max(0, Math.min(left.scrollHeight - left.clientHeight, targetScrollTop));
+    right.scrollTop = left.scrollTop;
 }
 
 export function getVisibleConflictSourceRowIndex(source) {
@@ -101,7 +101,30 @@ export function getVisibleConflictSourceRowIndex(source) {
         const bounds = child.getBoundingClientRect();
         return bounds.bottom > sourceBounds.top && bounds.top < sourceBounds.bottom;
     });
-    return visibleLine ? Number(visibleLine.dataset.sourceRowIndex ?? 0) : 0;
+    return Number(visibleLine?.dataset.sourceRowIndex ?? 0);
+}
+
+export function alignConflictResultToVisibleLine(source, textarea) {
+    const editor = textarea.previousElementSibling;
+    const sourceIndex = getVisibleConflictSourceRowIndex(source);
+    const resultRows = Array.from(editor.querySelectorAll("[data-source-row-index]"));
+    const resultRow = resultRows.find(row => Number(row.dataset.sourceRowIndex) >= sourceIndex) ?? resultRows.at(-1);
+    if (!resultRow) return;
+    const editorBounds = editor.getBoundingClientRect();
+    const resultBounds = resultRow.getBoundingClientRect();
+    editor.scrollTop = Math.max(0, Math.min(editor.scrollHeight - editor.clientHeight, editor.scrollTop + resultBounds.top - editorBounds.top));
+    textarea.scrollTop = editor.scrollTop;
+}
+
+export function alignConflictResultToSourceRow(textarea, sourceRowIndex) {
+    const editor = textarea.previousElementSibling;
+    const resultRows = Array.from(editor.querySelectorAll("[data-source-row-index]"));
+    const line = resultRows.find(row => Number(row.dataset.sourceRowIndex) >= sourceRowIndex) ?? resultRows.at(-1);
+    if (!line) return;
+    const editorBounds = editor.getBoundingClientRect();
+    const lineBounds = line.getBoundingClientRect();
+    editor.scrollTop = Math.max(0, Math.min(editor.scrollHeight - editor.clientHeight, editor.scrollTop + lineBounds.top - editorBounds.top));
+    textarea.scrollTop = editor.scrollTop;
 }
 
 export function disposeConflictScroll(left, right, editor) {

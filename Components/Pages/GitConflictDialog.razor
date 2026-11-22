@@ -12,6 +12,11 @@
                     <MudText Typo="Typo.subtitle1">@L.T("Resolve conflict")</MudText>
                     <MudText Typo="Typo.caption" Color="Color.Secondary">@ConflictPath</MudText>
                 </MudStack>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="git-conflict-navigation">
+                    <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" Size="Size.Small" aria-label="@L.T("Previous conflict")" title="@L.T("Previous conflict")" OnClick="PreviousConflict" Disabled="@(_saving || _conflictChunks.Count == 0 || _activeConflictIndex <= 0)" />
+                    <MudText Typo="Typo.caption">@(_conflictChunks.Count == 0 ? L.T("No conflicts") : L.T("Conflict {0} of {1}", _activeConflictIndex + 1, _conflictChunks.Count))</MudText>
+                    <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" aria-label="@L.T("Next conflict")" title="@L.T("Next conflict")" OnClick="NextConflict" Disabled="@(_saving || _conflictChunks.Count == 0 || _activeConflictIndex >= _conflictChunks.Count - 1)" />
+                </MudStack>
                 <MudStack Row="true" Spacing="1">
                     <MudButton Variant="Variant.Outlined" OnClick="TakeAllOurs" Disabled="@(_loading || _saving)">@L.T("Take all left")</MudButton>
                     <MudButton Variant="Variant.Outlined" OnClick="TakeAllTheirs" Disabled="@(_loading || _saving)">@L.T("Take all right")</MudButton>
@@ -78,12 +83,12 @@
                 </section>
 
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="git-conflict-footer">
-                    <MudText Typo="Typo.caption" Color="@(_hasConflictSelection && _chunks.OfType<ConflictChunk>().Any(c => c.Rows.Any(r => r.RequiresSelection && r.Selection is null)) ? Color.Warning : Color.Success)">
-                        @(_chunks.OfType<ConflictChunk>().Any(c => c.Rows.Any(r => r.RequiresSelection && r.Selection is null)) ? L.T("Choose a side for every conflicting line before saving.") : L.T("All conflicts have a selection. You can still edit the result."))
+                    <MudText Typo="Typo.caption" Color="@(AllConflictAreasSelected ? Color.Success : Color.Warning)">
+                        @(AllConflictAreasSelected ? L.T("All conflict areas have a selection. You can still edit the result.") : L.T("Choose at least one side in every conflict area before saving."))
                     </MudText>
                     <MudStack Row="true" Spacing="1">
                         <MudButton Variant="Variant.Text" OnClick="Close" Disabled="@_saving">@L.T("Cancel")</MudButton>
-                        <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Check" OnClick="SaveAsync" Disabled="@(_saving || (_hasConflictSelection && _chunks.OfType<ConflictChunk>().Any(c => c.Rows.Any(r => r.RequiresSelection && r.Selection is null))))">@L.T("Save and mark resolved")</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Check" OnClick="SaveAsync" Disabled="@(_saving || !AllConflictAreasSelected)">@L.T("Save and mark resolved")</MudButton>
                     </MudStack>
                 </MudStack>
             }
@@ -103,12 +108,12 @@
     private string _lineEnding = "\n";
     private bool _hasUtf8Bom;
     private bool _hasTrailingNewline;
-    private string[] _resultLines = [];
     private List<ConflictChunkBase> _chunks = [];
     private bool _loading = true;
     private bool _saving;
     private string? _error;
-    private bool _hasConflictSelection;
+    private int _activeConflictIndex;
+    private int? _pendingConflictSourceRow;
     private ElementReference _leftCode;
     private ElementReference _rightCode;
     private ElementReference _resultEditor;
@@ -117,6 +122,10 @@
     private bool _resultRenderPending;
     private string? _pendingResultEditorValue;
     private bool _alignResultOnNextRender;
+
+    private List<ConflictChunk> _conflictChunks => _chunks.OfType<ConflictChunk>().ToList();
+    private bool AllConflictAreasSelected => _conflictChunks.All(chunk =>
+        !chunk.Rows.Any(row => row.RequiresSelection) || chunk.Rows.Any(row => row.RequiresSelection && row.Selection is not null));
 
     protected override async Task OnInitializedAsync()
     {
@@ -137,7 +146,6 @@
         _chunks = ParseConflictChunks(response.Versions.WorkingContent);
         if (!_chunks.OfType<ConflictChunk>().Any())
             _chunks = [new ConflictChunk(AlignLines(_ours, _theirs))];
-        _hasConflictSelection = _chunks.OfType<ConflictChunk>().Any(c => c.Rows.Any(r => r.RequiresSelection));
         UpdateResult();
         _pendingResultEditorValue = _result;
         _resultRenderPending = true;
@@ -161,18 +169,26 @@
 
         if (_resultRenderPending && _conflictModule is not null)
         {
-            var visibleSourceRowIndex = _alignResultOnNextRender
-                ? await _conflictModule.InvokeAsync<int>("getVisibleConflictSourceRowIndex", _leftCode)
-                : 0;
-            var resultRows = BuildResultRows(visibleSourceRowIndex);
+            var resultRows = BuildResultRows();
             await _conflictModule.InvokeVoidAsync("renderConflictResult", _resultEditor, resultRows, _pendingResultEditorValue);
             if (_alignResultOnNextRender)
             {
-                await _conflictModule.InvokeVoidAsync("alignConflictResultToVisibleLine", _leftCode, _resultEditor);
+                var sourceRowToShow = _pendingConflictSourceRow ?? await _conflictModule.InvokeAsync<int>("getVisibleConflictSourceRowIndex", _leftCode);
+                await _conflictModule.InvokeVoidAsync("alignConflictResultToSourceRow", _resultEditor, sourceRowToShow);
                 _alignResultOnNextRender = false;
             }
             _resultRenderPending = false;
             _pendingResultEditorValue = null;
+        }
+
+        if (_pendingConflictSourceRow is int sourceRow && _conflictModule is not null)
+        {
+            await _conflictModule.InvokeVoidAsync("scrollConflictSidesToSourceRow", _leftCode, _rightCode, sourceRow);
+            _resultRenderPending = true;
+            _pendingResultEditorValue = _result;
+            _alignResultOnNextRender = true;
+            _pendingConflictSourceRow = null;
+            await InvokeAsync(StateHasChanged);
         }
     }
 
@@ -206,7 +222,6 @@
     {
         _result = args.Value?.ToString() ?? string.Empty;
         _hasTrailingNewline = HasTrailingNewline(_result);
-        _resultLines = GetResultLines(_result);
         _resultRenderPending = true;
         _pendingResultEditorValue = null;
         await InvokeAsync(StateHasChanged);
@@ -214,6 +229,38 @@
 
     private void TakeAllOurs() => SelectAll(false);
     private void TakeAllTheirs() => SelectAll(true);
+
+    private void PreviousConflict() => NavigateConflict(-1);
+    private void NextConflict() => NavigateConflict(1);
+
+    private void NavigateConflict(int offset)
+    {
+        if (_conflictChunks.Count == 0)
+            return;
+        _activeConflictIndex = Math.Clamp(_activeConflictIndex + offset, 0, _conflictChunks.Count - 1);
+        _pendingConflictSourceRow = GetConflictSourceRowIndex(_activeConflictIndex);
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private int GetConflictSourceRowIndex(int conflictIndex)
+    {
+        var sourceRowIndex = 0;
+        foreach (var chunk in _chunks)
+        {
+            if (chunk is ConflictChunk conflict)
+            {
+                if (conflictIndex-- == 0)
+                    return sourceRowIndex;
+                sourceRowIndex += conflict.Rows.Count;
+            }
+            else if (chunk is ContextChunk context)
+            {
+                sourceRowIndex += context.Lines.Count;
+            }
+        }
+
+        return sourceRowIndex;
+    }
 
     private void SelectAll(bool takeRight)
     {
@@ -247,24 +294,13 @@
         }
         var result = string.Join(_lineEnding, lines);
         _result = _hasTrailingNewline ? result + _lineEnding : result;
-        _resultLines = lines.ToArray();
     }
 
     private static bool HasTrailingNewline(string value) => value.Length > 0 && (value.EndsWith('\n') || value.EndsWith('\r'));
 
-    private static string[] GetResultLines(string value)
-    {
-        if (value.Length == 0)
-            return [];
-        var normalized = value.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
-        var lines = normalized.Split('\n');
-        return lines.Length > 0 && lines[^1].Length == 0 ? lines[..^1] : lines;
-    }
-
-    private IReadOnlyList<ConflictResultRow> BuildResultRows(int visibleSourceRowIndex)
+    private IReadOnlyList<ConflictResultRow> BuildResultRows()
     {
         var selectedRows = new List<ConflictResultRow>();
-        var resultRowBySourceIndex = new Dictionary<int, int>();
         var sourceRowIndex = 0;
         foreach (var chunk in _chunks)
         {
@@ -273,7 +309,7 @@
                 foreach (var line in context.Lines)
                 {
                     selectedRows.Add(new ConflictResultRow(line, "context", selectedRows.Count + 1, sourceRowIndex));
-                    resultRowBySourceIndex[sourceRowIndex++] = selectedRows.Count;
+                    sourceRowIndex++;
                 }
             }
             else if (chunk is ConflictChunk conflict)
@@ -289,18 +325,18 @@
                     if (text is not null)
                     {
                         selectedRows.Add(new ConflictResultRow(text, row.RequiresSelection ? "chosen" : "context", selectedRows.Count + 1, sourceRowIndex));
-                        resultRowBySourceIndex[sourceRowIndex] = selectedRows.Count;
                     }
                     sourceRowIndex++;
                 }
             }
         }
 
-        var rows = new List<ConflictResultRow>(_resultLines.Length);
+        var editedLines = SplitLines(_result);
+        var rows = new List<ConflictResultRow>(editedLines.Length);
         var sourceIndex = 0;
-        for (var index = 0; index < _resultLines.Length; index++)
+        for (var resultIndex = 0; resultIndex < editedLines.Length; resultIndex++)
         {
-            var line = _resultLines[index];
+            var line = editedLines[resultIndex];
             var matchIndex = -1;
             for (var candidate = sourceIndex; candidate < selectedRows.Count; candidate++)
             {
@@ -310,13 +346,22 @@
                 break;
             }
 
-            var matchedSourceRowIndex = matchIndex >= 0 ? selectedRows[matchIndex].SourceRowIndex : (int?)null;
             var kind = matchIndex >= 0 ? selectedRows[matchIndex].Kind : "context";
+            var mappedSourceIndex = matchIndex >= 0 ? selectedRows[matchIndex].SourceRowIndex : (int?)null;
             if (matchIndex >= 0)
                 sourceIndex = matchIndex + 1;
-            rows.Add(new ConflictResultRow(line, kind, index + 1, matchedSourceRowIndex));
+            rows.Add(new ConflictResultRow(line, kind, resultIndex + 1, mappedSourceIndex));
         }
         return rows;
+    }
+
+    private static string[] SplitLines(string value)
+    {
+        if (value.Length == 0)
+            return [];
+        var normalized = value.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        var lines = normalized.Split('\n');
+        return lines.Length > 0 && lines[^1].Length == 0 ? lines[..^1] : lines;
     }
 
     private IReadOnlyList<ConflictDisplayRow> BuildSideRows(bool right)
@@ -462,8 +507,6 @@
         }
         return alignedRows;
     }
-
-    private static string[] SplitLines(string value) => value.Length == 0 ? [] : value.TrimEnd('\n').Split('\n').Select(line => line.TrimEnd('\r')).ToArray();
 
     private abstract record ConflictChunkBase;
     private sealed record ContextChunk(IReadOnlyList<string> Lines) : ConflictChunkBase;

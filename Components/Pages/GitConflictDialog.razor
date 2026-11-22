@@ -412,6 +412,9 @@
             }
 
             _result = result.Title;
+            _hasDefaultConflictProposal = false;
+            _aiDefaultChunk = null;
+            _aiDefaultApplied = true;
             _hasTrailingNewline = HasTrailingNewline(_result);
         _hasAiConflictProposal = true;
         _hasDefaultConflictProposal = false;

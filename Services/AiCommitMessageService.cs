@@ -7,6 +7,7 @@ namespace CodeBadger.Services;
 
 public sealed class AiCommitMessageService
 {
+    private const int ConflictResolutionMaxOutputTokens = 32768;
     private readonly LocalizationService _localization;
 
     public AiCommitMessageService(LocalizationService localization) => _localization = localization;
@@ -19,7 +20,7 @@ public sealed class AiCommitMessageService
         if (string.IsNullOrWhiteSpace(conflictContent))
             return new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("The conflict has no content to resolve."));
 
-        var prompt = new StringBuilder("Resolve the Git conflict(s) in this file and return the complete resolved file. Keep all text outside conflict markers exactly as it is. Within each conflict, prefer preserving compatible edits from both sides; if edits directly disagree and cannot both be applied, use the incoming/right side's version. Remove all conflict markers. Respond only as JSON with a string property named \"content\".");
+        var prompt = new StringBuilder("Resolve the Git conflict(s) in this file and return the complete resolved file as plain text. Keep all text outside conflict markers exactly as it is. Within each conflict, prefer preserving compatible edits from both sides; if edits directly disagree and cannot both be applied, use the incoming/right side's version. Remove all conflict markers. Do not wrap the result in JSON, Markdown, code fences, or an explanation.");
         prompt.Append("\n\nConflict file content:\n").Append(conflictContent);
         var response = await GenerateAsync(settings, prompt.ToString(), null, settings.AiConflictModel, commitMessage: false);
         return response.Success
@@ -154,7 +155,7 @@ public sealed class AiCommitMessageService
         {
             request.Headers.TryAddWithoutValidation("x-api-key", settings.AiApiKey);
             request.Headers.TryAddWithoutValidation("anthropic-version", "2023-06-01");
-            request.Content = JsonContent(new { model, max_tokens = Math.Clamp(settings.AiMaxInputTokens, 256, 200000), messages = new[] { new { role = "user", content = prompt } } });
+            request.Content = JsonContent(new { model, max_tokens = ConflictResolutionMaxOutputTokens, messages = new[] { new { role = "user", content = prompt } } });
         }
         else if (provider.Equals("Google Gemini", StringComparison.OrdinalIgnoreCase))
         {
@@ -163,11 +164,11 @@ public sealed class AiCommitMessageService
                 ? $"key={Uri.EscapeDataString(settings.AiApiKey)}"
                 : $"{builder.Query.TrimStart('?')}&key={Uri.EscapeDataString(settings.AiApiKey)}";
             request.RequestUri = builder.Uri;
-            request.Content = JsonContent(new { contents = new[] { new { parts = new[] { new { text = prompt } } } }, generationConfig = new { maxOutputTokens = 4096, responseMimeType = "application/json" } });
+            request.Content = JsonContent(new { contents = new[] { new { parts = new[] { new { text = prompt } } } }, generationConfig = new { maxOutputTokens = ConflictResolutionMaxOutputTokens } });
         }
         else if (provider.Equals("Ollama", StringComparison.OrdinalIgnoreCase))
         {
-            request.Content = JsonContent(new { model, stream = false, messages = new[] { new { role = "user", content = prompt } }, format = "json" });
+            request.Content = JsonContent(new { model, stream = false, messages = new[] { new { role = "user", content = prompt } }, options = new { num_predict = ConflictResolutionMaxOutputTokens } });
         }
         else
         {
@@ -178,7 +179,7 @@ public sealed class AiCommitMessageService
                 else
                     request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.AiApiKey);
             }
-            request.Content = JsonContent(new { model, max_tokens = 4096, response_format = new { type = "json_object" }, messages = new[] { new { role = "user", content = prompt } } });
+            request.Content = JsonContent(new { model, max_tokens = ConflictResolutionMaxOutputTokens, messages = new[] { new { role = "user", content = prompt } } });
         }
         return request;
     }
@@ -384,14 +385,33 @@ public sealed class AiCommitMessageService
             ? root.GetProperty("content").EnumerateArray().FirstOrDefault().GetProperty("text").GetString() ?? string.Empty
             : provider.Equals("Google Gemini", StringComparison.OrdinalIgnoreCase)
                 ? root.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString() ?? string.Empty
-                : provider.Equals("Ollama", StringComparison.OrdinalIgnoreCase)
+            : provider.Equals("Ollama", StringComparison.OrdinalIgnoreCase)
                     ? root.GetProperty("message").GetProperty("content").GetString() ?? string.Empty
                     : root.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
+        try
+        {
+            using var json = JsonDocument.Parse(text);
+            if (json.RootElement.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String)
+                return content.GetString() ?? string.Empty;
+        }
+        catch (JsonException)
+        {
+            // Conflict prompt requests plain text; some models still serialize the requested shape.
+        }
+        return StripMarkdownFence(text);
+    }
 
-        using var contentDocument = JsonDocument.Parse(text);
-        return contentDocument.RootElement.TryGetProperty("content", out var content)
-            ? content.GetString() ?? string.Empty
-            : string.Empty;
+    private static string StripMarkdownFence(string text)
+    {
+        var trimmed = text.Trim();
+        if (!trimmed.StartsWith("```", StringComparison.Ordinal))
+            return trimmed;
+
+        var firstLineEnd = trimmed.IndexOf('\n');
+        var closingFence = trimmed.LastIndexOf("```", StringComparison.Ordinal);
+        if (firstLineEnd < 0 || closingFence <= firstLineEnd)
+            return trimmed;
+        return trimmed[(firstLineEnd + 1)..closingFence].Trim('\r', '\n');
     }
 
     private static string ExtractError(string response)

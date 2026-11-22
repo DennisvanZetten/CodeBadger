@@ -288,6 +288,7 @@ public sealed class LocalizationService
         ["Agent config saved. Backup created when an existing config was changed."] = ["Agent config saved. Backup created when an existing config was changed.", "Agentconfiguratie opgeslagen. Bij een bestaand configuratiebestand is eerst een reservekopie gemaakt.", "Agent-Konfiguration gespeichert. Bei einer vorhandenen Konfiguration wurde zuvor eine Sicherung erstellt.", "Configuration de l’agent enregistrée. Une sauvegarde a été créée si la configuration existante a été modifiée."],
         ["Could not save agent config: {0}"] = ["Could not save agent config: {0}", "Agentconfiguratie opslaan mislukt: {0}", "Agent-Konfiguration konnte nicht gespeichert werden: {0}", "Impossible d’enregistrer la configuration de l’agent : {0}"],
         ["AI provider"] = ["AI provider", "AI-provider", "KI-Anbieter", "Fournisseur d’IA"],
+        ["AI provider settings"] = ["AI provider settings", "AI-providerinstellingen", "KI-Anbietereinstellungen", "Paramètres du fournisseur d’IA"],
         ["AI for commit messages"] = ["AI for commit messages", "AI voor commitberichten", "KI für Commit-Nachrichten", "IA pour les messages de commit"],
         ["Commit message model"] = ["Commit message model", "Model voor commitberichten", "Modell für Commit-Nachrichten", "Modèle pour les messages de commit"],
         ["AI conflict resolution"] = ["AI conflict resolution", "AI-conflictoplossing", "KI-Konfliktlösung", "Résolution de conflits par IA"],

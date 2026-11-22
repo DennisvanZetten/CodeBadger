@@ -266,8 +266,7 @@
                 <MudStack Spacing="3">
                     <MudPaper Outlined="true" Elevation="0" Class="pa-4">
                     <MudStack Spacing="3">
-                    <MudText Typo="Typo.h6">@L.T("AI for commit messages")</MudText>
-                    <MudText Typo="Typo.subtitle2">@L.T("Commit message")</MudText>
+                    <MudText Typo="Typo.h6">@L.T("AI provider settings")</MudText>
                     <MudSelect T="string" Label="@L.T("Provider")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.AiProvider" @bind-Value:after="ResetModelList">
                         @foreach (var provider in AiProviders)
                         {
@@ -279,19 +278,8 @@
                         <MudTextField @bind-Value="Settings.AiCustomUrl" @bind-Value:after="ResetModelList" Label="@L.T("Provider URL")" Margin="Margin.Dense" Variant="Variant.Outlined"
                                       HelperText="@L.T("OpenAI-compatible base URL (e.g. https://host/v1) or full /chat/completions endpoint; Azure: deployment URL including api-version.")" />
                     }
-                    <MudSelect T="string" Label="@L.T("Commit message model")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.AiModel"
-                               Disabled="@(!_hasTestedConnection || _availableModels.Count == 0)"
-                                HelperText="@(_hasTestedConnection ? L.T("Choose a model from the provider.") : L.T("Test the connection first to load models."))">
-                        @foreach (var model in _availableModels)
-                        {
-                            <MudSelectItem T="string" Value="@model">@model</MudSelectItem>
-                        }
-                    </MudSelect>
                     <MudNumericField T="int" @bind-Value="Settings.AiMaxInputTokens" Label="@L.T("Max input tokens")"
                                       Min="256" Max="200000" Margin="Margin.Dense" Variant="Variant.Outlined" />
-                    <MudTextField @bind-Value="Settings.AiCustomInstruction" Label="@L.T("Custom instructions for commit messages")"
-                                  HelperText="@L.T("For example: use Conventional Commits and write in English.")"
-                                  Lines="3" Margin="Margin.Dense" Variant="Variant.Outlined" />
                     @if (Settings.AiProvider != "Ollama")
                     {
                         <MudTextField @bind-Value="Settings.AiApiKey" @bind-Value:after="ResetModelList" Label="@L.T("Provider API key")" Margin="Margin.Dense" Variant="Variant.Outlined"
@@ -302,6 +290,22 @@
                          @(_isTestingAi ? L.T("Loading connection and models...") : L.T("Test connection & load models"))
                     </MudButton>
                     </MudStack>
+                    </MudPaper>
+                    <MudPaper Outlined="true" Elevation="0" Class="pa-4">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6">@L.T("AI for commit messages")</MudText>
+                            <MudSelect T="string" Label="@L.T("Commit message model")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.AiModel"
+                                       Disabled="@(!_hasTestedConnection || _availableModels.Count == 0)"
+                                       HelperText="@(_hasTestedConnection ? L.T("Choose a model from the provider.") : L.T("Test the connection first to load models."))">
+                                @foreach (var model in _availableModels)
+                                {
+                                    <MudSelectItem T="string" Value="@model">@model</MudSelectItem>
+                                }
+                            </MudSelect>
+                            <MudTextField @bind-Value="Settings.AiCustomInstruction" Label="@L.T("Custom instructions for commit messages")"
+                                          HelperText="@L.T("For example: use Conventional Commits and write in English.")"
+                                          Lines="3" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                        </MudStack>
                     </MudPaper>
                     <MudPaper Outlined="true" Elevation="0" Class="pa-4">
                         <MudStack Spacing="2">

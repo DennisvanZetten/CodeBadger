@@ -43,6 +43,7 @@ export function renderConflictResult(textarea, rows, pendingValue) {
     const fragment = document.createDocumentFragment();
     for (const row of rows) {
         const line = document.createElement("div");
+        line.dataset.resultLine = String(row.lineNumber);
         line.className = `git-conflict-result-line git-conflict-result-${row.kind}`;
         const number = document.createElement("span");
         number.className = "git-conflict-result-number";
@@ -65,6 +66,35 @@ export function renderConflictResult(textarea, rows, pendingValue) {
             textarea.scrollLeft = previewScrollLeft;
         }
     }
+}
+
+export function scrollConflictResultToLine(textarea, lineNumber) {
+    const editor = textarea.previousElementSibling;
+    const line = editor.querySelector(`[data-result-line="${lineNumber}"]`);
+    if (!line) return;
+    const editorBounds = editor.getBoundingClientRect();
+    const lineBounds = line.getBoundingClientRect();
+    const targetScrollTop = editor.scrollTop + lineBounds.top - editorBounds.top - (editor.clientHeight - lineBounds.height) / 2;
+    editor.scrollTop = Math.max(0, Math.min(editor.scrollHeight - editor.clientHeight, targetScrollTop));
+    textarea.scrollTop = editor.scrollTop;
+}
+
+export function scrollConflictSidesToLine(left, right, lineNumber) {
+    const leftLine = left.querySelector(`[data-conflict-line="${lineNumber}"]`);
+    const leftBounds = left.getBoundingClientRect();
+    if (leftLine) {
+        const lineBounds = leftLine.getBoundingClientRect();
+        const targetScrollTop = left.scrollTop + lineBounds.top - leftBounds.top - (left.clientHeight - lineBounds.height) / 2;
+        left.scrollTop = Math.max(0, Math.min(left.scrollHeight - left.clientHeight, targetScrollTop));
+        right.scrollTop = left.scrollTop;
+        return;
+    }
+
+    const firstDiff = left.querySelector(".git-conflict-diff-line[data-conflict-row='true']");
+    if (!firstDiff) return;
+    const lineBounds = firstDiff.getBoundingClientRect();
+    left.scrollTop = Math.max(0, Math.min(left.scrollHeight - left.clientHeight, left.scrollTop + lineBounds.top - leftBounds.top));
+    right.scrollTop = left.scrollTop;
 }
 
 export function disposeConflictScroll(left, right, editor) {

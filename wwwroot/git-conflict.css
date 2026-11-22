@@ -134,24 +134,30 @@
 .git-conflict-result-textarea {
     width: 100%;
     height: 100%;
+    box-sizing: border-box;
     resize: none;
     outline: none;
     background: transparent;
-    color: transparent;
+    padding-left: calc(4ch + 1.55rem);
+    color: transparent !important;
     caret-color: var(--mud-palette-text-primary);
-    -webkit-text-fill-color: transparent;
+    -webkit-text-fill-color: transparent !important;
 }
 .git-conflict-result-editor:focus-within { border-color: var(--mud-palette-primary); }
-.git-conflict-result-editor:focus-within .git-conflict-result-preview { visibility: hidden; }
+.git-conflict-result-editor:focus-within .git-conflict-result-preview code { visibility: hidden; }
 .git-conflict-result-editor:focus-within .git-conflict-result-textarea {
-    color: var(--mud-palette-text-primary);
-    -webkit-text-fill-color: var(--mud-palette-text-primary);
+    color: var(--mud-palette-text-primary) !important;
+    -webkit-text-fill-color: var(--mud-palette-text-primary) !important;
 }
 .git-conflict-result-line { display: flex; min-width: max-content; min-height: 1.45em; white-space: pre; }
 .git-conflict-result-line code { min-width: 0; padding: 0 0.45rem; color: inherit; font: inherit; white-space: pre; }
 .git-conflict-result-number {
+    position: sticky;
+    left: 0;
+    z-index: 1;
     flex: 0 0 4ch;
     padding: 0 0.35rem;
+    background: var(--mud-palette-background);
     color: var(--mud-palette-text-secondary);
     text-align: right;
     user-select: none;

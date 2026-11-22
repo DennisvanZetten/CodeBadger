@@ -1,0 +1,32 @@
+@using CodeBadger.Models
+@inject LocalizationService L
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudText>@L.T("Undo conflict discard confirmation", FilePath)</MudText>
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                @L.T("Undoing this conflicted file replaces its contents with the current branch version and discards the changes from the failed pop.")
+            </MudAlert>
+            @if (HasFollowingConflicts)
+            {
+                <MudCheckBox T="bool" @bind-Value="_applyToRemaining" Label="@L.T("My choice applies to the following files")" />
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Skip">@L.T("Skip this file")</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="Undo">@L.T("Undo this file")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public string FilePath { get; set; } = string.Empty;
+    [Parameter] public bool HasFollowingConflicts { get; set; }
+
+    private bool _applyToRemaining;
+
+    private void Undo() => MudDialog.Close(DialogResult.Ok((true, _applyToRemaining)));
+    private void Skip() => MudDialog.Close(DialogResult.Ok((false, _applyToRemaining)));
+}

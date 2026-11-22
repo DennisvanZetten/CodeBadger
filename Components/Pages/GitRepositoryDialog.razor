@@ -854,32 +854,71 @@
         if (files.Count == 0)
             return;
 
-        var confirmed = await DialogService.ShowMessageBoxAsync(
-            L.T("Undo unstaged changes?"),
-            (MarkupString)string.Format(L.T("Undo confirmation"), files.Count),
-            yesText: L.T("Undo changes"),
-            cancelText: L.T("Cancel"),
-            options: new DialogOptions { CloseOnEscapeKey = true });
-        if (confirmed != true)
-            return;
+        var ordinaryFiles = files.Where(file => !file.IsConflicted).ToList();
+        if (ordinaryFiles.Count > 0)
+        {
+            var confirmed = await DialogService.ShowMessageBoxAsync(
+                L.T("Undo unstaged changes?"),
+                (MarkupString)string.Format(L.T("Undo confirmation"), ordinaryFiles.Count),
+                yesText: L.T("Undo changes"),
+                cancelText: L.T("Cancel"),
+                options: new DialogOptions { CloseOnEscapeKey = true });
+            if (confirmed != true)
+                return;
+        }
 
         _isOperating = true;
         try
         {
             var failed = 0;
+            var discarded = 0;
+            bool? applyToRemainingConflicts = null;
             foreach (var file in files)
             {
+                if (file.IsConflicted)
+                {
+                    bool confirmed;
+                    if (applyToRemainingConflicts.HasValue)
+                    {
+                        confirmed = applyToRemainingConflicts.Value;
+                    }
+                    else
+                    {
+                        var parameters = new DialogParameters<ConfirmConflictDiscardDialog>
+                        {
+                            { dialog => dialog.FilePath, file.Path },
+                            { dialog => dialog.HasFollowingConflicts, files.SkipWhile(candidate => !string.Equals(candidate.Path, file.Path, StringComparison.Ordinal)).Skip(1).Any(candidate => candidate.IsConflicted) }
+                        };
+                        var dialog = await DialogService.ShowAsync<ConfirmConflictDiscardDialog>(
+                            L.T("Undo conflicted file?"), parameters,
+                            new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small });
+                        var dialogResult = await dialog.Result;
+                        if (dialogResult is null || dialogResult.Canceled || dialogResult.Data is not ValueTuple<bool, bool> choice)
+                            break;
+
+                        confirmed = choice.Item1;
+                        if (choice.Item2)
+                            applyToRemainingConflicts = confirmed;
+                    }
+
+                    if (!confirmed)
+                        continue;
+                }
+
                 var result = await GitBranchService.DiscardUnstagedFileAsync(RepositoryPath, file);
                 if (!result.Success)
                     failed++;
                 else
+                {
+                    discarded++;
                     _selectedUnstagedFilePaths.Remove(file.Path);
+                }
             }
 
             await RefreshAsync();
             if (failed > 0)
                 Snackbar.Add(L.T("Undo failed for {0} file(s).", failed), Severity.Error);
-            else
+            else if (discarded > 0)
                 Snackbar.Add(L.T("Unstaged changes undone."), Severity.Success);
         }
         finally

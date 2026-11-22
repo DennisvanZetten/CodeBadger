@@ -459,6 +459,8 @@ public sealed class LocalizationService
         ["Remote branches"] = ["Remote branches", "Remote branches", "Remote-Branches", "Branches distantes"],
         ["No remote branches."] = ["No remote branches.", "Geen remote branches.", "Keine Remote-Branches.", "Aucune branche distante."],
         ["Recent commits"] = ["Recent commits", "Recente commits", "Letzte Commits", "Commits récents"],
+        ["Solo branch: {0}"] = ["Solo branch: {0}", "Alleen branch tonen: {0}", "Nur Branch anzeigen: {0}", "Afficher uniquement la branche : {0}"],
+        ["Stop soloing {0}"] = ["Stop soloing {0}", "Solo-weergave stoppen: {0}", "Solo-Modus beenden: {0}", "Quitter l’affichage solo : {0}"],
         ["Cherry-pick commit"] = ["Cherry-pick commit", "Commit cherry-picken", "Commit cherry-picken", "Cherry-pick du commit"],
         ["Revert commit"] = ["Revert commit", "Commit terugdraaien", "Commit rückgängig machen", "Annuler le commit"],
         ["Revert commit?"] = ["Revert commit?", "Commit terugdraaien?", "Commit rückgängig machen?", "Annuler le commit ?"],

@@ -1953,6 +1953,14 @@ h1:focus {
     background: color-mix(in srgb, var(--mud-palette-primary) 14%, transparent);
 }
 
+.git-commit-row-solo-dimmed {
+    opacity: 0.38;
+}
+
+.git-solo-dimmed {
+    opacity: 0.16;
+}
+
 .git-context-menu-backdrop {
     position: fixed;
     z-index: 1500;

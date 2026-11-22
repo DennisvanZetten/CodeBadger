@@ -543,7 +543,7 @@ public sealed class GitBranchService
                     // Existing lanes enter from the previous row and stop just before
                     // the commit node. A newly-started lane begins at its own node.
                     if (laneWasActive)
-                        edges.Add(new GitGraphEdge(oldColumn, 0, oldColumn, 16, lane.Color));
+                        edges.Add(new GitGraphEdge(oldColumn, 0, oldColumn, 16, lane.Color, commit.Hash));
                     for (var parentIndex = 0; parentIndex < commit.Parents.Count; parentIndex++)
                     {
                         var parentHash = commit.Parents[parentIndex];
@@ -556,7 +556,7 @@ public sealed class GitBranchService
                             // The first parent continues the current branch; merge-side parents keep
                             // the color of their own branch lane into the merge.
                             var edgeColor = parentIndex == 0 ? lane.Color : parentColors[parentHash];
-                            edges.Add(new GitGraphEdge(oldColumn, 36, parentColumn, 52, edgeColor));
+                            edges.Add(new GitGraphEdge(oldColumn, 36, parentColumn, 52, edgeColor, parentHash));
                         }
                     }
                 }
@@ -564,7 +564,7 @@ public sealed class GitBranchService
                 {
                     var nextColumn = FindLaneColumn(lanes, lane.Hash);
                     if (nextColumn >= 0 && visibleCommitHashes.Contains(lane.Hash))
-                        edges.Add(new GitGraphEdge(oldColumn, 0, nextColumn, 52, lane.Color));
+                        edges.Add(new GitGraphEdge(oldColumn, 0, nextColumn, 52, lane.Color, lane.Hash));
                 }
             }
 
@@ -584,7 +584,8 @@ public sealed class GitBranchService
                         group.Key,
                         group.Any(branch => !branch.IsRemote),
                         group.Any(branch => branch.IsRemote),
-                        currentLane.Color))
+                        currentLane.Color,
+                        group.First().TipHash))
                     .ToList()
             });
         }
@@ -1022,8 +1023,8 @@ public sealed record GitCommitEntry(
     IReadOnlyList<GitGraphEdge>? GraphEdges = null,
     int GraphWidth = 1,
     IReadOnlyList<GitCommitBranchLabel>? BranchLabels = null);
-public sealed record GitGraphEdge(int FromColumn, double FromY, int ToColumn, double ToY, int Color);
-public sealed record GitCommitBranchLabel(string Name, bool IsLocal, bool IsRemote, int Color);
+public sealed record GitGraphEdge(int FromColumn, double FromY, int ToColumn, double ToY, int Color, string PathHash = "");
+public sealed record GitCommitBranchLabel(string Name, bool IsLocal, bool IsRemote, int Color, string TipHash = "");
 public sealed record GitRepositorySnapshot(
     string? Branch,
     int ChangedFiles,

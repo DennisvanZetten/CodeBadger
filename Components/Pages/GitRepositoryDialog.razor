@@ -177,7 +177,7 @@
                                     @foreach (var commit in _snapshot.Commits)
                                     {
                                         <div @key="commit.Hash"
-                                             class="git-commit-row @(IsSelectedCommit(commit) ? "git-commit-row-selected" : "")"
+                                             class="git-commit-row @(IsSelectedCommit(commit) ? "git-commit-row-selected" : "") @(IsSoloDimmedCommit(commit) ? "git-commit-row-solo-dimmed" : "")"
                                              role="button" tabindex="0" aria-pressed="@IsSelectedCommit(commit)"
                                              @onclick="@(args => HandleCommitRowClickAsync(args, commit))"
                                              @oncontextmenu:preventDefault="true"
@@ -188,7 +188,7 @@
                                                 {
                                                     @foreach (var label in commit.BranchLabels)
                                                     {
-                                                        <span @key="label.Name" class="git-commit-branch-label"
+                                                        <span @key="label.Name" class="git-commit-branch-label @(IsSoloDimmedBranchLabel(label) ? "git-solo-dimmed" : "")"
                                                                style="--branch-color: @GraphColor(label.Color)" title="@label.Name"
                                                                @oncontextmenu:preventDefault="true" @oncontextmenu:stopPropagation="true">
                                                             @if (label.IsLocal)
@@ -205,7 +205,7 @@
                                                 }
                                                 else if (IsSelectedCommit(commit) && GetPathBranchLabel(commit) is { } pathLabel)
                                                 {
-                                                    <span class="git-commit-branch-label git-commit-branch-label-context"
+                                                    <span class="git-commit-branch-label git-commit-branch-label-context @(IsSoloDimmedBranchLabel(pathLabel) ? "git-solo-dimmed" : "")"
                                                           style="--branch-color: @GraphColor(pathLabel.Color)" title="@pathLabel.Name">
                                                         @if (pathLabel.IsLocal)
                                                         {
@@ -225,10 +225,10 @@
                                                 {
                                                     @foreach (var edge in commit.GraphEdges)
                                                     {
-                                                        <path d="@GraphPath(edge)" fill="none" stroke="@GraphColor(edge.Color)" style="@GraphStrokeStyle(edge.Color)" stroke-width="2.5" stroke-linecap="round" />
+                                                        <path class="@(IsSoloDimmedGraphEdge(edge) ? "git-solo-dimmed" : "")" d="@GraphPath(edge)" fill="none" stroke="@GraphColor(edge.Color)" style="@GraphStrokeStyle(edge.Color)" stroke-width="2.5" stroke-linecap="round" />
                                                     }
                                                 }
-                                                <circle cx="@GraphX(commit.GraphColumn)" cy="26" r="5.5" fill="var(--mud-palette-surface)" stroke="@GraphColor(commit.GraphColor)" style="@GraphStrokeStyle(commit.GraphColor)" stroke-width="3" />
+                                                <circle class="@(IsSoloDimmedCommit(commit) ? "git-solo-dimmed" : "")" cx="@GraphX(commit.GraphColumn)" cy="26" r="5.5" fill="var(--mud-palette-surface)" stroke="@GraphColor(commit.GraphColor)" style="@GraphStrokeStyle(commit.GraphColor)" stroke-width="3" />
                                             </svg>
                                             <div class="git-commit-content">
                                                 <MudText Typo="Typo.body2" Class="git-commit-subject" title="@commit.Subject">@commit.Subject</MudText>
@@ -245,6 +245,17 @@
                                 {
                                     <div class="git-context-menu-backdrop" @onclick="CloseCommitContextMenu">
                                         <div class="git-commit-context-menu" @onclick:stopPropagation="true">
+                                            @if (_contextMenuCommit.BranchLabels is { Count: > 0 } soloLabels)
+                                            {
+                                                @foreach (var label in soloLabels)
+                                                {
+                                                    <button @key="label.Name" class="git-commit-context-menu-item" @onclick="@(() => ToggleSoloBranch(label))">
+                                                        <MudIcon Icon="@(string.Equals(_soloBranchName, label.Name, StringComparison.Ordinal) ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)" Size="Size.Small" />
+                                                        <span>@L.T(string.Equals(_soloBranchName, label.Name, StringComparison.Ordinal) ? "Stop soloing {0}" : "Solo branch: {0}", label.Name)</span>
+                                                    </button>
+                                                }
+                                                <div class="git-context-menu-separator" role="separator"></div>
+                                            }
                                             <button class="git-commit-context-menu-item" disabled="@_isOperating" @onclick="@(() => OpenCreateBranchDialog(_contextMenuCommit.Hash))">
                                                 <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
                                                 <span>@L.T("Create branch here")</span>
@@ -552,6 +563,8 @@
     private bool _shouldScrollToCurrentBranch;
     private IJSObjectReference? _gitHistoryModule;
     private string? _selectedCommitHash;
+    private string? _soloBranchName;
+    private HashSet<string> _soloBranchCommitHashes = new(StringComparer.Ordinal);
     private readonly HashSet<string> _selectedUnstagedFilePaths = new(StringComparer.Ordinal);
     private IReadOnlyList<GitBranchEntry> LocalBranches => _snapshot?.Branches.Where(branch => !branch.IsRemote).ToList() ?? [];
     private IReadOnlyList<GitBranchEntry> RemoteBranches => _snapshot?.Branches.Where(branch => branch.IsRemote).ToList() ?? [];
@@ -603,6 +616,7 @@
         try
         {
             _snapshot = await GitBranchService.GetRepositorySnapshotAsync(RepositoryPath, fetch, ReportSnapshotProgressAsync);
+            RefreshSoloBranchCommits();
             _shouldScrollToCurrentBranch = _snapshot?.IsValid == true && _snapshot.Branch is not null;
             _files = await GitBranchService.GetFileChangesAsync(RepositoryPath);
             _stashes = await GitBranchService.GetStashesAsync(RepositoryPath);
@@ -1015,6 +1029,50 @@
     private void ToggleCommitFilesPanel() => _isCommitFilesPanelCollapsed = !_isCommitFilesPanelCollapsed;
 
     private bool IsSelectedCommit(GitCommitEntry commit) => _selectedCommitHash == commit.Hash;
+
+    private void ToggleSoloBranch(GitCommitBranchLabel label)
+    {
+        _soloBranchName = string.Equals(_soloBranchName, label.Name, StringComparison.Ordinal) ? null : label.Name;
+        RefreshSoloBranchCommits();
+        CloseCommitContextMenu();
+    }
+
+    private void RefreshSoloBranchCommits()
+    {
+        _soloBranchCommitHashes.Clear();
+        if (_soloBranchName is null || _snapshot is null)
+            return;
+
+        var branch = _snapshot.Commits
+            .SelectMany(commit => commit.BranchLabels ?? [])
+            .FirstOrDefault(label => string.Equals(label.Name, _soloBranchName, StringComparison.Ordinal));
+        if (branch is null)
+        {
+            _soloBranchName = null;
+            return;
+        }
+
+        var commitsByHash = _snapshot.Commits.ToDictionary(commit => commit.Hash, StringComparer.Ordinal);
+        var pending = new Stack<string>();
+        pending.Push(branch.TipHash);
+        while (pending.TryPop(out var hash))
+        {
+            if (!_soloBranchCommitHashes.Add(hash) || !commitsByHash.TryGetValue(hash, out var commit))
+                continue;
+
+            foreach (var parent in commit.Parents)
+                pending.Push(parent);
+        }
+    }
+
+    private bool IsSoloDimmedCommit(GitCommitEntry commit) =>
+        _soloBranchName is not null && !_soloBranchCommitHashes.Contains(commit.Hash);
+
+    private bool IsSoloDimmedBranchLabel(GitCommitBranchLabel label) =>
+        _soloBranchName is not null && !string.Equals(label.Name, _soloBranchName, StringComparison.Ordinal);
+
+    private bool IsSoloDimmedGraphEdge(GitGraphEdge edge) =>
+        _soloBranchName is not null && !_soloBranchCommitHashes.Contains(edge.PathHash);
 
     private async Task HandleCommitRowClickAsync(MouseEventArgs args, GitCommitEntry commit)
     {

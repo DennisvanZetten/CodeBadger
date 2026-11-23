@@ -153,12 +153,16 @@
                         <MudText Typo="Typo.h6">@L.T("Repository health")</MudText>
                         <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Inspect local Git storage and run safe maintenance without rewriting history.")</MudText>
 
-                        @if (_isLoadingMaintenance)
+                        @if (_isLoadingMaintenance && _maintenanceSnapshot is null)
                         {
                             <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
                         }
                         else if (_maintenanceSnapshot is not null)
                         {
+                            @if (_isLoadingMaintenance)
+                            {
+                                <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                            }
                             <MudGrid Spacing="2">
                                 <MudItem xs="12" sm="6" md="3">
                                     <MudPaper Class="pa-3 git-maintenance-stat" Outlined="true" Elevation="0">
@@ -175,28 +179,35 @@
                                     </MudPaper>
                                 </MudItem>
                                         <MudItem xs="12" sm="6" md="3">
-                                            <MudPaper Class="pa-3 git-maintenance-stat" Outlined="true" Elevation="0">
-                                                <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Git version")</MudText>
-                                                <MudText Typo="Typo.body1">@_maintenanceSnapshot.GitVersion</MudText>
-                                                @if (_gitCliUpdateCheck is { IsUpdateAvailable: true })
-                                                {
-                                                    <MudText Typo="Typo.caption" Color="Color.Warning">@L.T("Git {0} is available.", _gitCliUpdateCheck.LatestVersion)</MudText>
-                                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary"
-                                                               StartIcon="@Icons.Material.Filled.SystemUpdate" Disabled="@_isOperating"
-                                                               OnClick="UpdateGitCliAsync">@L.T("Update Git in PowerShell")</MudButton>
-                                                }
-                                                else if (_gitCliUpdateCheck is { IsUpdateAvailable: false })
-                                                {
-                                                    <MudText Typo="Typo.caption" Color="Color.Success">@L.T("Git is up to date.")</MudText>
-                                                }
-                                                else if (_isCheckingGitCliUpdate)
-                                                {
-                                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Checking for Git updates...")</MudText>
-                                                }
-                                                else if (_gitCliUpdateCheckFailed)
-                                                {
-                                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Could not check for Git updates.")</MudText>
-                                                }
+                                            <MudPaper Class="pa-3 git-maintenance-stat git-maintenance-version-stat" Outlined="true" Elevation="0">
+                                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Git version")</MudText>
+                                                <MudText Class="git-maintenance-installed-version" Typo="Typo.body1">@_maintenanceSnapshot.GitVersion</MudText>
+                                                <div class="git-maintenance-version-row @(_gitCliUpdateCheck is { IsUpdateAvailable: true } ? "git-maintenance-version-row-update" : "")">
+                                                    <div class="git-maintenance-version-status" title="@(_gitCliUpdateCheck is { IsUpdateAvailable: true } ? L.T("Git {0} is available.", _gitCliUpdateCheck.LatestVersion) : null)">
+                                                        @if (_gitCliUpdateCheck is { IsUpdateAvailable: true })
+                                                        {
+                                                            <MudText Class="git-maintenance-update-status" Typo="Typo.caption" Color="Color.Warning">@L.T("Git {0} is available.", _gitCliUpdateCheck.LatestVersion)</MudText>
+                                                        }
+                                                        else if (_gitCliUpdateCheck is { IsUpdateAvailable: false })
+                                                        {
+                                                            <MudText Class="git-maintenance-update-status" Typo="Typo.caption" Color="Color.Success">@L.T("Git is up to date.")</MudText>
+                                                        }
+                                                        else if (_isCheckingGitCliUpdate)
+                                                        {
+                                                            <MudText Class="git-maintenance-update-status" Typo="Typo.caption" Color="Color.Secondary">@L.T("Checking for Git updates...")</MudText>
+                                                        }
+                                                        else if (_gitCliUpdateCheckFailed)
+                                                        {
+                                                            <MudText Class="git-maintenance-update-status" Typo="Typo.caption" Color="Color.Secondary">@L.T("Could not check for Git updates.")</MudText>
+                                                        }
+                                                    </div>
+                                                    @if (_gitCliUpdateCheck is { IsUpdateAvailable: true })
+                                                    {
+                                                        <MudButton Class="git-maintenance-update-button" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary"
+                                                                   Disabled="@_isOperating"
+                                                                   OnClick="UpdateGitCliAsync">@L.T("Update")</MudButton>
+                                                    }
+                                                </div>
                                             </MudPaper>
                                         </MudItem>
                             </MudGrid>
@@ -1301,6 +1312,7 @@
         finally
         {
             _isCheckingGitCliUpdate = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 

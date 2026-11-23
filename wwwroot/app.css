@@ -1329,6 +1329,44 @@ h1:focus {
     min-height: 5.5rem;
 }
 
+.git-maintenance-version-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    min-width: 0;
+    margin-top: 0.25rem;
+    height: 1.25rem;
+    overflow: hidden;
+}
+
+.git-maintenance-version-status {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+}
+
+.git-maintenance-version-row-update .git-maintenance-update-status {
+    display: none;
+}
+
+.git-maintenance-version-stat .git-maintenance-installed-version {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.git-maintenance-update-button {
+    flex: 0 0 auto;
+    min-width: 0 !important;
+    height: 1.25rem !important;
+    min-height: 1.25rem !important;
+    padding: 0 8px !important;
+    font-size: 0.72rem !important;
+    line-height: 1.25 !important;
+}
+
 .git-maintenance-safe {
     border-inline-start: 4px solid var(--mud-palette-success) !important;
 }

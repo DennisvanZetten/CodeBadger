@@ -644,6 +644,7 @@ public sealed class LocalizationService
         ["Checking for Git updates..."] = ["Checking for Git updates...", "Controleren op Git-updates...", "Git-Updates werden gesucht...", "Recherche des mises à jour de Git..."],
         ["Could not check for Git updates."] = ["Could not check for Git updates.", "Controleren op Git-updates is mislukt.", "Git-Updates konnten nicht gesucht werden.", "Impossible de rechercher les mises à jour de Git."],
         ["Update Git in PowerShell"] = ["Update Git in PowerShell", "Git bijwerken in PowerShell", "Git in PowerShell aktualisieren", "Mettre à jour Git dans PowerShell"],
+        ["Update"] = ["Update", "Bijwerken", "Aktualisieren", "Mettre à jour"],
         ["Started Git update check for version {0} in PowerShell."] = ["Started Git update check for version {0} in PowerShell.", "Git-updateopdracht voor versie {0} gestart in PowerShell.", "Git-Update für Version {0} wurde in PowerShell gestartet.", "La commande de mise à jour de Git vers la version {0} a démarré dans PowerShell."],
         ["Repository diagnostics could not be loaded."] = ["Repository diagnostics could not be loaded.", "Repositorydiagnose kon niet worden geladen.", "Repository-Diagnose konnte nicht geladen werden.", "Impossible de charger les diagnostics du dépôt."],
         ["Safe maintenance"] = ["Safe maintenance", "Veilig onderhoud", "Sichere Wartung", "Maintenance sûre"],

@@ -1,68 +1,105 @@
-# Slack notification manual
+# Notification manual
 
-This manual explains how to configure Slack notifications, create the Slack app, and use session replies, agent switching, and mute controls.
+This manual has three chapters: general information about notifications and commands, Slack setup, and Discord setup.
 
-> **Privacy:** A Slack notification contains a summary of an OpenCode answer. Only connect a workspace where sharing that project information is permitted. Keep both Slack tokens secret.
+## 1. General
 
-## 1. Create a Slack app
+### One active notification channel
+
+CodeBadger supports Slack and Discord, but uses **only one notification channel at a time**. In **Settings → Notifications**, select either Slack or Discord under **Notification channel**. Even if both services are configured, only the selected one is active. **Enable session notifications** turns that selected channel on or off. A channel change takes effect after saving; CodeBadger stops the previous connection first.
+
+### Privacy and security
+
+A notification can contain a summary of an OpenCode answer and project information. Only connect a Slack workspace or Discord server where you are allowed to share that information. Keep bot and app tokens secret. CodeBadger stores tokens securely on this device, not in the regular settings file. As an additional safety check, messages are processed only when they come from the user ID you configured.
+
+### Requirements and behavior
+
+- CodeBadger must be running to monitor OpenCode sessions, send completion notifications, receive questions, and route Slack or Discord replies to OpenCode. Notifications are not monitored for other agent tools. No messages are processed while CodeBadger is fully closed.
+- For a monitored session, CodeBadger posts a message in the selected channel and links a thread to it. Reply **in that thread** to continue the exact OpenCode session. A standalone channel message is not linked to a session.
+- A session appears in the session-notification list after CodeBadger has linked a thread to it.
+
+### Commands and replies
+
+- Send `!new` as a standalone channel message to start an OpenCode session. CodeBadger creates a thread with a repository list. Reply with a repository number, then send your task as the next thread message. Only active, non-sandboxed OpenCode repositories are listed.
+- Send `!todo <text>` to add an item to the CodeBadger list. The first sentence (up to 160 characters) becomes its title; remaining text is the description. Optional type prefixes are `idea:`, `wish:`, `task:`, `bug:`, and `story:`. The default type is `story`.
+- Send `!todos` in the channel or a session thread to list open items. If there are more than ten, CodeBadger shows the ten newest by creation date.
+- Send `!help` as a standalone channel message to see channel commands, or in a session thread to see session commands. In the `!new` selection thread, `!help` explains repository selection and sending the task.
+- Start a session reply with `!build` or `!plan`, followed by a space and your instruction, to switch agents for that turn. Example: `!plan Compare two implementation approaches`. CodeBadger switches the agent first, then sends the text after the command. Future turns keep using that agent until you switch again. Do not send only `!build` or `!plan`; include an instruction.
+- Send `!commit` in a session thread to stage and commit all repository changes. If AI commit messages are configured, CodeBadger attempts to generate one. If it cannot, CodeBadger asks for a title; send it as the next thread reply, optionally with the description on the next line.
+- Send `!push` in a session thread to push using the same safe remote-branch check as the Git dialog.
+- OpenCode permission requests appear in the session thread. Use `!allow` for one-time approval, `!always` to remember approval, or `!deny [reason]` to reject. If several requests are pending, use the displayed number, such as `!allow 2`. The ID shown in the request is also supported.
+- OpenCode forms show numbered forms, fields, and options. For one form with one field, reply with `!answer <option number>`. For multiple fields, use `!answer <field number> <option number>`. If multiple forms are pending, prefix the form number. Separate field answers with semicolons. Add your own text after the “Other” option. Multiselect fields accept option numbers separated by `|`. The existing `!answer <id> key=value; key2=value` syntax remains supported.
+- Any ordinary thread reply that is not a recognized command is sent as a prompt to the linked OpenCode session.
+
+### Mute notifications
+
+- Open **Settings → Repositories** and enable **Mute session notifications for this repository** to stop future automatic completion notifications for every session in that repository. Turn it off to resume notifications.
+- To mute one session, right-click the repository tab and select **Session notifications**. Use **Mute session** or **Unmute session** for each linked session. This option is available only while the selected notification service is connected and the repository is not muted.
+- Muting affects automatic completion notifications only. It does not stop the agent, delete existing messages, or block replies in an existing session thread.
+
+### Disable or revoke the integration
+
+Turn off **Enable session notifications** to disable notifications. To revoke access completely, remove the app/bot from the Slack workspace or Discord server and revoke its tokens. Never paste tokens into chat or commit them to Git.
+
+## 2. Slack
+
+### Create a Slack app
 
 1. Open [api.slack.com/apps](https://api.slack.com/apps) and select **Create New App** → **From scratch**.
-2. Give it a name such as **CodeBadger** and choose the workspace where you want the notifications.
+2. Name it, for example **CodeBadger**, and choose the workspace where you want notifications.
 3. Open **OAuth & Permissions**. Under **Bot Token Scopes**, add:
-   - `chat:write` — post completion summaries and thread replies.
-   - `channels:read` and `channels:history` — list public channels and receive public-channel messages.
-   - `groups:read` and `groups:history` — list private channels and receive private-channel messages, if you plan to use one.
-4. Open **Event Subscriptions**, enable events, and subscribe to the bot events `message.channels` and `message.groups` (the latter is for private channels).
-5. Open **Socket Mode** and enable it. CodeBadger uses Socket Mode, so you do not need to expose a public Request URL.
-6. In **Basic Information → App-Level Tokens**, generate an app-level token with `connections:write`. It starts with `xapp-`.
-7. Return to **OAuth & Permissions** and click **Install to Workspace** (or **Reinstall to Workspace** if you added scopes after installation). Approve the request. Copy the **Bot User OAuth Token**, which starts with `xoxb-`.
-8. In Slack, invite the bot to your chosen channel. For example, use `/invite @CodeBadger` in that channel. The app can post only to channels it has joined.
+   - `chat:write` to post notifications and thread replies.
+   - `channels:read` and `channels:history` to list public channels and receive their messages.
+   - `groups:read` and `groups:history` to list private channels and receive their messages, if needed.
+4. Open **Event Subscriptions**, enable events, and subscribe to bot events `message.channels` and `message.groups` (the latter is for private channels).
+5. Open **Socket Mode** and enable it. CodeBadger uses Socket Mode, so no public Request URL is needed.
+6. Under **Basic Information → App-Level Tokens**, create an app-level token with `connections:write`. It starts with `xapp-`.
+7. Return to **OAuth & Permissions** and click **Install to Workspace** (or **Reinstall to Workspace** if you added scopes after installation). Approve the request and copy the **Bot User OAuth Token**, which starts with `xoxb-`.
+8. Invite the bot to the channel you want to use, for example with `/invite @CodeBadger`. The bot can post only in channels it has joined.
 
-If Slack requires an administrator to approve or install the app, ask the workspace admin to approve it and the listed permissions.
+If an administrator must approve or install the app, ask the Slack workspace administrator to approve it and the permissions above.
 
-## 2. Find your Slack member ID
+### Find your Slack member ID
 
-In the Slack desktop app, open your profile, select **More**, then **Copy member ID**. The ID usually starts with `U`. CodeBadger uses it as a safety check: only replies from this Slack member are forwarded to OpenCode.
+In the Slack desktop app, open your profile, select **More**, then **Copy member ID**. The ID usually starts with `U`. CodeBadger uses it as a safety check: only messages from this Slack user are forwarded to OpenCode.
 
-## 3. Configure CodeBadger
+### Configure CodeBadger for Slack
 
 1. Open **Settings → Notifications**.
-2. Keep **Slack** selected as the notification channel.
-3. Paste the `xoxb-` token into **Slack bot token** and the `xapp-` token into **Slack app-level token**. They are stored in the device's secure storage, not in the regular settings JSON.
+2. Select **Slack** as **Notification channel**. If Discord is also configured, this selection ensures only Slack is active.
+3. Paste the `xoxb-` token into **Slack bot token** and the `xapp-` token into **Slack app-level token**. They are stored securely on the device, not in the regular settings file.
 4. Enter your Slack member ID.
-5. Select **Load Slack channels**, then choose a channel where the bot is a member. Channels that the bot has not joined are unavailable.
-6. Select **Test Slack connection**. Enable **Send OpenCode completion notifications to Slack** and save the settings.
+5. Select **Load Slack channels** and choose a channel where the bot is a member. Channels the bot has not joined cannot be selected.
+6. Select **Test Slack connection**, enable **Send OpenCode completion notifications to Slack**, and save.
 
-The status shown in this panel reports whether CodeBadger is connected to Slack with Socket Mode.
+The status in this panel reports whether CodeBadger is connected to Slack using Socket Mode. CodeBadger must be running to receive replies and OpenCode questions and monitor sessions.
 
-## 4. Use notifications and replies
+## 3. Discord
 
-- When a monitored OpenCode session finishes, CodeBadger posts a concise summary to the selected Slack channel. The message identifies the agent and session.
-- Reply **in the thread on the CodeBadger message** to continue that exact OpenCode session. A new channel message is not routed to a session.
-- Send `!new` as a standalone channel message to start a new session. In the thread CodeBadger posts, reply with a repository number, then send your task as the next thread reply. Only active, non-sandboxed OpenCode repositories are listed.
-- Send `!todos` in the channel or a session thread to list open items. If there are more than ten, CodeBadger shows the ten newest by creation date.
-- To switch agent for a reply, start the thread reply with `!build` or `!plan`, followed by a space and your instruction. For example: `!plan Compare two implementation approaches`. The agent switches first, then receives the text after the command. Future turns keep using the selected agent until you switch again.
-- Send `!commit` in a session thread to stage and commit all repository changes. If AI commit messages are configured, CodeBadger generates the message automatically. Otherwise, CodeBadger asks for a title; send it as the next thread reply, optionally followed by the description on the next line.
-- Send `!push` in a session thread to push using the same remote check and pull-if-needed behavior as the Push button in the Git dialog.
-- Send `!help` as a standalone channel message to see channel commands, or in a session thread to see session commands. In the `!new` selection thread, `!help` explains repository selection and sending the task.
-- OpenCode permission requests appear in the session thread. Reply with `!allow` for one-time approval, `!always` to remember approval, or `!deny [reason]` to reject when only one request is pending. If there are several, use the displayed number, such as `!allow 2`. The OpenCode ID remains supported.
-- OpenCode forms show numbered fields and options. For one form with a single field, reply with `!answer <option number>`; for multiple fields, use `!answer <field number> <option number>`. If multiple forms are pending, prefix the form number. Separate field answers with semicolons. Add your own text after the “Other” option. Multiselect accepts option numbers separated by `|`. The existing `!answer <id> key=value; key2=value` syntax remains available.
-- Use `!build` for implementation work and `!plan` for planning and analysis. Do not send only `!build` or `!plan`; include an instruction after it.
+### Create and invite a Discord bot
 
-The channel reply must come from the Slack member ID configured in CodeBadger. CodeBadger must be running to receive Slack replies and OpenCode questions and monitor session completion.
+1. Open the [Discord Developer Portal](https://discord.com/developers/applications) and select **New Application**. Give it a name, such as **CodeBadger**.
+2. Open **Bot** and create the bot if one was not created automatically. Copy its token using **Reset Token** or **View Token**. Treat this token like a password; anyone who has it can control the bot.
+3. Under **Bot → Privileged Gateway Intents**, enable **Message Content Intent** and save. CodeBadger requires this privileged intent to receive server message text.
+4. Open **OAuth2 → URL Generator**. Select the `bot` scope and grant these **Bot Permissions**:
+   - **View Channels** and **Read Message History** to access the chosen channel and its context.
+   - **Send Messages** to post notifications.
+   - **Create Public Threads** and **Send Messages in Threads** to create per-session threads and reply in them.
+5. Open the generated URL, select your server, and authorize the bot. You must have permission to add bots to that server.
+6. Check the server and channel permission overrides to ensure the bot actually has these permissions. Channel overrides may restrict server permissions.
 
-## 5. Mute a repository or session
+### Find your Discord IDs
 
-When Slack notifications are connected, open **Settings → Repositories** to manage the repository-wide setting:
+In the Discord client, enable **User Settings → Advanced → Developer Mode**. Right-click the server where the bot was invited and select **Copy Server ID**. Also copy your own user ID from your profile/context menu using **Copy User ID**. CodeBadger uses your user ID as a safety check and processes messages only from you.
 
-- Enable **Mute Slack notifications for this repository** to stop future automatic Slack completion notifications for every session in that repository. Turn it off to resume them.
-- To mute one session, right-click the repository tab and choose **Session notifications**. This option is available only while Slack notifications are connected and the repository is not muted. The dialog lists Slack-linked sessions; use **Mute session** or **Unmute session** for the selected session.
+### Configure CodeBadger for Discord
 
-Muting affects automatic completion notifications only. It does not stop the agent, delete Slack messages, or block replies in an existing session thread.
+1. Open **Settings → Notifications**.
+2. Select **Discord** as **Notification channel**. If Slack is also configured, only Discord will be active.
+3. Paste the bot token into **Discord bot token**.
+4. Enter the copied server ID in **Discord server (guild) ID**.
+5. Select **Load Discord channels** and choose a text or announcement channel the bot can access.
+6. Enter your Discord user ID in **Your Discord user ID**.
+7. Select **Test Discord connection**, enable **Enable session notifications**, and save.
 
-## Notes and limitations
-
-- The first version supports Slack notifications for OpenCode sessions; other agent tools are not monitored for these completion events.
-- CodeBadger must be running to notice a session finishing and to receive Slack replies. It does not deliver notifications while fully closed.
-- A session appears in the mute list after CodeBadger has linked it to a Slack notification thread.
-- To revoke access, disable the notification switch, remove the app from the Slack workspace, or revoke its tokens. Never paste tokens into chat or commit them to source control.
+The status shows whether CodeBadger is connected to the Discord Gateway. If loading or testing fails, check the bot token, server ID, channel permissions, and **Message Content Intent**. CodeBadger must remain running to process messages and replies. When both services are configured, **Notification channel** determines which integration is active.

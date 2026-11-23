@@ -13,6 +13,7 @@ public sealed class LauncherSettingsService
     private const string AiApiKeyStorageKey = "codebadger-ai-api-key";
     private const string SlackBotTokenStorageKey = "codebadger-slack-bot-token";
     private const string SlackAppTokenStorageKey = "codebadger-slack-app-token";
+    private const string DiscordBotTokenStorageKey = "codebadger-discord-bot-token";
     public event Action? SettingsSaved;
 
     public LauncherSettingsService(LocalizationService localization) => _localization = localization;
@@ -64,7 +65,11 @@ public sealed class LauncherSettingsService
             settings.AiApiKey = await SecureStorage.Default.GetAsync(AiApiKeyStorageKey) ?? string.Empty;
             settings.SlackBotToken = await SecureStorage.Default.GetAsync(SlackBotTokenStorageKey) ?? string.Empty;
             settings.SlackAppToken = await SecureStorage.Default.GetAsync(SlackAppTokenStorageKey) ?? string.Empty;
+            settings.DiscordBotToken = await SecureStorage.Default.GetAsync(DiscordBotTokenStorageKey) ?? string.Empty;
             settings.SlackAllowedUserId ??= string.Empty;
+            settings.DiscordChannelId ??= string.Empty;
+            settings.DiscordGuildId ??= string.Empty;
+            settings.DiscordAllowedUserId ??= string.Empty;
             return settings;
         }
         finally
@@ -98,7 +103,8 @@ public sealed class LauncherSettingsService
                 repository.TaskStoryTemplate ??= RepositoryEntry.DefaultTaskStoryTemplate;
                 repository.AiCustomInstruction = repository.AiCustomInstruction?.Trim() ?? string.Empty;
             }
-            settings.NotificationChannel = "Slack";
+            settings.NotificationChannel = settings.NotificationChannel is "Slack" or "Discord"
+                ? settings.NotificationChannel : "Slack";
             Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
             await using (var stream = File.Create(_settingsPath))
                 await JsonSerializer.SerializeAsync(stream, settings, JsonOptions);
@@ -117,6 +123,11 @@ public sealed class LauncherSettingsService
                 SecureStorage.Default.Remove(SlackAppTokenStorageKey);
             else
                 await SecureStorage.Default.SetAsync(SlackAppTokenStorageKey, settings.SlackAppToken);
+
+            if (string.IsNullOrWhiteSpace(settings.DiscordBotToken))
+                SecureStorage.Default.Remove(DiscordBotTokenStorageKey);
+            else
+                await SecureStorage.Default.SetAsync(DiscordBotTokenStorageKey, settings.DiscordBotToken);
 
             _localization.SetLanguage(settings.Language);
         }

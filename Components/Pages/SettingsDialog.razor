@@ -189,10 +189,11 @@
             <MudTabPanel Text="@L.T("Notifications")" Icon="@Icons.Material.Filled.NotificationsActive">
                 <MudStack Spacing="3" Class="settings-content-stack">
                     <MudText Typo="Typo.h6">@L.T("Session notifications")</MudText>
-                    <MudSelect T="string" Label="@L.T("Notification channel")" Variant="Variant.Outlined" Margin="Margin.Dense"
-                               @bind-Value="Settings.NotificationChannel">
+                     <MudSelect T="string" Label="@L.T("Notification channel")" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                @bind-Value="Settings.NotificationChannel">
                         <MudSelectItem T="string" Value="@("Slack")">Slack</MudSelectItem>
-                    </MudSelect>
+                        <MudSelectItem T="string" Value="@("Discord")">Discord</MudSelectItem>
+                     </MudSelect>
                     @if (Settings.NotificationChannel == "Slack")
                     {
                         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
@@ -228,6 +229,43 @@
                         </MudSelect>
                         <MudSwitch @bind-Value="Settings.SlackNotificationsEnabled" Color="Color.Primary"
                                    Label="@L.T("Send OpenCode completion notifications to Slack")" />
+                        <MudAlert Severity="@(_slackConnected ? Severity.Success : Severity.Info)" Variant="Variant.Outlined">
+                            @L.T(_slackConnectionStatus)
+                        </MudAlert>
+                    }
+                    else if (Settings.NotificationChannel == "Discord")
+                    {
+                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                            @L.T("Only the selected notification channel is connected at a time. Add the bot to your Discord server and grant it View Channels, Send Messages, Send Messages in Threads, Create Public Threads, and Read Message History.")
+                            <br /><br />
+                            @L.T("Enable the Message Content Intent in the Discord Developer Portal. Replies are accepted only from the Discord user ID entered below. In Developer Mode, copy the server ID and enter it below to load channels.")
+                        </MudAlert>
+                        <MudTextField @bind-Value="Settings.DiscordBotToken" Label="@L.T("Discord bot token")" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      InputType="InputType.Password" HelperText="@L.T("Stored securely on this device.")" />
+                        <MudTextField @bind-Value="Settings.DiscordGuildId" Label="@L.T("Discord server (guild) ID")" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      HelperText="@L.T("Enable Developer Mode in Discord, then use the server context menu to copy its ID.")" />
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="flex-wrap">
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh"
+                                       OnClick="LoadDiscordChannelsAsync" Disabled="@(_isLoadingDiscordChannels || string.IsNullOrWhiteSpace(Settings.DiscordGuildId))">
+                                @(_isLoadingDiscordChannels ? L.T("Loading channels...") : L.T("Load Discord channels"))
+                            </MudButton>
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.WifiTethering"
+                                       OnClick="TestDiscordConnectionAsync" Disabled="@_isTestingDiscord">
+                                @(_isTestingDiscord ? L.T("Testing Discord connection...") : L.T("Test Discord connection"))
+                            </MudButton>
+                        </MudStack>
+                        <MudSelect T="string" @bind-Value="Settings.DiscordChannelId" Label="@L.T("Discord channel")"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(_discordChannels.Count == 0)"
+                                   HelperText="@L.T("Text and announcement channels the bot can access are listed.")">
+                            @foreach (var channel in _discordChannels)
+                            {
+                                <MudSelectItem T="string" Value="@channel.Id">#@channel.Name · @channel.Type</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudTextField @bind-Value="Settings.DiscordAllowedUserId" Label="@L.T("Your Discord user ID")" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      HelperText="@L.T("Only messages from this Discord user will be routed to OpenCode. Enable Developer Mode, then use your profile menu to copy your ID.")" />
+                        <MudSwitch @bind-Value="Settings.SlackNotificationsEnabled" Color="Color.Primary"
+                                   Label="@L.T("Enable session notifications")" />
                         <MudAlert Severity="@(_slackConnected ? Severity.Success : Severity.Info)" Variant="Variant.Outlined">
                             @L.T(_slackConnectionStatus)
                         </MudAlert>
@@ -330,9 +368,12 @@
     private bool _agentConfigLoadFailed;
     private bool _isLoadingSlackChannels;
     private bool _isTestingSlack;
+    private bool _isTestingDiscord;
+    private bool _isLoadingDiscordChannels;
     private bool _slackConnected;
     private string _slackConnectionStatus = "Slack notifications are not connected.";
     private IReadOnlyList<SlackNotificationService.SlackChannel> _slackChannels = [];
+    private IReadOnlyList<SlackNotificationService.DiscordChannel> _discordChannels = [];
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
@@ -555,6 +596,39 @@
             Snackbar.Add(L.T("Slack connection failed: {0}", exception.Message), Severity.Error);
         }
         finally { _isTestingSlack = false; }
+    }
+
+    private async Task LoadDiscordChannelsAsync()
+    {
+        _isLoadingDiscordChannels = true;
+        try
+        {
+            _discordChannels = await SlackNotificationService.GetDiscordChannelsAsync(Settings.DiscordBotToken, Settings.DiscordGuildId);
+            if (!string.IsNullOrWhiteSpace(Settings.DiscordChannelId) &&
+                !_discordChannels.Any(channel => channel.Id == Settings.DiscordChannelId))
+                Settings.DiscordChannelId = string.Empty;
+            Snackbar.Add(L.T("Loaded {0} Discord channels.", _discordChannels.Count), Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not load Discord channels: {0}", exception.Message), Severity.Error);
+        }
+        finally { _isLoadingDiscordChannels = false; }
+    }
+
+    private async Task TestDiscordConnectionAsync()
+    {
+        _isTestingDiscord = true;
+        try
+        {
+            await SlackNotificationService.TestDiscordConnectionAsync(Settings.DiscordBotToken, Settings.DiscordChannelId);
+            Snackbar.Add(L.T("Discord connection successful."), Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Discord connection failed: {0}", exception.Message), Severity.Error);
+        }
+        finally { _isTestingDiscord = false; }
     }
 
     private void HandleSlackConnectionChanged(bool connected, string status) => _ = InvokeAsync(() =>

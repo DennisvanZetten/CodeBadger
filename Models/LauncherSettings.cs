@@ -27,6 +27,11 @@ public sealed class LauncherSettings
     public string SlackBotToken { get; set; } = string.Empty;
     [System.Text.Json.Serialization.JsonIgnore]
     public string SlackAppToken { get; set; } = string.Empty;
+    public string DiscordChannelId { get; set; } = string.Empty;
+    public string DiscordGuildId { get; set; } = string.Empty;
+    public string DiscordAllowedUserId { get; set; } = string.Empty;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string DiscordBotToken { get; set; } = string.Empty;
     [System.Text.Json.Serialization.JsonIgnore]
     public string AiApiKey { get; set; } = string.Empty;
     public List<RepositoryEntry> Repositories { get; set; } = [];

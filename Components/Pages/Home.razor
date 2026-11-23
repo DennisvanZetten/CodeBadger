@@ -702,7 +702,7 @@
                                     continue;
                                 var initialMessage = await OpenCodeActivity.GetInitialUserMessageAsync(pair.Key, pair.Value.Directory, cancellationToken);
                                 var messages = await OpenCodeActivity.GetRecentUserMessagesAsync(pair.Key, pair.Value.Directory, cancellationToken);
-                                await SlackNotifications.PublishApplicationMessagesAsync(pair.Value, initialMessage, messages, cancellationToken);
+                                    await SlackNotifications.PublishApplicationMessagesAsync(pair.Value, initialMessage, messages, cancellationToken);
                             }
                             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
                             catch (Exception exception)

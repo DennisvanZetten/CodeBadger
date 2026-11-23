@@ -6,7 +6,7 @@
     <title>CodeBadger</title>
     <base href="/" />
     <script>
-        if (window.location.pathname.replace(/\/+$/, "").toLowerCase() === "/manual") {
+        if (["/manual", "/logs"].includes(window.location.pathname.replace(/\/+$/, "").toLowerCase())) {
             document.documentElement.dataset.skipStartupSplash = "true";
         }
     </script>
@@ -36,6 +36,11 @@
                     var key = element.dataset.i18n;
                     element.textContent = translations[key] || key;
                 });
+            }
+        };
+        window.codeBadgerLogs = {
+            scrollToLatest: function (element) {
+                if (element) element.scrollTop = element.scrollHeight;
             }
         };
     </script>

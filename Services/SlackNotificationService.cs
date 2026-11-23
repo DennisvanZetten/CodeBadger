@@ -1672,6 +1672,10 @@ public sealed class SlackNotificationService : IAsyncDisposable
 
     private void SetConnectionState(bool connected, string status)
     {
+        if (connected)
+            _logger.LogInformation("{NotificationPlatform} connection state changed: connected.", _activePlatform);
+        else
+            _logger.LogWarning("{NotificationPlatform} connection state changed: disconnected. {ConnectionStatus}", _activePlatform, status);
         IsConnected = connected;
         ConnectionStatus = status;
         ConnectionChanged?.Invoke(connected, status);

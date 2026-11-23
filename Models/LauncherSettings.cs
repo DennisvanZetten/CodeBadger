@@ -1,5 +1,7 @@
 namespace CodeBadger.Models;
 
+using Microsoft.Extensions.Logging;
+
 public sealed class LauncherSettings
 {
     public string Language { get; set; } = "en";
@@ -9,6 +11,11 @@ public sealed class LauncherSettings
     public bool QuestionSoundEnabled { get; set; } = true;
     public string QuestionSound { get; set; } = "chime";
     public int ToastDurationSeconds { get; set; } = 1;
+    public int LogRetentionDays { get; set; } = 30;
+    public string GeneralLogLevel { get; set; } = "Information";
+    public string GitLogLevel { get; set; } = "Warning";
+    public string NotificationsLogLevel { get; set; } = "Information";
+    public string AiLogLevel { get; set; } = "Information";
     public string GitOverviewStartSize { get; set; } = "Large";
     public string DismissedUpdateVersion { get; set; } = string.Empty;
     public string AiProvider { get; set; } = "OpenAI";
@@ -35,6 +42,22 @@ public sealed class LauncherSettings
     [System.Text.Json.Serialization.JsonIgnore]
     public string AiApiKey { get; set; } = string.Empty;
     public List<RepositoryEntry> Repositories { get; set; } = [];
+
+    public LogLevel GetLogLevel(string category) => ParseLogLevel(category switch
+    {
+        "Git" => GitLogLevel,
+        "Notifications" => NotificationsLogLevel,
+        "AI" => AiLogLevel,
+        _ => GeneralLogLevel
+    });
+
+    public static string NormalizeLogLevel(string? value, string fallback = "Information") =>
+        Enum.TryParse<LogLevel>(value, true, out var level)
+            ? level.ToString()
+            : fallback;
+
+    private static LogLevel ParseLogLevel(string? value) =>
+        Enum.TryParse<LogLevel>(value, true, out var level) ? level : LogLevel.Information;
 }
 
 public sealed class RepositoryEntry

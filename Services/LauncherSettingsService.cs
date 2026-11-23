@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using CodeBadger.Models;
+using Microsoft.Extensions.Logging;
 
 namespace CodeBadger.Services;
 
@@ -46,6 +47,7 @@ public sealed class LauncherSettingsService
             settings.CompletionSound = CompletionSounds.Normalize(settings.CompletionSound);
             settings.QuestionSound = CompletionSounds.Normalize(settings.QuestionSound);
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
+            NormalizeLogSettings(settings);
             settings.GitOverviewStartSize = NormalizeGitOverviewStartSize(settings.GitOverviewStartSize);
             settings.AiConflictModel = string.IsNullOrWhiteSpace(settings.AiConflictModel) ? settings.AiModel : settings.AiConflictModel;
             settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
@@ -88,6 +90,7 @@ public sealed class LauncherSettingsService
             settings.CompletionSound = CompletionSounds.Normalize(settings.CompletionSound);
             settings.QuestionSound = CompletionSounds.Normalize(settings.QuestionSound);
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
+            NormalizeLogSettings(settings);
             settings.GitOverviewStartSize = NormalizeGitOverviewStartSize(settings.GitOverviewStartSize);
             settings.AiConflictModel = string.IsNullOrWhiteSpace(settings.AiConflictModel) ? settings.AiModel : settings.AiConflictModel;
             settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
@@ -185,6 +188,15 @@ public sealed class LauncherSettingsService
     {
         var prefix = (value ?? string.Empty).Trim().Trim('/');
         return string.IsNullOrWhiteSpace(prefix) ? "feature" : prefix;
+    }
+
+    private static void NormalizeLogSettings(LauncherSettings settings)
+    {
+        settings.LogRetentionDays = Math.Clamp(settings.LogRetentionDays, 1, 3650);
+        settings.GeneralLogLevel = LauncherSettings.NormalizeLogLevel(settings.GeneralLogLevel);
+        settings.GitLogLevel = LauncherSettings.NormalizeLogLevel(settings.GitLogLevel, "Warning");
+        settings.NotificationsLogLevel = LauncherSettings.NormalizeLogLevel(settings.NotificationsLogLevel);
+        settings.AiLogLevel = LauncherSettings.NormalizeLogLevel(settings.AiLogLevel);
     }
 
     private static string NormalizeGitOverviewStartSize(string? value) => value?.Trim().ToLowerInvariant() switch

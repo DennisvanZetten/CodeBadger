@@ -1,0 +1,147 @@
+@page "/logs"
+@implements IDisposable
+@inject ApplicationLogService LogService
+@inject LocalizationService L
+@inject IJSRuntime JS
+
+<PageTitle>@L.T("Application logs") - CodeBadger</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-4">
+    <MudStack Spacing="3">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudIcon Icon="@Icons.Material.Filled.Article" Color="Color.Primary" />
+                <MudText Typo="Typo.h5">@L.T("Application logs")</MudText>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success">@L.T("Live")</MudChip>
+            </MudStack>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                <MudSwitch T="bool" @bind-Value="_followLatest" Color="Color.Primary" Label="@L.T("Follow latest")" />
+                <MudIconButton Icon="@Icons.Material.Filled.Refresh" aria-label="@L.T("Refresh")" OnClick="RefreshAsync" />
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Filled.DeleteOutline" OnClick="ClearLogs">@L.T("Clear logs")</MudButton>
+            </MudStack>
+        </MudStack>
+
+        <MudTabs @bind-ActivePanelIndex="_activeTab" Rounded="true" Border="true" ApplyEffectsToContainer="true">
+            @foreach (var category in ApplicationLogCategories.All)
+            {
+                <MudTabPanel Text="@L.T(category)">
+                    <MudStack Spacing="2" Class="pt-3">
+                        <MudStack Row="true" Spacing="2" Class="flex-wrap">
+                            <MudTextField T="string" @bind-Value="_search" Immediate="true" Placeholder="@L.T("Search logs")"
+                                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                          Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="flex-grow-1" />
+                            <MudSelect T="string" @bind-Value="_levelFilter" Label="@L.T("Minimum level")" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width: 160px">
+                                <MudSelectItem T="string" Value="@("All")">@L.T("All levels")</MudSelectItem>
+                                @foreach (var level in VisibleLevels)
+                                {
+                                    <MudSelectItem T="string" Value="@level">@L.T(level)</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudStack>
+                        <div class="log-entries" @ref="_entriesElement">
+                            @if (VisibleEntries(category).Count == 0)
+                            {
+                                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="pa-4">@L.T("No log entries match the current filters.")</MudText>
+                            }
+                            else
+                            {
+                                @foreach (var entry in VisibleEntries(category))
+                                {
+                                    <div class="log-entry">
+                                        <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss.fff")</span>
+                                        <MudChip T="string" Size="Size.Small" Color="LevelColor(entry.Level)" Variant="Variant.Outlined">@L.T(entry.Level.ToString())</MudChip>
+                                        <span class="log-message">@entry.Message</span>
+                                        @if (!string.IsNullOrWhiteSpace(entry.Exception))
+                                        {
+                                            <details class="log-exception"><summary>@L.T("Exception details")</summary><pre>@entry.Exception</pre></details>
+                                        }
+                                    </div>
+                                }
+                            }
+                        </div>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Showing up to {0} recent entries. Older entries are retained according to the logging settings.", MaxVisibleEntries)</MudText>
+                    </MudStack>
+                </MudTabPanel>
+            }
+        </MudTabs>
+    </MudStack>
+</MudContainer>
+
+<style>
+    .log-entries { max-height: calc(100vh - 270px); min-height: 280px; overflow: auto; border: 1px solid var(--mud-palette-lines-default); border-radius: 8px; }
+    .log-entry { display: grid; grid-template-columns: 190px 100px minmax(0, 1fr); gap: 8px; align-items: start; padding: 8px 12px; border-bottom: 1px solid var(--mud-palette-divider); font-family: Consolas, monospace; font-size: .82rem; }
+    .log-time { color: var(--mud-palette-text-secondary); white-space: nowrap; }
+    .log-message { overflow-wrap: anywhere; white-space: pre-wrap; }
+    .log-exception { grid-column: 3; white-space: normal; }
+    .log-exception pre { overflow: auto; white-space: pre-wrap; }
+    @@media (max-width: 700px) { .log-entry { grid-template-columns: 1fr auto; } .log-message, .log-exception { grid-column: 1 / -1; } }
+</style>
+
+@code {
+    private const int MaxVisibleEntries = 1000;
+    private static readonly string[] VisibleLevels = ["Trace", "Debug", "Information", "Warning", "Error", "Critical"];
+    private ElementReference _entriesElement;
+    private int _activeTab;
+    private bool _followLatest = true;
+    private string _search = string.Empty;
+    private string _levelFilter = "All";
+    private bool _scrollPending;
+
+    protected override void OnInitialized()
+    {
+        LogService.EntryWritten += HandleEntryWritten;
+        L.LanguageChanged += HandleLanguageChanged;
+        _scrollPending = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_scrollPending && _followLatest)
+        {
+            _scrollPending = false;
+            try { await JS.InvokeVoidAsync("codeBadgerLogs.scrollToLatest", _entriesElement); }
+            catch (JSException) { }
+        }
+    }
+
+    private IReadOnlyList<ApplicationLogEntry> VisibleEntries(string category)
+    {
+        var minimum = _levelFilter == "All" ? LogLevel.Trace : Enum.Parse<LogLevel>(_levelFilter);
+        return LogService.GetEntries(category, MaxVisibleEntries)
+            .Where(entry => entry.Level >= minimum &&
+                (string.IsNullOrWhiteSpace(_search) || entry.Message.Contains(_search, StringComparison.CurrentCultureIgnoreCase) ||
+                 (entry.Exception?.Contains(_search, StringComparison.CurrentCultureIgnoreCase) ?? false)))
+            .ToArray();
+    }
+
+    private void HandleEntryWritten(ApplicationLogEntry entry)
+    {
+        _ = InvokeAsync(() =>
+        {
+            if (string.Equals(entry.Category, ApplicationLogCategories.All[_activeTab], StringComparison.Ordinal))
+            {
+                _scrollPending = true;
+                StateHasChanged();
+            }
+        });
+    }
+
+    private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+    private Task RefreshAsync() => InvokeAsync(StateHasChanged);
+    private void ClearLogs() => LogService.Clear();
+
+    private static Color LevelColor(LogLevel level) => level switch
+    {
+        LogLevel.Trace or LogLevel.Debug => Color.Default,
+        LogLevel.Information => Color.Info,
+        LogLevel.Warning => Color.Warning,
+        LogLevel.Error or LogLevel.Critical => Color.Error,
+        _ => Color.Default
+    };
+
+    public void Dispose()
+    {
+        LogService.EntryWritten -= HandleEntryWritten;
+        L.LanguageChanged -= HandleLanguageChanged;
+    }
+}

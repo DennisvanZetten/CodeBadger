@@ -28,6 +28,12 @@ public static class MauiProgram
 		builder.Services.AddSingleton<WindowTitleBarService>();
 		builder.Services.AddSingleton<RepositoryDetachedWindowService>();
 		builder.Services.AddSingleton<LauncherSettingsService>();
+		builder.Services.AddSingleton<ApplicationLogService>();
+		builder.Services.AddSingleton<ILoggerProvider>(services => services.GetRequiredService<ApplicationLogService>());
+		builder.Logging.SetMinimumLevel(LogLevel.Trace);
+		builder.Logging.AddFilter((category, _) =>
+			category?.StartsWith("Microsoft.", StringComparison.Ordinal) != true &&
+			category?.StartsWith("System.", StringComparison.Ordinal) != true);
 		builder.Services.AddSingleton<IdeaListService>();
 		builder.Services.AddSingleton<PowerShellLauncher>();
 		builder.Services.AddSingleton<WindowsTerminalSessionService>();

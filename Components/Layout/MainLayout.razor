@@ -10,13 +10,14 @@
 @inject WindowTitleBarService WindowTitleBar
 @inject RepositoryDetachedWindowService DetachedWindows
 @inject NavigationManager Navigation
+@inject ILogger<MainLayout> Logger
 @using CodeBadger.Components.Pages
 
 <MudThemeProvider Theme="@_theme.Theme" IsDarkMode="@_theme.IsDark" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
-@if (_isStarting && !IsManualWindowRoute())
+@if (_isStarting && !IsDocumentationWindowRoute())
 {
     <div class="startup-splash" role="status" aria-live="polite">
         <div class="startup-logo-halo">
@@ -90,7 +91,7 @@ else
 
     protected override void OnInitialized()
     {
-        if (IsManualWindowRoute())
+        if (IsDocumentationWindowRoute())
             _isStarting = false;
     }
 
@@ -133,8 +134,8 @@ else
     {
         if (firstRender && !IsDetachedRepositoryRoute())
             WindowTitleBar.SetSettingsState(true, L.T("Open settings"));
-        if (firstRender && IsManualWindowRoute())
-            await InitializeManualWindowAsync();
+        if (firstRender && IsDocumentationWindowRoute())
+            await InitializeDocumentationWindowAsync();
         else if (firstRender && _isStarting)
         {
             if (IsDetachedRepositoryRoute())
@@ -178,7 +179,7 @@ else
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task InitializeManualWindowAsync()
+    private async Task InitializeDocumentationWindowAsync()
     {
         var settings = await SettingsService.LoadAsync();
         _startupSettings = settings;
@@ -192,6 +193,7 @@ else
     {
         try
         {
+            Logger.LogInformation("CodeBadger startup initialization started.");
             var settings = await SettingsService.LoadAsync();
             _startupSettings = settings;
             _theme = LauncherThemes.Get(settings.Theme);
@@ -214,6 +216,12 @@ else
                 await InvokeAsync(StateHasChanged);
                 await Task.Yield();
             });
+            Logger.LogInformation("CodeBadger startup initialization completed.");
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "CodeBadger startup initialization failed.");
+            throw;
         }
         finally
         {
@@ -352,6 +360,13 @@ else
                 else
                     Navigation.NavigateTo("/manual");
             }
+            else if (!showAbout && destination == "logs")
+            {
+                if (WindowTitleBar.UsesNativeTitleBar)
+                    DetachedWindows.OpenLogsWindow();
+                else
+                    Navigation.NavigateTo("/logs");
+            }
             return;
         }
     }
@@ -411,8 +426,9 @@ else
         _dialogGeneration++;
     }
 
-    private bool IsManualWindowRoute() =>
-        GetCurrentRoutePath().Equals("manual", StringComparison.OrdinalIgnoreCase);
+    private bool IsDocumentationWindowRoute() =>
+        GetCurrentRoutePath() is var route && (route.Equals("manual", StringComparison.OrdinalIgnoreCase) ||
+                                               route.Equals("logs", StringComparison.OrdinalIgnoreCase));
 
     private string GetCurrentRoutePath() => Navigation.ToBaseRelativePath(Navigation.Uri)
         .TrimStart('/')

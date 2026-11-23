@@ -162,6 +162,18 @@ public sealed class RepositoryDetachedWindowService(
         Application.Current?.OpenWindow(window);
     }
 
+    public void OpenLogsWindow()
+    {
+        var window = new Window(new MainPage("/logs"))
+        {
+            Title = "CodeBadger — Logs",
+            Width = 1100,
+            Height = 760
+        };
+        titleBar.Configure(window, showSettings: false, title: window.Title);
+        Application.Current?.OpenWindow(window);
+    }
+
     public void Undock(RepositoryEntry repository, int? pointerX = null, int? pointerY = null)
     {
         if (!IsDetached(repository.Id))

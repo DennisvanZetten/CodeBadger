@@ -14,6 +14,10 @@
                        OnClick="OpenManuals">
                 @L.T("Manuals")
             </MudButton>
+            <MudButton FullWidth="true" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Article"
+                       OnClick="OpenLogs">
+                @L.T("Application logs")
+            </MudButton>
             <MudButton FullWidth="true" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Info"
                        OnClick="OpenAbout">
                 @L.T("About CodeBadger")
@@ -28,6 +32,7 @@
 @code {
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
     private void OpenManuals() => MudDialog.Close(DialogResult.Ok("manual"));
+    private void OpenLogs() => MudDialog.Close(DialogResult.Ok("logs"));
     private void OpenAbout() => MudDialog.Close(DialogResult.Ok("about"));
     private void Close() => MudDialog.Cancel();
 }

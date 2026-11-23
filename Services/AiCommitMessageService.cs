@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using CodeBadger.Models;
+using Microsoft.Extensions.Logging;
 
 namespace CodeBadger.Services;
 
@@ -9,8 +10,13 @@ public sealed class AiCommitMessageService
 {
     private const int ConflictResolutionMaxOutputTokens = 32768;
     private readonly LocalizationService _localization;
+    private readonly ILogger<AiCommitMessageService> _logger;
 
-    public AiCommitMessageService(LocalizationService localization) => _localization = localization;
+    public AiCommitMessageService(LocalizationService localization, ILogger<AiCommitMessageService> logger)
+    {
+        _localization = localization;
+        _logger = logger;
+    }
 
     public async Task<AiCommitMessageResult> GenerateAsync(LauncherSettings settings, string diff, string? branchName = null,
         string? customInstruction = null)
@@ -42,6 +48,9 @@ public sealed class AiCommitMessageService
 
         try
         {
+            var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            _logger.LogDebug("Starting AI {Operation} with provider {Provider} and model {Model}.",
+                commitMessage ? "commit-message generation" : "conflict resolution", provider, model);
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
             using var request = commitMessage
                 ? CreateRequest(provider, uri, settings, LimitInput(promptText, settings.AiMaxInputTokens), branchName, customInstruction)
@@ -49,34 +58,60 @@ public sealed class AiCommitMessageService
             using var response = await client.SendAsync(request);
             var responseBody = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("AI provider {Provider} returned HTTP {StatusCode} for {Operation} after {ElapsedMilliseconds} ms.",
+                    provider, (int)response.StatusCode, commitMessage ? "commit-message generation" : "conflict resolution",
+                    System.Diagnostics.Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
                 return new AiCommitMessageResult(false, string.Empty, string.Empty,
                     _localization.T("Provider returned status {0} for {1}: {2}", (int)response.StatusCode, uri.AbsolutePath, ExtractError(responseBody)));
+            }
 
             if (commitMessage)
             {
                 var (title, description) = ExtractMessage(provider, responseBody);
-                return string.IsNullOrWhiteSpace(title)
+                var result = string.IsNullOrWhiteSpace(title)
                     ? new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("The provider returned no commit title."))
                     : new AiCommitMessageResult(true, title.Trim().Trim('`'), description.Trim().Trim('`'), string.Empty);
+                LogAiResult(result.Success, provider, model, commitMessage, startedAt);
+                return result;
             }
 
             var resolvedContent = ExtractConflictContent(provider, responseBody);
-            return string.IsNullOrWhiteSpace(resolvedContent)
+            var conflictResult = string.IsNullOrWhiteSpace(resolvedContent)
                 ? new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("The AI provider returned no resolved content."))
                 : new AiCommitMessageResult(true, resolvedContent, string.Empty, string.Empty);
+            LogAiResult(conflictResult.Success, provider, model, commitMessage, startedAt);
+            return conflictResult;
         }
         catch (TaskCanceledException)
         {
+            _logger.LogWarning("AI provider {Provider} timed out during {Operation}.", provider,
+                commitMessage ? "commit-message generation" : "conflict resolution");
             return new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("The AI provider connection timed out."));
         }
         catch (HttpRequestException exception)
         {
+            _logger.LogWarning("AI provider {Provider} connection failed during {Operation}: {ErrorMessage}", provider,
+                commitMessage ? "commit-message generation" : "conflict resolution", exception.Message);
             return new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("Connection to the AI provider failed: {0}", exception.Message));
         }
         catch (JsonException exception)
         {
+            _logger.LogWarning("AI provider {Provider} returned an invalid response during {Operation}: {ErrorMessage}", provider,
+                commitMessage ? "commit-message generation" : "conflict resolution", exception.Message);
             return new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("Invalid AI provider response: {0}", exception.Message));
         }
+    }
+
+    private void LogAiResult(bool success, string provider, string model, bool commitMessage, long startedAt)
+    {
+        var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
+        if (success)
+            _logger.LogInformation("AI {Operation} with provider {Provider} and model {Model} completed in {ElapsedMilliseconds} ms.",
+                commitMessage ? "commit-message generation" : "conflict resolution", provider, model, elapsed);
+        else
+            _logger.LogWarning("AI {Operation} with provider {Provider} and model {Model} returned no usable result after {ElapsedMilliseconds} ms.",
+                commitMessage ? "commit-message generation" : "conflict resolution", provider, model, elapsed);
     }
 
     public async Task<AiCommitMessageResult> TestConnectionAsync(LauncherSettings settings)

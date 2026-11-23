@@ -3,14 +3,20 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using CodeBadger.Models;
+using Microsoft.Extensions.Logging;
 
 namespace CodeBadger.Services;
 
 public sealed class GitBranchService
 {
     private readonly LocalizationService _localization;
+    private readonly ILogger<GitBranchService> _logger;
 
-    public GitBranchService(LocalizationService localization) => _localization = localization;
+    public GitBranchService(LocalizationService localization, ILogger<GitBranchService> logger)
+    {
+        _localization = localization;
+        _logger = logger;
+    }
 
     public async Task<GitRepositorySnapshot> GetRepositorySnapshotAsync(
         string path,
@@ -1446,6 +1452,7 @@ public sealed class GitBranchService
 
     private async Task<GitOperationResult> RunGitCoreAsync(string path, bool allowExitCodeOne, params string[] arguments)
     {
+        var command = FormatArguments(arguments);
         if (OperatingSystem.IsIOS())
             return new GitOperationResult(false, _localization.T("Git is not available in PATH."), string.Empty);
 
@@ -1465,6 +1472,8 @@ public sealed class GitBranchService
 
         try
         {
+            var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            _logger.LogDebug("Running git command in {RepositoryPath}: git {GitArguments}", path, command);
             using var process = Process.Start(startInfo);
             if (process is null)
                 return new GitOperationResult(false, _localization.T("Git could not be started."), string.Empty);
@@ -1474,20 +1483,72 @@ public sealed class GitBranchService
             var output = await outputTask;
             var error = await errorTask;
             var success = process.ExitCode == 0 || (allowExitCodeOne && process.ExitCode == 1);
+            var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(startedAt);
+            if (success)
+                _logger.LogDebug("Git command completed with exit code {ExitCode} in {ElapsedMilliseconds} ms: git {GitArguments}. Output: {GitOutput}",
+                    process.ExitCode, elapsed.TotalMilliseconds, command, TruncateLogOutput(output));
+            else
+                _logger.LogWarning("Git command failed with exit code {ExitCode} in {ElapsedMilliseconds} ms: git {GitArguments}. Error: {GitError}",
+                    process.ExitCode, elapsed.TotalMilliseconds, command, TruncateLogOutput(error));
             return new GitOperationResult(success, success ? output.Trim() : error.Trim(), output, process.ExitCode);
         }
-        catch (Win32Exception)
+        catch (Win32Exception exception)
         {
+            _logger.LogError(exception, "Could not start git command: git {GitArguments}", command);
             return new GitOperationResult(false, _localization.T("Git is not available in PATH."), string.Empty);
         }
-        catch (DirectoryNotFoundException)
+        catch (DirectoryNotFoundException exception)
         {
+            _logger.LogWarning(exception, "Git working directory does not exist: {RepositoryPath}", path);
             return new GitOperationResult(false, _localization.T("Path does not exist"), string.Empty);
         }
         catch (InvalidOperationException exception)
         {
+            _logger.LogError(exception, "Could not execute git command: git {GitArguments}", command);
             return new GitOperationResult(false, exception.Message, string.Empty);
         }
+    }
+
+    private static string FormatArgument(string argument)
+    {
+        var safe = System.Text.RegularExpressions.Regex.Replace(argument,
+            @"(?i)(https?://)[^/@\s]+:[^/@\s]+@", "$1[redacted]@");
+        safe = System.Text.RegularExpressions.Regex.Replace(safe,
+            @"(?i)(token|authorization|password|api[_-]?key)(\s*[:=]\s*)[^\s,;]+", "$1$2[redacted]");
+        return safe.Any(char.IsWhiteSpace)
+            ? "\"" + safe.Replace("\"", "\\\"", StringComparison.Ordinal) + "\""
+            : safe;
+    }
+
+    private static string FormatArguments(IReadOnlyList<string> arguments)
+    {
+        var safeArguments = new List<string>(arguments.Count);
+        var redactNext = false;
+        foreach (var argument in arguments)
+        {
+            if (redactNext)
+            {
+                safeArguments.Add("[redacted]");
+                redactNext = false;
+                continue;
+            }
+
+            safeArguments.Add(FormatArgument(argument));
+            redactNext = argument is "-m" or "--message";
+        }
+
+        return string.Join(" ", safeArguments);
+    }
+
+    private static string TruncateLogOutput(string value)
+    {
+        const int maximumLength = 2000;
+        var trimmed = value.Trim();
+        trimmed = System.Text.RegularExpressions.Regex.Replace(trimmed,
+            @"(?i)(https?://)[^/@\s]+:[^/@\s]+@", "$1[redacted]@");
+        trimmed = System.Text.RegularExpressions.Regex.Replace(trimmed,
+            @"(?i)(token|authorization|password|api[_-]?key)(\s*[:=]\s*)[^\s,;]+", "$1$2[redacted]");
+        return trimmed.Length <= maximumLength ? trimmed : trimmed[..maximumLength] + "…";
     }
 }
 

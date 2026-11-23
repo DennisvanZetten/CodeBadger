@@ -12,13 +12,7 @@ public sealed class GitHostService(LocalizationService localization)
 {
     public async Task<GitHostConnection> CheckGitHubAsync()
     {
-        var result = await RunAsync("gh", ["auth", "status", "--hostname", "github.com"], null, suppressStandardError: true);
-        if (!result.Success && result.Message.Length == 0)
-        {
-            var version = await RunAsync("gh", "--version");
-            if (!version.Success)
-                result = version;
-        }
+        var result = await RunCliCheckAsync("gh", ["auth", "status", "--hostname", "github.com"]);
         return new GitHostConnection("GitHub", result.Success,
             result.Success ? localization.T("Connected to GitHub.") :
                 !string.IsNullOrWhiteSpace(result.Message) ? result.Message : localization.T("GitHub CLI is not authenticated. Run gh auth login."));
@@ -26,10 +20,10 @@ public sealed class GitHostService(LocalizationService localization)
 
     public async Task<GitHostConnection> CheckAzureDevOpsAsync(string organization)
     {
-        var extension = await RunAsync("az", "extension", "show", "--name", "azure-devops", "--output", "none");
+        var extension = await RunCliCheckAsync("az", ["extension", "show", "--name", "azure-devops", "--output", "none"]);
         if (!extension.Success)
             return new GitHostConnection("Azure DevOps", false, localization.T("Azure DevOps CLI extension is unavailable. Install it with: az extension add --name azure-devops"));
-        var account = await RunAsync("az", "account", "show", "--output", "none");
+        var account = await RunCliCheckAsync("az", ["account", "show", "--output", "none"]);
         if (!account.Success)
             return new GitHostConnection("Azure DevOps", false, localization.T("Sign in to Azure CLI with az login before using Azure DevOps."));
         if (string.IsNullOrWhiteSpace(organization))
@@ -42,10 +36,10 @@ public sealed class GitHostService(LocalizationService localization)
 
     public async Task<GitHostConnection> CheckAzureDevOpsCliAsync()
     {
-        var extension = await RunAsync("az", "extension", "show", "--name", "azure-devops", "--output", "none");
+        var extension = await RunCliCheckAsync("az", ["extension", "show", "--name", "azure-devops", "--output", "none"]);
         if (!extension.Success)
             return new GitHostConnection("Azure DevOps", false, localization.T("Azure DevOps CLI extension is unavailable. Install it with: az extension add --name azure-devops"));
-        var account = await RunAsync("az", "account", "show", "--output", "none");
+        var account = await RunCliCheckAsync("az", ["account", "show", "--output", "none"]);
         return account.Success
             ? new GitHostConnection("Azure DevOps", true, localization.T("Azure CLI is signed in. Azure DevOps organization access will be checked when selected."))
             : new GitHostConnection("Azure DevOps", false, localization.T("Sign in to Azure CLI with az login before using Azure DevOps."));
@@ -227,6 +221,49 @@ public sealed class GitHostService(LocalizationService localization)
 
     private async Task<CommandResult> RunGitAsync(string path, params string[] arguments) =>
         await RunAsync("git", arguments, path);
+
+    private async Task<CommandResult> RunCliCheckAsync(string executable, string[] arguments)
+    {
+        // Azure CLI is commonly installed as az.cmd; shims for gh may also be batch files.
+        // Windows cannot launch these wrappers directly with UseShellExecute=false.
+        if (!OperatingSystem.IsWindows())
+            return await RunAsync(executable, arguments, null, suppressStandardError: true);
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        startInfo.ArgumentList.Add("/d");
+        startInfo.ArgumentList.Add("/s");
+        startInfo.ArgumentList.Add("/c");
+        startInfo.ArgumentList.Add(string.Join(" ", new[] { executable }.Concat(arguments).Select(QuoteCommandArgument)));
+
+        try
+        {
+            using var process = Process.Start(startInfo) ?? throw new InvalidOperationException(localization.T("Could not start {0}.", executable));
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            var output = await outputTask;
+            var error = await errorTask;
+            return new CommandResult(process.ExitCode == 0, output.Trim(), string.IsNullOrWhiteSpace(error) ? output.Trim() : error.Trim());
+        }
+        catch (Win32Exception)
+        {
+            return new CommandResult(false, string.Empty, localization.T("{0} is not installed or is not available in PATH.", executable));
+        }
+    }
+
+    private static string QuoteCommandArgument(string argument)
+    {
+        if (argument.Contains('"') || argument.Contains('\r') || argument.Contains('\n'))
+            throw new ArgumentException("CLI arguments cannot contain quotes or line breaks.", nameof(argument));
+        return "\"" + argument.Replace("%", "%%", StringComparison.Ordinal) + "\"";
+    }
 
     private async Task<CommandResult> RunAsync(string executable, params string[] arguments) =>
         await RunAsync(executable, arguments, null);

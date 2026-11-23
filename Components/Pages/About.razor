@@ -246,13 +246,16 @@
         {
             var startInfo = new System.Diagnostics.ProcessStartInfo
             {
-                FileName = command,
+                FileName = "cmd.exe",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true
             };
-            startInfo.ArgumentList.Add(argument);
+            startInfo.ArgumentList.Add("/d");
+            startInfo.ArgumentList.Add("/s");
+            startInfo.ArgumentList.Add("/c");
+            startInfo.ArgumentList.Add($"\"{command} {argument}\"");
             using var process = System.Diagnostics.Process.Start(startInfo);
             if (process is null) return string.Empty;
             var output = await process.StandardOutput.ReadToEndAsync();

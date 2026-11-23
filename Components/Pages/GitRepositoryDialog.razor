@@ -247,11 +247,12 @@
                             <MudStack Spacing="2">
                                 <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Warning">
                                     <MudText Typo="Typo.subtitle2">@L.T("Branch cleanup changes local references")</MudText>
+                                    <MudText Typo="Typo.body2"><strong>@L.T("Only local branches are removed. Remote branches are not changed.")</strong></MudText>
                                     <MudText Typo="Typo.body2">@L.T("Removing a branch does not delete commits from shared history, but an unmerged branch may contain work you still need. Review candidates and keep a backup if unsure.")</MudText>
                                 </MudAlert>
                                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
                                     <div>
-                                        <MudText Typo="Typo.subtitle1">@L.T("Old merged branches")</MudText>
+                                        <MudText Typo="Typo.subtitle1">@L.T("Old merged local branches")</MudText>
                                         @if (!string.IsNullOrWhiteSpace(_maintenanceSnapshot?.DefaultBranchName))
                                         {
                                             <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Candidates are checked against the detected default branch '{0}' and inactive for at least 90 days. Protected branches are excluded.", _maintenanceSnapshot.DefaultBranchName)</MudText>
@@ -264,9 +265,9 @@
                                     <MudStack Row="true" Spacing="1" Class="flex-wrap">
                                         <MudButton Variant="Variant.Outlined" Disabled="@(_isOperating || _isLoadingMaintenance)" OnClick="LoadMaintenanceSnapshotAsync">@L.T("Refresh candidates")</MudButton>
                                         <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="@(_isOperating || _isLoadingMaintenance || _selectedMaintenanceBranches.Count == 0 || _maintenanceSnapshot?.DefaultBranchName is null)"
-                                                   OnClick="@(() => RemoveMaintenanceBranchesAsync(false))">@L.T("Remove selected ({0})", _selectedMaintenanceBranches.Count)</MudButton>
+                                                   OnClick="@(() => RemoveMaintenanceBranchesAsync(false))">@L.T("Remove selected local ({0})", _selectedMaintenanceBranches.Count)</MudButton>
                                         <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="@(_isOperating || _isLoadingMaintenance || _maintenanceSnapshot?.OldMergedBranches.Count == 0 || _maintenanceSnapshot?.DefaultBranchName is null)"
-                                                   OnClick="@(() => RemoveMaintenanceBranchesAsync(true))">@L.T("Remove all")</MudButton>
+                                                   OnClick="@(() => RemoveMaintenanceBranchesAsync(true))">@L.T("Remove all listed local branches")</MudButton>
                                     </MudStack>
                                 </MudStack>
                                 @if (_maintenanceSnapshot?.DefaultBranchName is null)
@@ -289,7 +290,7 @@
                                                         <MudText>@branch.Name <MudText Inline="true" Typo="Typo.caption" Color="Color.Secondary">@L.T("Inactive for {0} days", branch.AgeDays)</MudText></MudText>
                                                     </MudStack>
                                                     <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning"
-                                                               Disabled="@_isOperating" OnClick="@(() => DeleteMergedBranchAsync(branch))">@L.T("Remove local branch")</MudButton>
+                                                                Disabled="@_isOperating" OnClick="@(() => DeleteMergedBranchAsync(branch))">@L.T("Remove local branch")</MudButton>
                                                 </MudStack>
                                             </MudListItem>
                                         }
@@ -1242,11 +1243,11 @@
             return;
 
         var confirmed = await DialogService.ShowMessageBoxAsync(
-            removeAll ? L.T("Remove all old merged branches?") : L.T("Remove selected branches?"),
+            removeAll ? L.T("Remove all listed old merged local branches?") : L.T("Remove selected local branches?"),
             removeAll
                 ? L.T("Remove all {0} old merged local branches? Each branch will be checked again and Git will refuse removal if it is not safely merged.", branches.Count)
                 : L.T("Remove {0} selected local branches? Each branch will be checked again and Git will refuse removal if it is not safely merged.", branches.Count),
-            yesText: L.T("Remove {0} branches", branches.Count), cancelText: L.T("Cancel"),
+            yesText: L.T("Remove {0} local branches", branches.Count), cancelText: L.T("Cancel"),
             options: new DialogOptions { CloseOnEscapeKey = true });
         if (confirmed != true)
             return;

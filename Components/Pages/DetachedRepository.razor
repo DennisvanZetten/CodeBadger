@@ -154,7 +154,7 @@
                 { component => component.RepositoryPath, _repository.Path },
                 { component => component.AiSettings, _settings },
                 { component => component.RepositorySettings, _repository }
-            }, new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.ExtraExtraLarge, CloseButton = true, NoHeader = true, CloseOnEscapeKey = true });
+            }, new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.False, CloseButton = true, NoHeader = true, CloseOnEscapeKey = true });
         await dialog.Result;
         if (Directory.Exists(_repository.Path))
             _snapshot = await GitBranchService.GetRepositorySnapshotAsync(_repository.Path);

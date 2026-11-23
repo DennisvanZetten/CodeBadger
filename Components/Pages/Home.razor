@@ -524,7 +524,7 @@
             { dialog => dialog.AiSettings, _settings },
             { dialog => dialog.RepositorySettings, _settings.Repositories.FirstOrDefault(entry => entry.Id == repository.Id) }
         };
-        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.ExtraExtraLarge, CloseButton = true, NoHeader = true, CloseOnEscapeKey = true };
+        var options = new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.False, CloseButton = true, NoHeader = true, CloseOnEscapeKey = true };
         var dialog = await DialogService.ShowAsync<GitRepositoryDialog>(L.T("Git overview"), parameters, options);
         await dialog.Result;
         await RefreshBranches();

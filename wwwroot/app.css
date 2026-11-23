@@ -1100,11 +1100,28 @@ h1:focus {
     line-height: 1.2;
 }
 
-.git-overview-dialog {
-    width: min(96vw, 1800px) !important;
-    max-width: 96vw !important;
+.mud-dialog.git-overview-dialog {
+    box-sizing: border-box;
+    width: 98vw;
+    min-width: min(900px, 94vw);
+    max-width: 98vw;
     height: min(92vh, 1200px);
-    max-height: 92vh;
+    min-height: min(560px, 90vh);
+    max-height: 96vh;
+    resize: both;
+    overflow: hidden;
+}
+
+@media (max-width: 760px) {
+    .mud-dialog.git-overview-dialog {
+        width: 96vw !important;
+        min-width: 0;
+        max-width: 96vw !important;
+        height: 92vh;
+        min-height: 0;
+        max-height: 92vh;
+        resize: none;
+    }
 }
 
 .git-branch-list .git-branch-current {

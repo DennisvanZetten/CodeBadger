@@ -50,12 +50,13 @@ public sealed class GitBranchService
                 .Count(line => !line.TrimEnd('\r').Split('\t')[0].EndsWith("/HEAD", StringComparison.Ordinal))
             : 0;
         if (branchesResult.Success)
-            await ReportProgressAsync(progress, "Loading recent commits...", branchCount);
+        await ReportProgressAsync(progress, "Loading recent commits...", branchCount);
         var historyResult = await RunGitAsync(path, "log", "--all", "--date-order", "-n", "100", "--date=iso-strict", "--format=%H%x1f%P%x1f%h%x1f%s%x1f%an%x1f%ad");
 
         if (!statusResult.Success || !branchesResult.Success || !historyResult.Success)
             return GitRepositorySnapshot.Invalid(_localization.T("Git status unavailable."));
 
+        await ReportProgressAsync(progress, "Checking branch status...", branchCount);
         var (ahead, behind) = await GetAheadBehindAsync(path, branchResult.Output.Trim());
 
         var statusLines = statusResult.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
@@ -88,6 +89,10 @@ public sealed class GitBranchService
             .ToList();
 
         await ReportProgressAsync(progress, "Building commit graph...", branches.Count);
+        var graphStartedAt = Stopwatch.GetTimestamp();
+        var laidOutCommits = AssignGraphLayout(commits, branches, defaultBranch);
+        _logger.LogInformation("Built commit graph for {CommitCount} commits and {BranchCount} branches in {ElapsedMilliseconds} ms",
+            commits.Count, branches.Count, Stopwatch.GetElapsedTime(graphStartedAt).TotalMilliseconds);
         return new GitRepositorySnapshot(
             branchResult.Output.Trim(),
             statusLines.Length,
@@ -96,7 +101,7 @@ public sealed class GitBranchService
             ahead,
             behind,
             branches,
-            AssignGraphLayout(commits, branches, defaultBranch),
+            laidOutCommits,
             conflicts,
             null,
             warning);
@@ -575,6 +580,9 @@ public sealed class GitBranchService
             .Select((branch, index) => (branch.TipHash, Color: index % colors.Length))
             .GroupBy(item => item.TipHash, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First().Color, StringComparer.Ordinal);
+        var branchesByTip = branches
+            .GroupBy(branch => branch.TipHash, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.Ordinal);
         var visibleCommitHashes = commits.Select(commit => commit.Hash).ToHashSet(StringComparer.Ordinal);
 
         // Keep lane indices stable while a branch is active. Removing a lane from a
@@ -675,8 +683,8 @@ public sealed class GitBranchService
                 GraphColor = currentLane.Color,
                 GraphEdges = edges,
                 GraphWidth = Math.Max(lanesBefore.Length, lanes.Count),
-                BranchLabels = branches
-                    .Where(branch => branch.TipHash == commit.Hash)
+                BranchLabels = branchesByTip.TryGetValue(commit.Hash, out var tipBranches)
+                    ? tipBranches
                     .GroupBy(branch => branch.IsRemote ? GetLocalBranchName(branch.Name) : branch.Name, StringComparer.OrdinalIgnoreCase)
                     .Select(group => new GitCommitBranchLabel(
                         group.Key,
@@ -685,6 +693,7 @@ public sealed class GitBranchService
                         branchColors.TryGetValue(group.First().TipHash, out var labelColor) ? labelColor : currentLane.Color,
                         group.First().TipHash))
                     .ToList()
+                    : []
             });
         }
 

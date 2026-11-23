@@ -8,6 +8,7 @@
 @inject IDialogService DialogService
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
+@inject ILogger<GitRepositoryDialog> Logger
 @implements IAsyncDisposable
 
 <MudDialog Class="git-overview-dialog">
@@ -91,7 +92,16 @@
                                OnClick="@SwitchToMaintenanceViewAsync">@L.T("Maintenance")</MudButton>
                 </MudButtonGroup>
 
-                @if (_submodules.Entries.Count > 0)
+                @if (_isLoadingSubmodules)
+                {
+                    <MudPaper Class="pa-2 git-submodule-summary" Outlined="true" Elevation="0">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                            <MudText Typo="Typo.body2">@L.T("Loading submodules...")</MudText>
+                        </MudStack>
+                    </MudPaper>
+                }
+                else if (_submodules.Entries.Count > 0)
                 {
                     <MudPaper Class="pa-2 git-submodule-summary" Outlined="true" Elevation="0">
                         <MudText Typo="Typo.body2">@L.T("Submodules: {0} in sync · {1} out of sync · {2} not initialized", _submodules.InSyncCount, _submodules.OutOfSyncCount, _submodules.UninitializedCount)</MudText>
@@ -139,7 +149,12 @@
                                     <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_isOperating || _submodules.Entries.Count == 0)" OnClick="UpdateSubmodulesAsync">@L.T("Synchronize all")</MudButton>
                                 </MudStack>
                             </MudStack>
-            @if (_submodules.Entries.Count == 0)
+            @if (_isLoadingSubmodules)
+            {
+                <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Loading submodules...")</MudText>
+            }
+            else if (_submodules.Entries.Count == 0)
             {
                 <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("No submodules in this repository.")</MudText>
             }
@@ -853,6 +868,8 @@
     private string _commitTitle = string.Empty;
     private string _commitDescription = string.Empty;
     private bool _isLoading = true;
+    private bool _isLoadingSubmodules = true;
+    private int _refreshVersion;
     private string _loadingStage = "Checking repository...";
     private int? _loadedBranchCount;
     private bool _isLoadingDiff;
@@ -1105,16 +1122,21 @@
 
     private async Task RefreshAsync(bool fetch = false)
     {
+        var refreshVersion = ++_refreshVersion;
         _isLoading = true;
         _loadingStage = fetch ? "Fetching remotes..." : "Checking repository...";
         _loadedBranchCount = null;
+        _isLoadingSubmodules = true;
         try
         {
             _snapshot = await GitBranchService.GetRepositorySnapshotAsync(RepositoryPath, fetch, ReportSnapshotProgressAsync);
-            await RefreshSubmoduleSnapshotAsync();
             RefreshSoloBranchCommits();
+            await InvokeAsync(StateHasChanged);
+            _ = LoadSubmodulesInBackgroundAsync(refreshVersion);
+            await ReportSnapshotProgressAsync(new GitSnapshotProgress("Loading files..."));
             _shouldScrollToCurrentBranch = _snapshot?.IsValid == true && _snapshot.Branch is not null;
             _files = await GitBranchService.GetFileChangesAsync(RepositoryPath);
+            await ReportSnapshotProgressAsync(new GitSnapshotProgress("Loading stashes..."));
             _stashes = await GitBranchService.GetStashesAsync(RepositoryPath);
             _selectedUnstagedFilePaths.IntersectWith(UnstagedFiles.Select(file => file.Path));
             if (_snapshot?.IsValid == true && _files.Count > 0)
@@ -1127,10 +1149,31 @@
                 if (_selectedFile is not null)
                     await LoadDiffAsync(_selectedFile);
             }
+            await ReportSnapshotProgressAsync(new GitSnapshotProgress("Ready"));
         }
         finally
         {
             _isLoading = false;
+        }
+    }
+
+    private async Task LoadSubmodulesInBackgroundAsync(int refreshVersion)
+    {
+        try
+        {
+            var snapshot = await GitBranchService.GetSubmoduleSnapshotAsync(RepositoryPath);
+            if (refreshVersion != _refreshVersion)
+                return;
+
+            _submodules = snapshot;
+            _isLoadingSubmodules = false;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception exception)
+        {
+            if (refreshVersion == _refreshVersion)
+                _isLoadingSubmodules = false;
+            Logger.LogWarning(exception, "Could not load submodule overview for {RepositoryPath}", RepositoryPath);
         }
     }
 
@@ -2475,7 +2518,18 @@
             .FirstOrDefault();
     }
 
-    private async Task RefreshSubmoduleSnapshotAsync() => _submodules = await GitBranchService.GetSubmoduleSnapshotAsync(RepositoryPath);
+    private async Task RefreshSubmoduleSnapshotAsync()
+    {
+        _isLoadingSubmodules = true;
+        try
+        {
+            _submodules = await GitBranchService.GetSubmoduleSnapshotAsync(RepositoryPath);
+        }
+        finally
+        {
+            _isLoadingSubmodules = false;
+        }
+    }
 
     private async Task RefreshSubmodulesOnlyAsync()
     {

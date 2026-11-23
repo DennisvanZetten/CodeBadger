@@ -9,7 +9,7 @@ public sealed class WindowTitleBarService
     public event Action? IdeasRequested;
 
 #if WINDOWS
-    private readonly Dictionary<Window, (TitleBar TitleBar, ImageButton? SettingsButton, ImageButton? IdeasButton, ImageButton? HelpButton)> _titleBars = [];
+    private readonly Dictionary<Window, (TitleBar TitleBar, ImageButton? SettingsButton, BoxView? SettingsUpdateDot, ImageButton? IdeasButton, ImageButton? HelpButton)> _titleBars = [];
 #endif
 
     public bool UsesNativeTitleBar
@@ -37,6 +37,24 @@ public sealed class WindowTitleBarService
             Source = new FontImageSource { FontFamily = "Segoe MDL2 Assets", Glyph = "\uE713", Size = 20 }
         };
         settingsButton.Clicked += (_, _) => SettingsRequested?.Invoke();
+        var settingsUpdateDot = new BoxView
+        {
+            WidthRequest = 8,
+            HeightRequest = 8,
+            CornerRadius = 4,
+            BackgroundColor = Colors.OrangeRed,
+            HorizontalOptions = LayoutOptions.End,
+            VerticalOptions = LayoutOptions.Start,
+            Margin = new Thickness(0, 4, 5, 0),
+            IsVisible = false,
+            InputTransparent = true
+        };
+        var settingsButtonWithDot = new Grid
+        {
+            WidthRequest = 36,
+            HeightRequest = 36,
+            Children = { settingsButton, settingsUpdateDot }
+        };
         var ideasButton = new ImageButton
         {
             WidthRequest = 36,
@@ -77,10 +95,10 @@ public sealed class WindowTitleBarService
             {
                 Spacing = 0,
                 VerticalOptions = LayoutOptions.Center,
-                Children = { settingsButton, ideasButton, helpButton }
+                Children = { settingsButtonWithDot, ideasButton, helpButton }
             } : null
         };
-        _titleBars[window] = (titleBar, showSettings ? settingsButton : null, showSettings ? ideasButton : null, showSettings ? helpButton : null);
+        _titleBars[window] = (titleBar, showSettings ? settingsButton : null, showSettings ? settingsUpdateDot : null, showSettings ? ideasButton : null, showSettings ? helpButton : null);
         window.Destroying += (_, _) => _titleBars.Remove(window);
         window.TitleBar = titleBar;
         ApplyTheme(LauncherThemes.Get(null));
@@ -98,7 +116,7 @@ public sealed class WindowTitleBarService
 
         var background = theme.IsDark ? theme.Theme.PaletteDark.Background : theme.Theme.PaletteLight.Background;
         var text = theme.IsDark ? theme.Theme.PaletteDark.TextPrimary : theme.Theme.PaletteLight.TextPrimary;
-        foreach (var (titleBar, settingsButton, ideasButton, helpButton) in _titleBars.Values)
+        foreach (var (titleBar, settingsButton, _, ideasButton, helpButton) in _titleBars.Values)
         {
             titleBar.BackgroundColor = Color.FromArgb(background.ToString(MudColorOutputFormats.Hex));
             titleBar.ForegroundColor = Color.FromArgb(text.ToString(MudColorOutputFormats.Hex));
@@ -123,13 +141,28 @@ public sealed class WindowTitleBarService
             return;
         }
 
-        foreach (var (_, settingsButton, _, _) in _titleBars.Values)
+        foreach (var (_, settingsButton, _, _, _) in _titleBars.Values)
         {
             if (settingsButton is null)
                 continue;
             settingsButton.IsEnabled = enabled;
             SemanticProperties.SetDescription(settingsButton, description);
         }
+#endif
+    }
+
+    public void SetAgentUpdateAvailable(bool available)
+    {
+#if WINDOWS
+        if (!MainThread.IsMainThread)
+        {
+            MainThread.BeginInvokeOnMainThread(() => SetAgentUpdateAvailable(available));
+            return;
+        }
+
+        foreach (var (_, _, updateDot, _, _) in _titleBars.Values)
+            if (updateDot is not null)
+                updateDot.IsVisible = available;
 #endif
     }
 
@@ -142,7 +175,7 @@ public sealed class WindowTitleBarService
             return;
         }
 
-        foreach (var (_, _, _, helpButton) in _titleBars.Values)
+        foreach (var (_, _, _, _, helpButton) in _titleBars.Values)
         {
             if (helpButton is null)
                 continue;
@@ -161,7 +194,7 @@ public sealed class WindowTitleBarService
             return;
         }
 
-        foreach (var (_, _, ideasButton, _) in _titleBars.Values)
+        foreach (var (_, _, _, ideasButton, _) in _titleBars.Values)
         {
             if (ideasButton is null)
                 continue;

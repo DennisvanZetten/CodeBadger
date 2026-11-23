@@ -7,6 +7,7 @@
 @inject ISnackbar Snackbar
 @inject StartupDetectionService StartupDetection
 @inject UpdateService UpdateService
+@inject AgentUpdateService AgentUpdates
 @inject WindowTitleBarService WindowTitleBar
 @inject RepositoryDetachedWindowService DetachedWindows
 @inject NavigationManager Navigation
@@ -38,8 +39,10 @@ else
                 <img class="appbar-logo mr-3" src="codebadger.svg" alt="CodeBadger" />
                 <MudText Typo="Typo.h6">CodeBadger</MudText>
                 <MudSpacer />
-                <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Default" Size="Size.Small"
-                                aria-label="@L.T("Open settings")" OnClick="OpenSettingsAsync" />
+                <MudBadge Dot="true" Visible="@AgentUpdates.HasUpdates" Color="Color.Warning" Overlap="true" Origin="Origin.TopRight">
+                    <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Default" Size="Size.Small"
+                                    aria-label="@L.T("Open settings")" OnClick="OpenSettingsAsync" />
+                </MudBadge>
                 <MudTooltip Text="@L.T("Ideas and tasks")">
                     <MudIconButton Icon="@Icons.Material.Filled.Checklist" Color="Color.Default" Size="Size.Small"
                                    aria-label="@L.T("Ideas and tasks")" title="@L.T("Ideas and tasks")" OnClick="OpenIdeasAsync" />
@@ -82,6 +85,7 @@ else
     {
         L.LanguageChanged += HandleLanguageChanged;
         SettingsService.SettingsSaved += HandleSettingsSaved;
+        AgentUpdates.UpdatesChanged += HandleAgentUpdatesChanged;
         if (IsMainWindowRoute())
             WindowTitleBar.SetSettingsState(false, L.T("Open settings"));
     }
@@ -89,6 +93,11 @@ else
     private void HandleSettingsRequested() => _ = InvokeAsync(OpenSettingsAsync);
     private void HandleHelpRequested() => _ = InvokeAsync(OpenHelpMenuAsync);
     private void HandleIdeasRequested() => _ = InvokeAsync(OpenIdeasAsync);
+    private void HandleAgentUpdatesChanged() => _ = InvokeAsync(() =>
+    {
+        WindowTitleBar.SetAgentUpdateAvailable(AgentUpdates.HasUpdates);
+        StateHasChanged();
+    });
 
     protected override void OnInitialized()
     {
@@ -141,6 +150,8 @@ else
     {
         if (firstRender && IsMainWindowRoute())
             WindowTitleBar.SetSettingsState(true, L.T("Open settings"));
+        if (firstRender && IsMainWindowRoute())
+            _ = CheckForAgentUpdatesAsync();
         if (firstRender && IsDocumentationWindowRoute())
             await InitializeDocumentationWindowAsync();
         else if (firstRender && _isStarting)
@@ -172,6 +183,19 @@ else
             {
                 // Theme selection must never prevent the main page from rendering.
             }
+        }
+    }
+
+    private async Task CheckForAgentUpdatesAsync()
+    {
+        try
+        {
+            await AgentUpdates.CheckForUpdatesAsync();
+            WindowTitleBar.SetAgentUpdateAvailable(AgentUpdates.HasUpdates);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogDebug(exception, "Could not check coding agent updates.");
         }
     }
 
@@ -445,6 +469,7 @@ else
     {
         L.LanguageChanged -= HandleLanguageChanged;
         SettingsService.SettingsSaved -= HandleSettingsSaved;
+        AgentUpdates.UpdatesChanged -= HandleAgentUpdatesChanged;
         WindowTitleBar.SettingsRequested -= HandleSettingsRequested;
         WindowTitleBar.HelpRequested -= HandleHelpRequested;
         WindowTitleBar.IdeasRequested -= HandleIdeasRequested;

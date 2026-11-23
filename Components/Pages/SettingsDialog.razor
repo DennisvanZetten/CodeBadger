@@ -4,6 +4,7 @@
 @inject AgentConfigService AgentConfigService
 @inject SlackNotificationService SlackNotificationService
 @inject StartupDetectionService StartupDetection
+@inject AgentUpdateService AgentUpdates
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @inject IDialogService DialogService
@@ -102,9 +103,19 @@
                     }
                 </MudStack>
             </MudTabPanel>
-            <MudTabPanel Text="@L.T("Agent management")" Icon="@Icons.Material.Filled.Terminal">
-                <MudStack Spacing="3" Class="settings-content-stack">
-                    <MudText Typo="Typo.h6">@L.T("Agent management")</MudText>
+            <MudTabPanel Text="@L.T("Agent management")" Icon="@Icons.Material.Filled.Terminal"
+                         BadgeDot="@AgentUpdates.HasUpdates" BadgeColor="Color.Warning">
+                 <MudStack Spacing="3" Class="settings-content-stack">
+                     <MudText Typo="Typo.h6">@L.T("Agent management")</MudText>
+                     @foreach (var pendingUpdate in AgentUpdates.Statuses.Where(status => status.IsUpdateAvailable && status.Agent != _selectedAgent))
+                     {
+                         <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
+                             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
+                                 <span>@L.T("Update {0} from {1} to {2} is available.", pendingUpdate.Agent, pendingUpdate.InstalledVersion, pendingUpdate.LatestVersion ?? "?")</span>
+                                 <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="@(() => UpdateAgentAsync(pendingUpdate.Agent))">@L.T("Review and update")</MudButton>
+                             </MudStack>
+                         </MudAlert>
+                     }
                      <MudSelect T="string" Value="_selectedAgent" ValueChanged="LoadAgentConfigAsync" Label="@L.T("Agent tool")" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(_isLoadingAgentConfig || _isSavingAgentConfig)">
                          <MudSelectItem T="string" Value="@AgentTools.OpenCode">OpenCode</MudSelectItem>
                          <MudSelectItem T="string" Value="@AgentTools.ClaudeCode">Claude Code</MudSelectItem>
@@ -112,7 +123,7 @@
                           <MudSelectItem T="string" Value="@AgentTools.Hermes">Hermes</MudSelectItem>
                      </MudSelect>
                      <MudText Typo="Typo.subtitle1">@_selectedAgent</MudText>
-                     @if (GetAgentStartupState(_selectedAgent) is { } agentState)
+                      @if (GetAgentStartupState(_selectedAgent) is { } agentState)
                      {
                          <MudStack Row="true" Spacing="1" Class="flex-wrap">
                              <MudChip T="string" Size="Size.Small" Color="@(agentState.Installed ? Color.Success : Color.Warning)" Variant="Variant.Outlined">
@@ -122,8 +133,74 @@
                                  @L.T(agentState.HasGlobalConfig ? "Global settings found" : "No global settings found")
                              </MudChip>
                          </MudStack>
-                     }
-                      <MudText Typo="Typo.caption" Color="Color.Secondary">@_agentConfigPath</MudText>
+                      }
+                      @if (GetAgentUpdateStatus(_selectedAgent) is { } updateStatus)
+                      {
+                          <MudPaper Outlined="true" Elevation="0" Class="pa-3">
+                              <MudStack Spacing="2">
+                                  <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                                      <MudText Typo="Typo.subtitle1">@L.T("Agent update")</MudText>
+                                      <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="@AgentUpdates.IsChecking"
+                                                 OnClick="RefreshAgentUpdatesAsync">@L.T("Check again")</MudButton>
+                                  </MudStack>
+                                  <MudText Typo="Typo.body2">
+                                      @L.T("Installed: {0}", updateStatus.InstalledVersion)
+                                      @if (updateStatus.LatestVersion is { } latest)
+                                      {
+                                          <span> · @L.T("Latest: {0}", latest)</span>
+                                      }
+                                  </MudText>
+                                  @if (!updateStatus.IsCheckVerified)
+                                  {
+                                      <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("Could not verify the latest version from the official release source. Update status is unknown.")</MudAlert>
+                                  }
+                                  else if (updateStatus.IsUpdateAvailable)
+                                  {
+                                      <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                                          @if (!updateStatus.IsConfigImpactVerified)
+                                          {
+                                              @L.T("Release notes do not cover the installed version. Potential breaking changes could not be verified; review all notes before updating.")
+                                          }
+                                          else if (updateStatus.ConfigChangeMentioned)
+                                          {
+                                              @L.T("The release notes mention configuration, migration, deprecation, or breaking changes. Review the notes and check your config before updating.")
+                                          }
+                                          else
+                                          {
+                                              @L.T("No configuration-breaking changes were identified in the official release notes. This is not a guarantee; review the release notes before updating.")
+                                          }
+                                       </MudAlert>
+                                      @if (updateStatus.IsMajorUpgrade)
+                                      {
+                                          <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@L.T("This update crosses a major version boundary. Review the migration guide and release notes carefully; configuration and behavior may change.")</MudAlert>
+                                          @if (updateStatus.Agent == AgentTools.OpenCode)
+                                          {
+                                              <MudLink Href="https://opencode.ai/docs/migrate-v1" Target="_blank">@L.T("OpenCode major-version migration guide")</MudLink>
+                                          }
+                                      }
+                                      <MudLink Href="@updateStatus.ReleaseNotesUrl" Target="_blank">@L.T("Review official release notes")</MudLink>
+                                      <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning"
+                                                 Disabled="@_isUpdatingAgent" OnClick="@(() => UpdateAgentAsync(_selectedAgent))">
+                                          @(_isUpdatingAgent ? L.T("Preparing update...") : L.T("Back up config and open update terminal"))
+                                      </MudButton>
+                                  }
+                                  else
+                                  {
+                                      <MudText Typo="Typo.caption" Color="Color.Success">@L.T("Agent is up to date.")</MudText>
+                                  }
+                              </MudStack>
+                          </MudPaper>
+                      }
+                      else if (AgentUpdates.IsChecking)
+                      {
+                          <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Checking official agent releases...")</MudText>
+                      }
+                      else if (!AgentUpdates.HasChecked)
+                      {
+                          <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@AgentUpdates.IsChecking"
+                                     OnClick="RefreshAgentUpdatesAsync">@L.T("Check for agent updates")</MudButton>
+                      }
+                       <MudText Typo="Typo.caption" Color="Color.Secondary">@_agentConfigPath</MudText>
                      @if (!StartupDetection.IsAgentAvailable(_selectedAgent))
                      {
                          <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("{0} was not detected. Its settings are read-only until it is available.", _selectedAgent)</MudAlert>
@@ -387,6 +464,7 @@
     private bool _isLoadingAgentConfig;
     private bool _isSavingAgentConfig;
     private bool _agentConfigLoadFailed;
+    private bool _isUpdatingAgent;
     private bool _isLoadingSlackChannels;
     private bool _isTestingSlack;
     private bool _isTestingDiscord;
@@ -410,6 +488,13 @@
         _logLevelValues[ApplicationLogCategories.Notifications] = Settings.NotificationsLogLevel;
         _logLevelValues[ApplicationLogCategories.Ai] = Settings.AiLogLevel;
     }
+
+    protected override void OnInitialized()
+    {
+        AgentUpdates.UpdatesChanged += HandleAgentUpdatesChanged;
+    }
+
+    private void HandleAgentUpdatesChanged() => _ = InvokeAsync(StateHasChanged);
 
     private void ClearApplicationLogs() => ApplicationLogs.Clear();
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -572,6 +657,57 @@
 
     private AgentStartupState? GetAgentStartupState(string agent) => StartupDetection.GetAgentState(agent);
 
+    private AgentUpdateStatus? GetAgentUpdateStatus(string agent) => AgentUpdates.Statuses
+        .FirstOrDefault(status => status.Agent == AgentTools.Normalize(agent));
+
+    private Task RefreshAgentUpdatesAsync() => AgentUpdates.CheckForUpdatesAsync(refresh: true);
+
+    private async Task UpdateAgentAsync(string agent)
+    {
+        var update = GetAgentUpdateStatus(agent);
+        if (update is not { IsUpdateAvailable: true })
+            return;
+
+        if (update.Agent == AgentTools.OpenCode)
+        {
+            if (AgentUpdates.HasRunningOpenCodeProcess())
+            {
+                Snackbar.Add(L.T("Close all OpenCode sessions and terminals before updating."), Severity.Warning);
+                return;
+            }
+        }
+
+        var confirmation = !update.IsConfigImpactVerified || update.ConfigChangeMentioned || update.IsMajorUpgrade
+            ? L.T("The release notes indicate possible configuration changes, or could not be checked across every version. Back up configs and review the official notes first. Continue?")
+            : L.T("No configuration-breaking changes were identified in the available official release notes, but this is not guaranteed. Back up configs and review the notes before continuing.");
+        var configurationScope = update.Agent == AgentTools.Hermes
+            ? L.T("Detected Hermes config.yaml, including HERMES_HOME, will be archived.")
+            : L.T("Detected global and configured repository config files will be archived.");
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            L.T("Update {0} to {1}?", update.Agent, update.LatestVersion ?? "?"),
+            confirmation + "\n\n" + configurationScope + " " + L.T("The terminal performs the tool's official update command; CodeBadger will not update configuration files automatically."),
+            yesText: L.T("Back up and continue"), cancelText: L.T("Cancel"),
+            options: new DialogOptions { CloseOnEscapeKey = true });
+        if (confirmed != true)
+            return;
+
+        _isUpdatingAgent = true;
+        try
+        {
+            var backupPath = await AgentUpdates.CreateConfigBackupAsync(update.Agent, Settings);
+            AgentUpdates.StartUpdateInTerminal(update.Agent);
+            Snackbar.Add(L.T("Config backup created: {0}", backupPath), Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not prepare the agent update: {0}", exception.Message), Severity.Error);
+        }
+        finally
+        {
+            _isUpdatingAgent = false;
+        }
+    }
+
     private async Task TestAiConnectionAsync()
     {
         _isTestingAi = true;
@@ -706,6 +842,7 @@
     public void Dispose()
     {
         L.LanguageChanged -= HandleLanguageChanged;
+        AgentUpdates.UpdatesChanged -= HandleAgentUpdatesChanged;
         SlackNotificationService.ConnectionChanged -= HandleSlackConnectionChanged;
     }
 }

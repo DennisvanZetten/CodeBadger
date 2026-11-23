@@ -55,6 +55,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<ClaudeRepositoryConfigService>();
 		builder.Services.AddSingleton<OpenCodeRepositoryConfigService>();
 		builder.Services.AddSingleton<StartupDetectionService>();
+		builder.Services.AddSingleton<AgentUpdateService>();
 		builder.Services.AddSingleton<UpdateService>();
 
 #if DEBUG

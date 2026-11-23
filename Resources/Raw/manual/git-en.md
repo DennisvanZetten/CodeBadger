@@ -19,6 +19,20 @@ The **Branches & commits** view shows local and remote branches alongside recent
 - Right-click a commit for more actions: create a branch there, check out the commit detached, cherry-pick, revert, merge an eligible branch, or copy the branch name, commit information, or SHA.
 - Some actions are enabled only when the branch and working-tree state permit them safely. Checking out a commit and reverting require local changes to be committed or stashed first. Before cherry-picking, the module checks whether the commit is already on the current branch.
 
+## Submodules
+
+The **Submodules** view shows submodules recorded by the current commit, including nested submodules when their repository is initialized. Its summary counts matching, differing, and uninitialized checkouts.
+
+- **In sync** means only that the checked-out commit matches the commit recorded by the parent repository. Local modifications and untracked files are reported separately.
+- A branch name is informational; **detached HEAD is normal** for a submodule.
+- Each entry shows its path, expected and checked-out commits, local changes, conflicts, and errors. Nested status cannot be read until the parent submodule is initialized.
+- **Synchronize** initializes and updates all submodules recursively with `git submodule update --init --recursive`. The per-submodule button limits this to the selected submodule and its children.
+- **Sync URLs** runs `git submodule sync --recursive`. **Sync URLs and update** runs that first, then the update.
+- **Refresh status** reads local status only; it does not fetch.
+- Before updating, CodeBadger checks local changes and conflicts, including initialized nested submodules. It stops to preserve changes; it never automatically forces, resets, or stashes. Network, authentication, and missing-commit errors are shown.
+- Automatic synchronization after branch changes is a per-repository setting and is off by default. When enabled, CodeBadger warns before the main operation if local submodule changes exist. You can cancel or continue the main operation without submodule synchronization. After a successful branch change, it updates the submodules; a failed update does not undo the branch change.
+- Normal synchronization never uses `--remote`: the commit recorded by the parent, not a newer remote commit, is authoritative.
+
 ### Create a branch
 
 Select **New branch** to start from `HEAD`, or right-click a commit and select **Create branch here**. Enter a valid branch name. The new branch is created and checked out immediately.

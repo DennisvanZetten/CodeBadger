@@ -76,14 +76,30 @@
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@_snapshot.Warning</MudAlert>
                 }
 
-                <MudButtonGroup Color="Color.Primary" Variant="Variant.Outlined" Class="git-view-switch">
+                 <MudButtonGroup Color="Color.Primary" Variant="Variant.Outlined" Class="git-view-switch">
                     <MudButton Class="@(_view == GitView.History ? "git-view-active" : "git-view-inactive")"
                                StartIcon="@Icons.Material.Filled.AccountTree" Color="@(_view == GitView.History ? Color.Primary : Color.Default)" Variant="@(_view == GitView.History ? Variant.Filled : Variant.Outlined)"
                                 OnClick="@(() => _view = GitView.History)">@L.T("Branches & commits")</MudButton>
                     <MudButton Class="@(_view == GitView.Commit ? "git-view-active" : "git-view-inactive")"
                                StartIcon="@Icons.Material.Filled.EditNote" Color="@(_view == GitView.Commit ? Color.Primary : Color.Default)" Variant="@(_view == GitView.Commit ? Variant.Filled : Variant.Outlined)"
-                                OnClick="@(() => SwitchToCommitViewAsync())">@L.T("Create commit")</MudButton>
+                                 OnClick="@(() => SwitchToCommitViewAsync())">@L.T("Create commit")</MudButton>
+                    <MudButton Class="@(_view == GitView.Submodules ? "git-view-active" : "git-view-inactive")"
+                               StartIcon="@Icons.Material.Filled.AccountTree" Color="@(_view == GitView.Submodules ? Color.Primary : Color.Default)" Variant="@(_view == GitView.Submodules ? Variant.Filled : Variant.Outlined)"
+                               OnClick="@(() => SwitchToSubmodulesViewAsync())">@L.T("Submodules") (@_submodules.Entries.Count)</MudButton>
                 </MudButtonGroup>
+
+                @if (_submodules.Entries.Count > 0)
+                {
+                    <MudPaper Class="pa-2 git-submodule-summary" Outlined="true" Elevation="0">
+                        <MudText Typo="Typo.body2">@L.T("Submodules: {0} in sync · {1} out of sync · {2} not initialized", _submodules.InSyncCount, _submodules.OutOfSyncCount, _submodules.UninitializedCount)</MudText>
+                    </MudPaper>
+                }
+                else
+                {
+                    <MudPaper Class="pa-2 git-submodule-summary" Outlined="true" Elevation="0">
+                        <MudText Typo="Typo.body2">@L.T("No submodules in this repository.")</MudText>
+                    </MudPaper>
+                }
 
                 @if (_snapshot.Conflicts.Count > 0)
                 {
@@ -104,7 +120,38 @@
                     </MudAlert>
                 }
 
-                @if (_view == GitView.History)
+                @if (_view == GitView.Submodules)
+                {
+                    <MudPaper Class="pa-3 git-dialog-panel git-submodules-panel" Outlined="true" Elevation="0">
+                        <MudStack Spacing="2">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                <MudText Typo="Typo.subtitle1">@L.T("Submodules")</MudText>
+                                    <MudSwitch T="bool" Value="@(_repositorySettings?.AutoSyncSubmodules ?? false)" ValueChanged="SetAutoSyncSubmodulesAsync" Color="Color.Primary" Disabled="@(_isOperating || _repositorySettings is null)" Label="@L.T("Automatically sync after branch changes")" />
+                                </MudStack>
+                                <MudStack Row="true" Spacing="1" Class="flex-wrap">
+                                    <MudButton Variant="Variant.Outlined" Disabled="@_isOperating" OnClick="RefreshSubmodulesAsync">@L.T("Refresh status")</MudButton>
+                                    <MudButton Variant="Variant.Outlined" Disabled="@_isOperating" OnClick="SyncSubmoduleUrlsAsync">@L.T("Sync URLs")</MudButton>
+                                    <MudButton Variant="Variant.Outlined" Disabled="@_isOperating" OnClick="SyncAndUpdateSubmodulesAsync">@L.T("Sync URLs and update")</MudButton>
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_isOperating || _submodules.Entries.Count == 0)" OnClick="UpdateSubmodulesAsync">@L.T("Synchronize all")</MudButton>
+                                </MudStack>
+                            </MudStack>
+            @if (_submodules.Entries.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("No submodules in this repository.")</MudText>
+            }
+            else
+                            {
+                                <div class="git-submodule-tree">@SubmoduleTree(string.Empty)</div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_submoduleMessage))
+                            {
+                                <MudAlert Severity="@(_submoduleOperationSucceeded ? Severity.Success : Severity.Warning)" Variant="Variant.Outlined">@_submoduleMessage</MudAlert>
+                            }
+                        </MudStack>
+                    </MudPaper>
+                }
+                else if (_view == GitView.History)
                 {
                     <div class="git-history-workspace @(_isBranchPanelCollapsed ? "git-history-workspace-collapsed" : "") @(_isCommitFilesPanelCollapsed ? "git-history-commit-files-collapsed" : "")">
                         <MudPaper Class="pa-3 git-dialog-panel git-branch-panel" Outlined="true" Elevation="0">
@@ -611,6 +658,10 @@
     [Parameter] public RepositoryEntry? RepositorySettings { get; set; }
 
     private GitRepositorySnapshot? _snapshot;
+    private GitSubmoduleSnapshot _submodules = new([]);
+    private RepositoryEntry? _repositorySettings;
+    private string? _submoduleMessage;
+    private bool _submoduleOperationSucceeded;
     private IReadOnlyList<GitFileChange> _files = [];
     private IReadOnlyList<GitStashEntry> _stashes = [];
     private GitFileChange? _selectedFile;
@@ -800,6 +851,7 @@
         _showCommitAuthor = RepositorySettings?.ShowCommitAuthor ?? true;
         _showCommitDate = RepositorySettings?.ShowCommitDate ?? true;
         _showCommitSha = RepositorySettings?.ShowCommitSha ?? true;
+        _repositorySettings = RepositorySettings;
     }
 
     protected override async Task OnInitializedAsync()
@@ -861,6 +913,7 @@
         try
         {
             _snapshot = await GitBranchService.GetRepositorySnapshotAsync(RepositoryPath, fetch, ReportSnapshotProgressAsync);
+            await RefreshSubmoduleSnapshotAsync();
             RefreshSoloBranchCommits();
             _shouldScrollToCurrentBranch = _snapshot?.IsValid == true && _snapshot.Branch is not null;
             _files = await GitBranchService.GetFileChangesAsync(RepositoryPath);
@@ -1774,7 +1827,20 @@
         _isCreatingBranch = true;
         try
         {
-            var result = await GitBranchService.CreateAndCheckoutBranchAsync(RepositoryPath, _newBranchName, _createBranchStartPoint);
+            var autoSync = _repositorySettings?.AutoSyncSubmodules == true;
+            if (autoSync)
+            {
+                var safety = await GitBranchService.CheckSubmoduleTreesCleanAsync(RepositoryPath);
+                if (!safety.Success)
+                {
+                    var proceed = await DialogService.ShowMessageBoxAsync(L.T("Submodule changes detected"),
+                        L.T("The branch can be switched, but submodules will not be synchronized to preserve local changes. Continue?\n\n{0}", safety.Message),
+                        yesText: L.T("Continue without syncing"), cancelText: L.T("Cancel"));
+                    if (proceed != true) return;
+                    autoSync = false;
+                }
+            }
+            var result = await GitBranchService.CreateAndCheckoutBranchAsync(RepositoryPath, _newBranchName, _createBranchStartPoint, autoSync);
             if (!result.Success)
             {
                 Snackbar.Add(L.T("Could not create branch: {0}", result.Message), Severity.Error);
@@ -1802,7 +1868,14 @@
         _isOperating = true;
         try
         {
-            var result = await GitBranchService.MergeBranchIntoCurrentAsync(RepositoryPath, sourceBranch, targetBranch);
+            var autoSync = _repositorySettings?.AutoSyncSubmodules == true;
+            var safety = autoSync ? await GitBranchService.CheckSubmoduleTreesCleanAsync(RepositoryPath) : new GitOperationResult(true, string.Empty, string.Empty);
+            if (autoSync && !safety.Success)
+            {
+                var proceed = await DialogService.ShowMessageBoxAsync(L.T("Submodule changes detected"), L.T("The merge can continue, but submodules will not be synchronized to preserve local changes. Continue?\n\n{0}", safety.Message), yesText: L.T("Continue without syncing"), cancelText: L.T("Cancel"));
+                if (proceed != true) return;
+            }
+            var result = await GitBranchService.MergeBranchIntoCurrentAsync(RepositoryPath, sourceBranch, targetBranch, autoSync && safety.Success);
             Snackbar.Add(result.Success
                     ? L.T("Branch '{0}' merged into '{1}'.", sourceBranch, targetBranch)
                     : L.T("Merge failed: {0}", result.Message),
@@ -1826,7 +1899,14 @@
         _isOperating = true;
         try
         {
-            var result = await GitBranchService.CheckoutCommitAsync(RepositoryPath, commit.Hash);
+            var autoSync = _repositorySettings?.AutoSyncSubmodules == true;
+            var safety = autoSync ? await GitBranchService.CheckSubmoduleTreesCleanAsync(RepositoryPath) : new GitOperationResult(true, string.Empty, string.Empty);
+            if (autoSync && !safety.Success)
+            {
+                var proceed = await DialogService.ShowMessageBoxAsync(L.T("Submodule changes detected"), L.T("The commit can be checked out, but submodules will not be synchronized to preserve local changes. Continue?\n\n{0}", safety.Message), yesText: L.T("Continue without syncing"), cancelText: L.T("Cancel"));
+                if (proceed != true) return;
+            }
+            var result = await GitBranchService.CheckoutCommitAsync(RepositoryPath, commit.Hash, autoSync && safety.Success);
             Snackbar.Add(result.Success
                     ? L.T("Checked out commit {0} in detached HEAD.", commit.ShortHash)
                     : L.T("Could not check out commit: {0}", result.Message),
@@ -1988,6 +2068,107 @@
             .FirstOrDefault();
     }
 
+    private async Task RefreshSubmoduleSnapshotAsync() => _submodules = await GitBranchService.GetSubmoduleSnapshotAsync(RepositoryPath);
+
+    private async Task RefreshSubmodulesOnlyAsync()
+    {
+        await RefreshSubmoduleSnapshotAsync();
+        _submoduleMessage = null;
+    }
+
+    private Task SwitchToSubmodulesViewAsync()
+    {
+        _view = GitView.Submodules;
+        return RefreshSubmoduleSnapshotAsync();
+    }
+
+    private async Task SetAutoSyncSubmodulesAsync(bool enabled)
+    {
+        _repositorySettings ??= RepositorySettings;
+        if (_repositorySettings is null) return;
+        _repositorySettings.AutoSyncSubmodules = enabled;
+        var settings = await LauncherSettingsService.LoadAsync();
+        var repository = settings.Repositories.FirstOrDefault(item => item.Id == _repositorySettings.Id);
+        if (repository is null) return;
+        repository.AutoSyncSubmodules = enabled;
+        await LauncherSettingsService.SaveAsync(settings);
+    }
+
+    private RenderFragment SubmoduleTree(string parentPath) => @<div class="git-submodule-tree-level">
+        @foreach (var module in _submodules.Entries.Where(item => item.ParentPath == parentPath))
+        {
+            <details @key="module.Path" class="git-submodule-item">
+                <summary>
+                    <span class="git-submodule-name">@module.Name</span><span class="git-submodule-path">@module.Path</span>
+                    <MudChip T="string" Size="Size.Small" Color="@SubmoduleStatusColor(module)" Variant="Variant.Outlined">@SubmoduleStatus(module)</MudChip>
+                </summary>
+                <div class="git-submodule-details">
+                    <MudText Typo="Typo.caption">@L.T("Expected: {0}", ShortHash(module.ExpectedCommit)) · @L.T("Checked out: {0}", module.CheckedOutCommit is null ? "—" : ShortHash(module.CheckedOutCommit))</MudText>
+                    <MudText Typo="Typo.caption">@(module.Branch is null ? L.T("Detached HEAD") : L.T("Branch: {0}", module.Branch)) · @L.T("Local changes: {0}", module.HasLocalChanges ? L.T("Yes") : L.T("No")) · @L.T("Untracked: {0}", module.HasUntrackedFiles ? L.T("Yes") : L.T("No"))</MudText>
+                    @if (module.HasConflicts) { <MudText Typo="Typo.caption" Color="Color.Error">@L.T("Conflicts found")</MudText> }
+                    @if (!string.IsNullOrWhiteSpace(module.Error)) { <MudText Typo="Typo.caption" Color="Color.Error">@module.Error</MudText> }
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@_isOperating" OnClick="@(() => UpdateSubmoduleAsync(module.Path))">@L.T("Synchronize")</MudButton>
+                    @SubmoduleTree(module.Path)
+                </div>
+            </details>
+        }
+    </div>;
+
+    private string SubmoduleStatus(GitSubmoduleEntry module) => module.HasConflicts ? L.T("Conflict")
+        : module.Error is not null ? L.T("Error") : !module.IsInitialized ? L.T("Not initialized")
+        : module.InSync ? L.T("In sync") : L.T("Out of sync");
+
+    private static Color SubmoduleStatusColor(GitSubmoduleEntry module) => module.HasConflicts || module.Error is not null ? Color.Error
+        : !module.IsInitialized || !module.InSync ? Color.Warning : Color.Success;
+
+    private static string ShortHash(string hash) => hash.Length > 10 ? hash[..10] : hash;
+
+    private async Task RunSubmoduleOperationAsync(Func<Task<GitOperationResult>> operation, string progress)
+    {
+        _isOperating = true;
+        _loadingStage = progress;
+        _submoduleMessage = null;
+        try
+        {
+            var result = await operation();
+            _submoduleOperationSucceeded = result.Success;
+            _submoduleMessage = result.Success ? L.T("Submodule operation completed.") : result.Message;
+            await RefreshSubmoduleSnapshotAsync();
+            await RefreshAsync();
+            _view = GitView.Submodules;
+        }
+        finally { _isOperating = false; }
+    }
+
+    private async Task RefreshSubmodulesAsync()
+    {
+        await RefreshSubmodulesOnlyAsync();
+    }
+
+    private Task SyncSubmoduleUrlsAsync() => RunSubmoduleOperationAsync(() => GitBranchService.SyncSubmoduleUrlsAsync(RepositoryPath), "Synchronizing submodule URLs...");
+    private Task SyncAndUpdateSubmodulesAsync() => RunSubmoduleOperationAsync(() => GitBranchService.SyncAndUpdateSubmodulesAsync(RepositoryPath), "Synchronizing submodules...");
+    private Task UpdateSubmodulesAsync() => RunSubmoduleOperationAsync(() => GitBranchService.UpdateSubmodulesAsync(RepositoryPath), "Updating submodules...");
+    private Task UpdateSubmoduleAsync(string path) => RunSubmoduleOperationAsync(() => GitBranchService.UpdateSubmodulesAsync(RepositoryPath, path), "Updating submodule...");
+
+    private async Task<GitOperationResult> CheckoutBranchWithSafetyAsync(string branch)
+    {
+        if (_repositorySettings?.AutoSyncSubmodules != true)
+            return await GitBranchService.CheckoutBranchAsync(RepositoryPath, branch);
+        var safety = await GitBranchService.CheckSubmoduleTreesCleanAsync(RepositoryPath);
+        if (!safety.Success)
+        {
+            var proceed = await DialogService.ShowMessageBoxAsync(L.T("Submodule changes detected"),
+                L.T("The branch can be switched, but submodules will not be synchronized to preserve local changes. Continue?\n\n{0}", safety.Message),
+                yesText: L.T("Continue without syncing"), cancelText: L.T("Cancel"), options: new DialogOptions { CloseOnEscapeKey = true });
+            if (proceed != true)
+                return new GitOperationResult(false, L.T("Branch switch cancelled."), string.Empty);
+        }
+        var result = await GitBranchService.CheckoutBranchAsync(RepositoryPath, branch);
+        if (!result.Success || !safety.Success) return result;
+        var update = await GitBranchService.UpdateSubmodulesAsync(RepositoryPath);
+        return update.Success ? result : new GitOperationResult(false, L.T("Branch switched, but submodules were not fully updated: {0}", update.Message), update.Output, update.ExitCode);
+    }
+
     private bool IsCommitReachableFromTip(string targetHash, string tipHash)
     {
         if (_snapshot is null)
@@ -2015,11 +2196,64 @@
 
     private sealed record BranchFolder(string? Name, IReadOnlyList<GitBranchEntry> Branches);
     private sealed record GitCommitFile(string Path, string Status);
-    private enum GitView { History, Commit }
+    private enum GitView { History, Commit, Submodules }
     private enum CommitDisplayOption { BranchLabels, Graph, Author, Date, Sha }
 
-    private Task PullAsync() => RunGitOperationAsync(() => GitBranchService.PullAsync(RepositoryPath), "Pull");
-    private Task PushAsync() => RunGitOperationAsync(() => GitBranchService.PushWhenUpToDateAsync(RepositoryPath), "Push");
+    private async Task PullAsync()
+    {
+        var autoSync = _repositorySettings?.AutoSyncSubmodules == true;
+        var syncAfterPull = autoSync;
+        if (autoSync)
+        {
+            var safety = await GitBranchService.CheckSubmoduleTreesCleanAsync(RepositoryPath);
+            if (!safety.Success)
+            {
+                var proceed = await DialogService.ShowMessageBoxAsync(L.T("Submodule changes detected"),
+                    L.T("The pull can continue, but submodules will not be synchronized to preserve local changes. Continue?\n\n{0}", safety.Message),
+                    yesText: L.T("Continue without syncing"), cancelText: L.T("Cancel"));
+                if (proceed != true) return;
+                autoSync = false;
+            }
+        }
+        await RunGitOperationAsync(async () =>
+        {
+            var result = await GitBranchService.PullAsync(RepositoryPath, false);
+            if (!result.Success || !syncAfterPull || !autoSync) return result;
+            var postPullSafety = await GitBranchService.CheckSubmoduleTreesCleanAsync(RepositoryPath);
+            if (!postPullSafety.Success)
+                return new GitOperationResult(false, L.T("Pull completed, but submodules were not updated to preserve local changes: {0}", postPullSafety.Message), result.Output);
+            var update = await GitBranchService.UpdateSubmodulesAsync(RepositoryPath);
+            return update.Success ? result : new GitOperationResult(false, L.T("Pull completed, but submodules were not fully updated: {0}", update.Message), update.Output, update.ExitCode);
+        }, "Pull");
+    }
+
+    private async Task PushAsync()
+    {
+        var autoSync = _repositorySettings?.AutoSyncSubmodules == true;
+        var syncAfterPull = autoSync;
+        if (autoSync)
+        {
+            var safety = await GitBranchService.CheckSubmoduleTreesCleanAsync(RepositoryPath);
+            if (!safety.Success)
+            {
+                var proceed = await DialogService.ShowMessageBoxAsync(L.T("Submodule changes detected"),
+                    L.T("The push may pull remote changes, but submodules will not be synchronized to preserve local changes. Continue?\n\n{0}", safety.Message),
+                    yesText: L.T("Continue without syncing"), cancelText: L.T("Cancel"));
+                if (proceed != true) return;
+                autoSync = false;
+            }
+        }
+        await RunGitOperationAsync(async () =>
+        {
+            var result = await GitBranchService.PushWhenUpToDateAsync(RepositoryPath, false);
+            if (!result.Success || !syncAfterPull || !autoSync) return result;
+            var postPullSafety = await GitBranchService.CheckSubmoduleTreesCleanAsync(RepositoryPath);
+            if (!postPullSafety.Success)
+                return new GitOperationResult(false, L.T("Pull completed, but submodules were not updated to preserve local changes: {0}", postPullSafety.Message), result.Output);
+            var update = await GitBranchService.UpdateSubmodulesAsync(RepositoryPath);
+            return update.Success ? result : new GitOperationResult(false, L.T("Pull completed, but submodules were not fully updated: {0}", update.Message), update.Output, update.ExitCode);
+        }, "Push");
+    }
 
     private async Task RunGitOperationAsync(Func<Task<GitOperationResult>> operation, string name)
     {
@@ -2062,7 +2296,7 @@
         _isOperating = true;
         try
         {
-            var result = await GitBranchService.CheckoutBranchAsync(RepositoryPath, branch);
+            var result = await CheckoutBranchWithSafetyAsync(branch);
             Snackbar.Add(result.Success ? L.T("Branch '{0}' checked out.", branch) : result.Message,
                 result.Success ? Severity.Success : Severity.Error);
             await RefreshAsync();

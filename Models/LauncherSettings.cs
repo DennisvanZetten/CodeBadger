@@ -62,6 +62,7 @@ public sealed class RepositoryEntry
     public bool ShowCommitAuthor { get; set; } = true;
     public bool ShowCommitDate { get; set; } = true;
     public bool ShowCommitSha { get; set; } = true;
+    public bool AutoSyncSubmodules { get; set; }
 }
 
 public static class TicketSystems

@@ -58,6 +58,13 @@
                 }
             </MudStack>
 
+            <fieldset class="repository-dialog-section">
+                <legend>@L.T("Submodules")</legend>
+                <MudSwitch T="bool" @bind-Value="Repository.AutoSyncSubmodules" Color="Color.Primary"
+                           Label="@L.T("Automatically sync after branch changes")" />
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Local submodule changes are checked before branch changes. You can cancel or continue without synchronization; changes are never stashed or discarded automatically.")</MudText>
+            </fieldset>
+
             <fieldset class="repository-ticket-settings">
                 <legend>@L.T("Tickets")</legend>
                 <MudSwitch T="bool" @bind-Value="Repository.TicketRequired" Color="Color.Primary"

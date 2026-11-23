@@ -303,8 +303,14 @@ public sealed class GitBranchService
     public async Task<GitOperationResult> GetCommitFileDiffAsync(string path, string commitHash, string filePath) =>
         await RunGitAsync(path, "show", "--format=", "--no-ext-diff", "--find-renames", $"{commitHash}", "--", filePath);
 
-    public async Task<GitOperationResult> CheckoutCommitAsync(string path, string commitHash)
+    public async Task<GitOperationResult> CheckoutCommitAsync(string path, string commitHash, bool autoSyncSubmodules = false)
     {
+        if (autoSyncSubmodules)
+        {
+            var submoduleSafety = await CheckSubmoduleTreesCleanAsync(path);
+            if (!submoduleSafety.Success)
+                return submoduleSafety;
+        }
         var statusResult = await RunGitAsync(path, "status", "--porcelain=v1", "-uall");
         if (!statusResult.Success)
             return new GitOperationResult(false, _localization.T("Could not check the working tree before checkout: {0}", statusResult.Message), string.Empty);
@@ -315,7 +321,13 @@ public sealed class GitBranchService
         if (!commitResult.Success)
             return new GitOperationResult(false, _localization.T("The selected commit is no longer available."), string.Empty);
 
-        return await RunGitAsync(path, "switch", "--detach", commitResult.Output.Trim());
+        var checkout = await RunGitAsync(path, "-c", "submodule.recurse=false", "switch", "--detach", commitResult.Output.Trim());
+        if (!checkout.Success || !autoSyncSubmodules) return checkout;
+        var postCheckoutSafety = await CheckSubmoduleTreesCleanAsync(path);
+        if (!postCheckoutSafety.Success)
+            return new GitOperationResult(false, _localization.T("Commit checked out, but submodules were not updated to preserve local changes: {0}", postCheckoutSafety.Message), checkout.Output);
+        var update = await UpdateSubmodulesWithoutPreflightAsync(path);
+        return update.Success ? checkout : new GitOperationResult(false, _localization.T("Commit checked out, but submodules were not fully updated: {0}", update.Message), update.Output, update.ExitCode);
     }
 
     public async Task<GitCommitBranchCheck> IsCommitOnCurrentBranchAsync(string path, string commitHash)
@@ -375,7 +387,7 @@ public sealed class GitBranchService
         return await RunGitAsync(path, "reset", resetMode, commitResult.Output.Trim());
     }
 
-    public async Task<GitOperationResult> CreateAndCheckoutBranchAsync(string path, string branchName, string startPoint)
+    public async Task<GitOperationResult> CreateAndCheckoutBranchAsync(string path, string branchName, string startPoint, bool autoSyncSubmodules = false)
     {
         branchName = branchName.Trim();
         if (string.IsNullOrWhiteSpace(branchName))
@@ -389,7 +401,18 @@ public sealed class GitBranchService
         if (!startPointResult.Success)
             return new GitOperationResult(false, _localization.T("The selected starting point is no longer available."), string.Empty);
 
-        return await RunGitAsync(path, "switch", "--create", branchName, startPointResult.Output.Trim());
+        if (autoSyncSubmodules)
+        {
+            var safety = await CheckSubmoduleTreesCleanAsync(path);
+            if (!safety.Success) return safety;
+        }
+        var checkout = await RunGitAsync(path, "-c", "submodule.recurse=false", "switch", "--create", branchName, startPointResult.Output.Trim());
+        if (!checkout.Success || !autoSyncSubmodules) return checkout;
+        var postCheckoutSafety = await CheckSubmoduleTreesCleanAsync(path);
+        if (!postCheckoutSafety.Success)
+            return new GitOperationResult(false, _localization.T("Branch switched, but submodules were not updated to preserve local changes: {0}", postCheckoutSafety.Message), checkout.Output);
+        var update = await UpdateSubmodulesWithoutPreflightAsync(path);
+        return update.Success ? checkout : new GitOperationResult(false, _localization.T("Branch switched, but submodules were not fully updated: {0}", update.Message), update.Output, update.ExitCode);
     }
 
     public async Task<IReadOnlyList<string>> GetLocalBranchNamesAsync(string path)
@@ -451,8 +474,14 @@ public sealed class GitBranchService
             : new GitBranchMergeCheck(true, null);
     }
 
-    public async Task<GitOperationResult> MergeBranchIntoCurrentAsync(string path, string sourceBranch, string expectedTargetBranch)
+    public async Task<GitOperationResult> MergeBranchIntoCurrentAsync(string path, string sourceBranch, string expectedTargetBranch, bool autoSyncSubmodules = false)
     {
+        if (autoSyncSubmodules)
+        {
+            var submoduleSafety = await CheckSubmoduleTreesCleanAsync(path);
+            if (!submoduleSafety.Success)
+                return submoduleSafety;
+        }
         var check = await CheckBranchCanMergeAsync(path, sourceBranch);
         if (!check.CanMerge)
             return new GitOperationResult(false, check.Error ?? _localization.T("Branch status unavailable."), string.Empty);
@@ -467,7 +496,13 @@ public sealed class GitBranchService
         if (!currentResult.Success || !string.Equals(currentResult.Output.Trim(), expectedTargetBranch, StringComparison.Ordinal))
             return new GitOperationResult(false, _localization.T("The checked-out branch changed. Refresh and try again."), string.Empty);
 
-        return await RunGitAsync(path, "merge", "--no-edit", $"refs/heads/{sourceBranch}");
+        var merge = await RunGitAsync(path, "-c", "submodule.recurse=false", "merge", "--no-edit", $"refs/heads/{sourceBranch}");
+        if (!merge.Success || !autoSyncSubmodules) return merge;
+        var postMergeSafety = await CheckSubmoduleTreesCleanAsync(path);
+        if (!postMergeSafety.Success)
+            return new GitOperationResult(false, _localization.T("Merge completed, but submodules were not updated to preserve local changes: {0}", postMergeSafety.Message), merge.Output);
+        var update = await UpdateSubmodulesWithoutPreflightAsync(path);
+        return update.Success ? merge : new GitOperationResult(false, _localization.T("Merge completed, but submodules were not fully updated: {0}", update.Message), update.Output, update.ExitCode);
     }
 
     public async Task<GitOperationResult> StageFileAsync(string path, string filePath)
@@ -731,12 +766,31 @@ public sealed class GitBranchService
 
     public async Task<GitOperationResult> FetchAsync(string path) => await RunGitAsync(path, "fetch", "--all", "--prune");
 
-    public async Task<GitOperationResult> PullAsync(string path) => await RunGitAsync(path, "pull", "--no-rebase");
+    public async Task<GitOperationResult> PullAsync(string path, bool autoSyncSubmodules = false)
+    {
+        if (autoSyncSubmodules)
+        {
+            var beforePull = await CheckSubmoduleTreesCleanAsync(path);
+            if (!beforePull.Success) return beforePull;
+        }
+        var pull = await RunGitAsync(path, "-c", "submodule.recurse=false", "pull", "--no-rebase");
+        if (!pull.Success || !autoSyncSubmodules) return pull;
+        var postPullSafety = await CheckSubmoduleTreesCleanAsync(path);
+        if (!postPullSafety.Success)
+            return new GitOperationResult(false, _localization.T("Pull completed, but submodules were not updated to preserve local changes: {0}", postPullSafety.Message), pull.Output);
+        var update = await UpdateSubmodulesWithoutPreflightAsync(path);
+        return update.Success ? pull : new GitOperationResult(false, _localization.T("Pull completed, but submodules were not fully updated: {0}", update.Message), update.Output, update.ExitCode);
+    }
 
     public async Task<GitOperationResult> PushAsync(string path) => await RunGitAsync(path, "push");
 
-    public async Task<GitOperationResult> PushWhenUpToDateAsync(string path)
+    public async Task<GitOperationResult> PushWhenUpToDateAsync(string path, bool autoSyncSubmodules = false)
     {
+        if (autoSyncSubmodules)
+        {
+            var beforePush = await CheckSubmoduleTreesCleanAsync(path);
+            if (!beforePush.Success) return beforePush;
+        }
         var fetchResult = await FetchAsync(path);
         if (!fetchResult.Success)
             return new GitOperationResult(false, _localization.T("Push aborted: failed to fetch remote status. {0}", fetchResult.Message), string.Empty);
@@ -797,10 +851,19 @@ public sealed class GitBranchService
                     return new GitOperationResult(false, _localization.T("Push aborted: commit or stash your changes before pulling remote updates."), string.Empty);
 
                 var pullResult = hasUpstream
-                    ? await PullAsync(path)
-                    : await RunGitAsync(path, "pull", "--no-rebase", remote!, remoteBranch!);
+                    ? await PullAsync(path, autoSyncSubmodules)
+                    : await RunGitAsync(path, "-c", "submodule.recurse=false", "pull", "--no-rebase", remote!, remoteBranch!);
                 if (!pullResult.Success)
                     return new GitOperationResult(false, _localization.T("Push aborted: pull failed. {0}", pullResult.Message), pullResult.Output, pullResult.ExitCode);
+                if (autoSyncSubmodules)
+                {
+                    var postPullSafety = await CheckSubmoduleTreesCleanAsync(path);
+                    if (!postPullSafety.Success)
+                        return new GitOperationResult(false, _localization.T("Pull completed, but submodules were not updated to preserve local changes: {0}", postPullSafety.Message), pullResult.Output);
+                    var submoduleUpdate = await UpdateSubmodulesWithoutPreflightAsync(path);
+                    if (!submoduleUpdate.Success)
+                        return new GitOperationResult(false, _localization.T("Pull completed, but submodules were not fully updated: {0}", submoduleUpdate.Message), submoduleUpdate.Output, submoduleUpdate.ExitCode);
+                }
             }
         }
 
@@ -835,18 +898,236 @@ public sealed class GitBranchService
         return new GitOperationResult(false, _localization.T("Push aborted: no unambiguous default remote is configured."), string.Empty);
     }
 
-    public async Task<GitOperationResult> CheckoutBranchAsync(string path, string branch)
+    public async Task<GitOperationResult> CheckoutBranchAsync(string path, string branch, bool autoSyncSubmodules = false)
     {
+        if (autoSyncSubmodules)
+        {
+            var safety = await CheckSubmoduleTreesCleanAsync(path);
+            if (!safety.Success)
+                return safety;
+        }
         if (branch.StartsWith("refs/heads/", StringComparison.Ordinal))
             branch = branch[11..];
         else if (branch.StartsWith("refs/remotes/", StringComparison.Ordinal))
             branch = branch[13..];
 
         var localBranchResult = await RunGitAsync(path, "show-ref", "--verify", "--quiet", $"refs/heads/{branch}");
-        if (localBranchResult.Success)
-            return await RunGitAsync(path, "switch", branch);
+        var operation = localBranchResult.Success
+            ? await RunGitAsync(path, "-c", "submodule.recurse=false", "switch", branch)
+            : await RunGitAsync(path, "-c", "submodule.recurse=false", "switch", "--track", branch);
+        if (!operation.Success || !autoSyncSubmodules) return operation;
+        var postCheckoutSafety = await CheckSubmoduleTreesCleanAsync(path);
+        if (!postCheckoutSafety.Success)
+            return new GitOperationResult(false, _localization.T("Branch switched, but submodules were not updated to preserve local changes: {0}", postCheckoutSafety.Message), operation.Output);
+        var update = await UpdateSubmodulesWithoutPreflightAsync(path);
+        return update.Success ? operation : new GitOperationResult(false, _localization.T("Branch switched, but submodules were not fully updated: {0}", update.Message), update.Output, update.ExitCode);
+    }
 
-        return await RunGitAsync(path, "switch", "--track", branch);
+    private async Task<GitOperationResult> UpdateSubmodulesWithoutPreflightAsync(string path) =>
+        await RunGitAsync(path, "-c", "submodule.recurse=false", "submodule", "update", "--checkout", "--init", "--recursive");
+
+    public async Task<GitSubmoduleSnapshot> GetSubmoduleSnapshotAsync(string repositoryPath)
+    {
+        var entries = new List<GitSubmoduleEntry>();
+        await ReadSubmodulesRecursiveAsync(repositoryPath, string.Empty, entries);
+        return new GitSubmoduleSnapshot(entries);
+    }
+
+    public async Task<GitOperationResult> SyncSubmoduleUrlsAsync(string repositoryPath) =>
+        await RunGitAsync(repositoryPath, "submodule", "sync", "--recursive");
+
+    public async Task<GitOperationResult> UpdateSubmodulesAsync(string repositoryPath, string? submodulePath = null)
+    {
+        var safety = await CheckSubmoduleTreesCleanAsync(repositoryPath);
+        if (!safety.Success)
+            return safety;
+
+        if (!string.IsNullOrWhiteSpace(submodulePath))
+        {
+            var targetState = await GetSubmoduleSnapshotAsync(repositoryPath);
+            var target = targetState.Entries.FirstOrDefault(entry => string.Equals(entry.Path, submodulePath, StringComparison.Ordinal));
+            if (target is null)
+                return new GitOperationResult(false, _localization.T("Selected submodule is no longer configured."), string.Empty);
+            var selectedUpdate = await RunGitAsync(repositoryPath, "-c", "submodule.recurse=false", "submodule", "update", "--checkout", "--init", "--", submodulePath);
+            if (!selectedUpdate.Success) return selectedUpdate;
+            var selectedPath = Path.Combine(repositoryPath, submodulePath.Replace('/', Path.DirectorySeparatorChar));
+            var nestedUpdate = await RunGitAsync(selectedPath,
+                "-c", "submodule.recurse=false", "submodule", "update", "--checkout", "--init", "--recursive");
+            if (!nestedUpdate.Success) return nestedUpdate;
+            var nestedSafety = await CheckSubmoduleTreesCleanAsync(repositoryPath);
+            return nestedSafety.Success ? selectedUpdate : new GitOperationResult(false,
+                _localization.T("Submodule synchronization was blocked to preserve local changes: {0}", nestedSafety.Message), nestedUpdate.Output, nestedUpdate.ExitCode);
+        }
+
+        var update = string.IsNullOrWhiteSpace(submodulePath)
+            ? await RunGitAsync(repositoryPath, "-c", "submodule.recurse=false", "submodule", "update", "--checkout", "--init", "--recursive")
+            : await RunGitAsync(repositoryPath, "-c", "submodule.recurse=false", "submodule", "update", "--checkout", "--init", "--recursive", "--", submodulePath);
+        if (!update.Success) return update;
+        var postUpdateSafety = await CheckSubmoduleTreesCleanAsync(repositoryPath);
+        return postUpdateSafety.Success
+            ? update
+            : new GitOperationResult(false, _localization.T("Submodule synchronization was blocked to preserve local changes: {0}", postUpdateSafety.Message), update.Output, update.ExitCode);
+    }
+
+    public async Task<GitOperationResult> SyncAndUpdateSubmodulesAsync(string repositoryPath, string? submodulePath = null)
+    {
+        var safety = await CheckSubmoduleTreesCleanAsync(repositoryPath);
+        if (!safety.Success) return safety;
+        var sync = await SyncSubmoduleUrlsAsync(repositoryPath);
+        if (!sync.Success)
+            return sync;
+        return await UpdateSubmodulesAsync(repositoryPath, submodulePath);
+    }
+
+    public async Task<GitOperationResult> CheckSubmoduleTreesCleanAsync(string repositoryPath)
+    {
+        var dirty = new List<string>();
+        var conflicts = new List<string>();
+        await InspectSubmoduleTreeAsync(repositoryPath, string.Empty, dirty, conflicts);
+        if (conflicts.Count > 0)
+            return new GitOperationResult(false, _localization.T("Submodule synchronization was blocked by conflicts: {0}", string.Join(", ", conflicts)), string.Empty);
+        if (dirty.Count > 0)
+            return new GitOperationResult(false, _localization.T("Submodule synchronization was blocked to preserve local changes: {0}", string.Join(", ", dirty)), string.Empty);
+        return new GitOperationResult(true, string.Empty, string.Empty);
+    }
+
+    private async Task ReadSubmodulesRecursiveAsync(string repositoryPath, string prefix, List<GitSubmoduleEntry> entries)
+    {
+        var status = await RunGitAsync(repositoryPath, "submodule", "status");
+        if (!status.Success)
+        {
+            if (!string.IsNullOrWhiteSpace(status.Message))
+                entries.Add(new GitSubmoduleEntry(prefix, prefix, string.Empty, string.Empty, null, null, false, false, false, false, false, status.Message));
+            return;
+        }
+        var configuredPaths = await RunGitAsync(repositoryPath, "config", "--file", ".gitmodules", "--get-regexp", "^submodule\\..*\\.path$");
+        var namesByPath = configuredPaths.Success
+            ? configuredPaths.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(item => item.TrimEnd('\r'))
+                .Select(item => item.Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries))
+                .Where(parts => parts.Length == 2)
+                .ToDictionary(parts => parts[1], parts => parts[0].StartsWith("submodule.", StringComparison.Ordinal) && parts[0].EndsWith(".path", StringComparison.Ordinal)
+                    ? parts[0][10..^5] : parts[0], StringComparer.Ordinal)
+            : new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var line in status.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = line.TrimEnd('\r');
+            if (trimmed.Length < 42)
+                continue;
+            var marker = trimmed[0];
+            var hash = trimmed.Substring(1, 40);
+            var remainder = trimmed[41..].TrimStart();
+            var path = ParseSubmoduleStatusPath(remainder, namesByPath.Keys);
+            var fullPath = string.IsNullOrEmpty(prefix) ? path : Path.Combine(prefix, path).Replace('\\', '/');
+            var absolutePath = Path.Combine(repositoryPath, path.Replace('/', Path.DirectorySeparatorChar));
+            var expectedResult = await RunGitAsync(repositoryPath, "rev-parse", $"HEAD:{path}");
+            var expected = expectedResult.Success ? expectedResult.Output.Trim() : hash;
+            var initialized = Directory.Exists(absolutePath) && await IsRepositoryRootAsync(absolutePath);
+            string? actual = null;
+            string? branch = null;
+            var changed = false;
+            var untracked = false;
+            var conflicted = marker == 'U';
+            string? error = marker == 'U' ? _localization.T("Submodule commit conflict") : null;
+            if (initialized)
+            {
+                var actualResult = await RunGitAsync(absolutePath, "rev-parse", "HEAD");
+                actual = actualResult.Success ? actualResult.Output.Trim() : null;
+                var branchResult = await RunGitAllowExitOneAsync(absolutePath, "symbolic-ref", "--quiet", "--short", "HEAD");
+                branch = branchResult.Success ? branchResult.Output.Trim() : null;
+                var working = await RunGitAsync(absolutePath, "status", "--porcelain=v1", "-uall", "--ignore-submodules=all");
+                if (working.Success)
+                {
+                    var lines = working.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(value => value.TrimEnd('\r')).ToArray();
+                changed = lines.Any(value => value.Length >= 2 && value[..2] != "??");
+                    untracked = lines.Any(value => value.StartsWith("??", StringComparison.Ordinal));
+                    conflicted |= lines.Any(value => value.Length >= 2 && (value[0] == 'U' || value[1] == 'U' || value.StartsWith("AA", StringComparison.Ordinal) || value.StartsWith("DD", StringComparison.Ordinal)));
+                }
+                else
+                    error = working.Message;
+            }
+            else if (marker != '-')
+                error = _localization.T("Submodule directory is unavailable");
+
+            entries.Add(new GitSubmoduleEntry(fullPath, prefix, namesByPath.GetValueOrDefault(path, Path.GetFileName(path)), expected, actual, branch, initialized,
+                string.Equals(expected, actual, StringComparison.Ordinal), changed, untracked, conflicted, error));
+            if (initialized)
+                await ReadSubmodulesRecursiveAsync(absolutePath, fullPath, entries);
+        }
+    }
+
+    private async Task InspectSubmoduleTreeAsync(string repositoryPath, string prefix, List<string> dirty, List<string> conflicts)
+    {
+        var status = await RunGitAsync(repositoryPath, "submodule", "status");
+        if (!status.Success)
+            return;
+        var configured = await RunGitAsync(repositoryPath, "config", "--file", ".gitmodules", "--get-regexp", "^submodule\\..*\\.path$");
+        var paths = configured.Success
+            ? configured.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(item => item.TrimEnd('\r'))
+                .Select(item => item.Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries))
+                .Where(parts => parts.Length == 2).Select(parts => parts[1]).ToArray()
+            : [];
+        foreach (var line in status.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var value = line.TrimEnd('\r');
+            if (value.Length < 42)
+                continue;
+            var path = ParseSubmoduleStatusPath(value[41..].TrimStart(), paths);
+            var displayPath = string.IsNullOrEmpty(prefix) ? path : $"{prefix}/{path}";
+            if (value[0] == 'U') conflicts.Add(displayPath);
+            var unmergedGitlink = await RunGitAsync(repositoryPath, "ls-files", "-u", "--", path);
+            if (!unmergedGitlink.Success || !string.IsNullOrWhiteSpace(unmergedGitlink.Output))
+                conflicts.Add(displayPath);
+            var stagedGitlink = await RunGitAllowExitOneAsync(repositoryPath, "diff", "--cached", "--quiet", "--", path);
+            if (!stagedGitlink.Success)
+                conflicts.Add(displayPath);
+            else if (stagedGitlink.ExitCode == 1)
+                dirty.Add(displayPath);
+            var fullPath = Path.Combine(repositoryPath, path.Replace('/', Path.DirectorySeparatorChar));
+            if (!Directory.Exists(fullPath) || !await IsRepositoryRootAsync(fullPath))
+                continue;
+            var working = await RunGitAsync(fullPath, "status", "--porcelain=v1", "-uall");
+            if (!working.Success) { conflicts.Add(displayPath); continue; }
+            if (!string.IsNullOrWhiteSpace(working.Output))
+            {
+                if (working.Output.Split('\n').Any(item => item.Length >= 2 && (item[0] == 'U' || item[1] == 'U' || item.StartsWith("AA", StringComparison.Ordinal) || item.StartsWith("DD", StringComparison.Ordinal)))) conflicts.Add(displayPath);
+                else dirty.Add(displayPath);
+            }
+            await InspectSubmoduleTreeAsync(fullPath, displayPath, dirty, conflicts);
+        }
+    }
+
+    private static string ParseSubmoduleStatusPath(string remainder, IEnumerable<string> configuredPaths)
+    {
+        foreach (var candidate in configuredPaths.OrderByDescending(value => value.Length))
+        {
+            if (remainder.StartsWith(candidate, StringComparison.Ordinal) &&
+                (remainder.Length == candidate.Length || char.IsWhiteSpace(remainder[candidate.Length])))
+                return candidate;
+        }
+        if (remainder.EndsWith(')'))
+        {
+            var descriptionStart = remainder.LastIndexOf(" (", StringComparison.Ordinal);
+            if (descriptionStart > 0)
+                return remainder[..descriptionStart];
+        }
+        return remainder;
+    }
+
+    private async Task<bool> IsRepositoryRootAsync(string path)
+    {
+        var result = await RunGitAsync(path, "rev-parse", "--show-toplevel");
+        if (!result.Success) return false;
+        try
+        {
+            return string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(result.Output.Trim())),
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)),
+                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     public async Task<GitOperationResult> OpenConflictInVsCodeAsync(string repositoryPath, string relativePath)
@@ -1067,6 +1348,26 @@ public sealed record GitStashEntry(string Reference, string Message, string Date
 public sealed record GitOperationResult(bool Success, string Message, string Output, int ExitCode = 0);
 public sealed record GitConflictVersions(string Ours, string Theirs, string WorkingContent, string Fingerprint, string LineEnding, bool HasUtf8Bom);
 public sealed record GitCommitBranchCheck(bool? IsOnCurrentBranch, string? Error);
+public sealed record GitSubmoduleSnapshot(IReadOnlyList<GitSubmoduleEntry> Entries)
+{
+    public int InSyncCount => Entries.Count(entry => entry.IsInitialized && entry.InSync);
+    public int OutOfSyncCount => Entries.Count(entry => entry.IsInitialized && !entry.InSync);
+    public int UninitializedCount => Entries.Count(entry => !entry.IsInitialized && entry.Error is null);
+    public bool HasErrors => Entries.Any(entry => entry.Error is not null || entry.HasConflicts);
+}
+public sealed record GitSubmoduleEntry(
+    string Path,
+    string ParentPath,
+    string Name,
+    string ExpectedCommit,
+    string? CheckedOutCommit,
+    string? Branch,
+    bool IsInitialized,
+    bool InSync,
+    bool HasLocalChanges,
+    bool HasUntrackedFiles,
+    bool HasConflicts,
+    string? Error);
 public sealed record GitBranchMergeCheck(bool CanMerge, string? Error);
 public sealed record GitBranchEntry(string Name, bool IsCurrent, bool IsRemote, string TipHash);
 public sealed record GitCommitEntry(

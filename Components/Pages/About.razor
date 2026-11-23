@@ -1,4 +1,3 @@
-@page "/about"
 @implements IDisposable
 @inject LocalizationService L
 @inject LauncherSettingsService SettingsService
@@ -6,15 +5,20 @@
 @inject GitHostService GitHost
 @inject SlackNotificationService Notifications
 @inject UpdateService Updates
-@inject NavigationManager Navigation
-
-<PageTitle>@L.T("About CodeBadger") - CodeBadger</PageTitle>
-
-<MudContainer MaxWidth="MaxWidth.Medium" Class="py-4">
-    <MudStack Spacing="3">
+<MudDialog Class="about-dialog">
+    <TitleContent>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-            <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="GoBack" aria-label="@L.T("Back")" />
-            <MudText Typo="Typo.h5">@L.T("About CodeBadger")</MudText>
+            <MudIcon Icon="@Icons.Material.Filled.Info" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">@L.T("About CodeBadger")</MudText>
+        </MudStack>
+    </TitleContent>
+    <DialogContent>
+<MudContainer MaxWidth="MaxWidth.Medium" Class="py-2">
+    <MudStack Spacing="3">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexStart">
+            <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack" OnClick="GoBack">
+                @L.T("Back to help menu")
+            </MudButton>
         </MudStack>
 
         <MudPaper Outlined="true" Elevation="0" Class="pa-4">
@@ -91,6 +95,11 @@
         </MudPaper>
     </MudStack>
 </MudContainer>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Size="Size.Small" OnClick="Close">@L.T("Close")</MudButton>
+    </DialogActions>
+</MudDialog>
 
 @code {
     private sealed record Integration(string Name, string Status, string Badge, bool Active, string Version = "", string VersionLabel = "Version");
@@ -104,6 +113,7 @@
     private string _updateVersion = string.Empty;
     private Severity _updateSeverity = Severity.Info;
     private string _appVersion = "—";
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
 
     protected override async Task OnInitializedAsync()
     {
@@ -258,7 +268,8 @@
         catch { return string.Empty; }
     }
 
-    private void GoBack() => Navigation.NavigateTo("/manual");
+    private void GoBack() => MudDialog.Close(DialogResult.Ok("back"));
+    private void Close() => MudDialog.Cancel();
     private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);
     public void Dispose() => L.LanguageChanged -= HandleLanguageChanged;
 }

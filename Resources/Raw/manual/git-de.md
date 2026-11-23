@@ -19,6 +19,20 @@ Die Ansicht **Branches & commits** zeigt lokale und Remote-Branches sowie die j�
 - Mit einem Rechtsklick auf einen Commit öffnen Sie weitere Aktionen: dort einen Branch erstellen, den Commit detached auschecken, cherry-picken, revertieren, einen geeigneten Branch mergen oder Branch-Namen, Commit-Informationen bzw. SHA kopieren.
 - Aktionen sind nur verfügbar, wenn Branch- und Working-Tree-Status dies sicher zulassen. Vor Checkout eines Commits und Revert müssen lokale Änderungen committet oder gestasht sein. Vor dem Cherry-Pick prüft das Modul, ob der Commit bereits auf dem aktuellen Branch liegt.
 
+## Submodule
+
+Die Ansicht **Submodules** zeigt die im aktuellen Commit gespeicherten Submodule einschließlich verschachtelter Submodule, sofern deren Repository initialisiert ist. Die Zusammenfassung zählt übereinstimmende, abweichende und nicht initialisierte Checkouts.
+
+- **In sync** bedeutet nur, dass der ausgecheckte Commit dem vom übergeordneten Repository gespeicherten Commit entspricht. Lokale Änderungen und nicht versionierte Dateien werden separat angezeigt.
+- Ein Branch-Name ist informativ; **Detached HEAD ist bei Submodulen normal**.
+- Jeder Eintrag zeigt Pfad, erwarteten und ausgecheckten Commit, Änderungen, Konflikte und Fehler. Der Status verschachtelter Submodule ist erst nach Initialisierung des übergeordneten Submoduls verfügbar.
+- **Synchronisieren** initialisiert und aktualisiert alle Submodule rekursiv mit `git submodule update --init --recursive`. Die Schaltfläche pro Submodul beschränkt dies auf das ausgewählte Submodul und seine Kinder.
+- **URLs synchronisieren** führt `git submodule sync --recursive` aus. **URLs synchronisieren und aktualisieren** führt zuerst diesen Befehl und dann das Update aus.
+- **Status aktualisieren** liest nur den lokalen Status und führt keinen Fetch aus.
+- Vor dem Update prüft CodeBadger lokale Änderungen und Konflikte, auch in initialisierten verschachtelten Submodulen. Zum Schutz der Änderungen wird abgebrochen; es wird nie automatisch erzwungen, zurückgesetzt oder gestasht. Netzwerk-, Authentifizierungs- und fehlende-Commit-Fehler werden angezeigt.
+- Die automatische Synchronisierung nach Branchwechseln ist pro Repository einstellbar und standardmäßig deaktiviert. Ist sie aktiviert, warnt CodeBadger vor dem Hauptvorgang bei lokalen Änderungen. Sie können abbrechen oder den Hauptvorgang ohne Submodulsynchronisierung fortsetzen. Nach einem erfolgreichen Branchwechsel werden die Submodule aktualisiert; ein fehlgeschlagenes Update macht den Branchwechsel nicht rückgängig.
+- Die normale Synchronisierung verwendet niemals `--remote`: Maßgeblich ist der im übergeordneten Repository gespeicherte Commit, nicht ein neuerer Remote-Commit.
+
 ### Branch erstellen
 
 Wählen Sie **New branch**, um bei `HEAD` zu beginnen, oder klicken Sie mit der rechten Maustaste auf einen Commit und wählen Sie **Create branch here**. Geben Sie einen gültigen Branch-Namen ein. Der neue Branch wird sofort erstellt und ausgecheckt.

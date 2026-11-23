@@ -19,6 +19,20 @@ De weergave **Branches & commits** toont lokale en remote branches naast de rece
 - Klik met de rechtermuisknop op een commit voor extra acties: daar een branch maken, detached naar de commit gaan, cherry-picken, reverten, een geschikte branch mergen of branchnaam/commitinformatie/SHA kopiëren.
 - Sommige acties zijn alleen beschikbaar als de vereiste branch- of working-treestatus veilig is. Bij checkout van een commit en revert moeten lokale wijzigingen eerst zijn gecommit of gestasht. Voor cherry-pick controleert de module of de commit al op de huidige branch staat.
 
+## Submodules
+
+De weergave **Submodules** toont de submodules uit de huidige commit, inclusief geneste submodules wanneer hun repository is geïnitialiseerd. Een samenvatting telt commits die in sync zijn, afwijken of nog niet geïnitialiseerd zijn.
+
+- **In sync** betekent uitsluitend dat de uitgecheckte commit gelijk is aan de commit die de bovenliggende repository vastlegt. Lokale gewijzigde of ongetrackte bestanden worden daarnaast apart getoond.
+- Een branchnaam is informatief; **detached HEAD is normaal** voor een submodule.
+- Per submodule zie je pad, verwachte en uitgecheckte commit, wijzigingen, conflicten en eventuele foutmeldingen. Een niet-geïnitialiseerde submodule kan nog geen lokale of geneste status tonen.
+- **Synchroniseren** initialiseert en werkt alle submodules recursief bij met `git submodule update --init --recursive`. De knop per submodule beperkt dit tot die submodule en haar kinderen.
+- **URL’s synchroniseren** voert `git submodule sync --recursive` uit. **URL’s synchroniseren en bijwerken** voert eerst dat commando uit en daarna de update.
+- **Status vernieuwen** leest alleen lokale status uit; er wordt niet gefetcht.
+- Synchronisatie controleert eerst lokale wijzigingen en conflicten, ook in geïnitialiseerde geneste submodules. Bij wijzigingen wordt gestopt om gegevens te behouden. Er wordt nooit automatisch geforceerd, gereset of gestasht. Netwerk-, authenticatie- en ontbrekende-commitfouten worden getoond.
+- Automatische synchronisatie na branchwissels is per repository instelbaar en staat standaard uit. Als ze aanstaat, waarschuwt CodeBadger vóór de wissel bij lokale wijzigingen. Je kunt annuleren of de hoofdactie zonder submodulesynchronisatie voortzetten. Na een geslaagde branchwissel worden submodules bijgewerkt; een mislukte update maakt de branchwissel niet ongedaan.
+- Gewone synchronisatie gebruikt nooit `--remote`: de vastgelegde commit, niet een nieuwere remote-commit, is leidend.
+
 ### Een branch maken
 
 Klik op **New branch** om vanaf `HEAD` te beginnen, of klik met de rechtermuisknop op een commit en kies **Create branch here**. Geef de branch een geldige naam op. De nieuwe branch wordt meteen aangemaakt en uitgecheckt.

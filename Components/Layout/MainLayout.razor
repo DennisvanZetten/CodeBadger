@@ -312,24 +312,47 @@ else
 
     private async Task OpenHelpMenuAsync()
     {
-        var generation = BeginDialog(AppDialog.Help);
-        if (generation is null)
-            return;
-
-        var dialog = await DialogService.ShowAsync<HelpMenuDialog>(L.T("Help menu"),
-            options: new DialogOptions { CloseButton = true, CloseOnEscapeKey = true, MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
-        if (!SetActiveDialog(generation.Value, dialog))
-            return;
-
-        var result = await dialog.Result;
-        ClearActiveDialog(dialog);
-        if (result is { Canceled: false, Data: string destination })
+        var showAbout = false;
+        while (true)
         {
-            var route = destination == "about" ? "/about" : "/manual";
-            if (WindowTitleBar.UsesNativeTitleBar && destination != "about")
-                DetachedWindows.OpenManualWindow();
-            else
-                Navigation.NavigateTo(route);
+            var generation = BeginDialog(AppDialog.Help);
+            if (generation is null)
+                return;
+
+            IDialogReference dialog = showAbout
+                ? await DialogService.ShowAsync<About>(L.T("About CodeBadger"),
+                    options: new DialogOptions { CloseButton = true, CloseOnEscapeKey = true, MaxWidth = MaxWidth.Medium, FullWidth = true })
+                : await DialogService.ShowAsync<HelpMenuDialog>(L.T("Help menu"),
+                    options: new DialogOptions { CloseButton = true, CloseOnEscapeKey = true, MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+
+            if (!SetActiveDialog(generation.Value, dialog))
+                return;
+
+            var result = await dialog.Result;
+            ClearActiveDialog(dialog);
+            if (result is not { Canceled: false, Data: string destination })
+                return;
+
+            if (!showAbout && destination == "about")
+            {
+                showAbout = true;
+                continue;
+            }
+
+            if (showAbout && destination == "back")
+            {
+                showAbout = false;
+                continue;
+            }
+
+            if (!showAbout && destination == "manual")
+            {
+                if (WindowTitleBar.UsesNativeTitleBar)
+                    DetachedWindows.OpenManualWindow();
+                else
+                    Navigation.NavigateTo("/manual");
+            }
+            return;
         }
     }
 

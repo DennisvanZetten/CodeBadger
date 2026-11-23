@@ -181,6 +181,20 @@
             var dialogResult = await dialog.Result;
             if (dialogResult is not { Canceled: false, Data: StartTaskDialog.TaskStartPlan plan })
                 return;
+            var syncSubmodules = repository.AutoSyncSubmodules;
+            if (syncSubmodules)
+            {
+                stage = "checking submodule changes";
+                var submoduleSafety = await Git.CheckSubmoduleTreesCleanAsync(repository.Path);
+                if (!submoduleSafety.Success)
+                {
+                    var proceed = await Dialogs.ShowMessageBoxAsync(L.T("Submodule changes detected"),
+                        L.T("The branch can be switched, but submodules will not be synchronized to preserve local changes. Continue?\n\n{0}", submoduleSafety.Message),
+                        yesText: L.T("Continue without syncing"), cancelText: L.T("Cancel"), options: new DialogOptions { CloseOnEscapeKey = true });
+                    if (proceed != true) return;
+                    syncSubmodules = false;
+                }
+            }
             item.TicketNumber = plan.TicketNumber;
             await Ideas.SaveTicketAsync(item.Id, plan.TicketNumber);
 
@@ -188,7 +202,7 @@
             stage = "creating or checking out the branch";
             if (plan.ExistingBranch is not null)
             {
-                var checkout = await Git.CheckoutBranchAsync(repository.Path, plan.ExistingBranch);
+                var checkout = await Git.CheckoutBranchAsync(repository.Path, plan.ExistingBranch, syncSubmodules);
                 if (!checkout.Success)
                     throw new InvalidOperationException(checkout.Message);
                 branchName = plan.ExistingBranch;
@@ -200,7 +214,7 @@
             else
             {
                 branchName = BuildTaskBranchName(settings.TaskBranchPrefix, plan.TicketNumber, item.Title);
-                var branchResult = await Git.CreateAndCheckoutBranchAsync(repository.Path, branchName, plan.StartPoint!);
+                var branchResult = await Git.CreateAndCheckoutBranchAsync(repository.Path, branchName, plan.StartPoint!, syncSubmodules);
                 if (!branchResult.Success)
                     throw new InvalidOperationException(branchResult.Message);
             }

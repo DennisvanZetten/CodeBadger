@@ -19,6 +19,20 @@ La vue **Branches & commits** affiche les branches locales et distantes, ainsi q
 - Faites un clic droit sur un commit pour afficher les actions : créer une branche à cet endroit, extraire le commit en HEAD détachée, cherry-pick, revert, fusionner une branche admissible ou copier son nom, les informations du commit ou son SHA.
 - Certaines actions ne sont activées que si l’état de la branche et de l’arbre de travail le permet sans risque. Avant d’extraire un commit ou de faire un revert, les modifications locales doivent être validées ou mises de côté. Avant un cherry-pick, le module vérifie si le commit figure déjà sur la branche actuelle.
 
+## Sous-modules
+
+La vue **Submodules** affiche les sous-modules enregistrés dans le commit actuel, y compris les sous-modules imbriqués lorsque leur dépôt est initialisé. Le résumé compte les checkouts identiques, différents et non initialisés.
+
+- **In sync** signifie uniquement que le commit extrait correspond à celui enregistré par le dépôt parent. Les modifications locales et les fichiers non suivis sont indiqués séparément.
+- Le nom de branche est informatif ; **HEAD détachée est normale** pour un sous-module.
+- Chaque entrée indique le chemin, les commits attendu et extrait, les modifications, conflits et erreurs. L’état des sous-modules imbriqués n’est disponible qu’après l’initialisation du parent.
+- **Synchroniser** initialise et met à jour tous les sous-modules récursivement avec `git submodule update --init --recursive`. Le bouton d’un sous-module limite l’action à celui-ci et à ses enfants.
+- **Synchroniser les URL** exécute `git submodule sync --recursive`. **Synchroniser les URL et mettre à jour** exécute d’abord cette commande, puis la mise à jour.
+- **Actualiser l’état** lit uniquement l’état local ; aucun fetch n’est effectué.
+- Avant toute mise à jour, CodeBadger vérifie les modifications locales et les conflits, y compris dans les sous-modules imbriqués initialisés. L’opération s’arrête pour préserver les modifications ; aucun force, reset ou stash automatique n’est effectué. Les erreurs réseau, d’authentification et de commit manquant sont affichées.
+- La synchronisation automatique après changement de branche se configure par dépôt et est désactivée par défaut. Lorsqu’elle est activée, CodeBadger avertit avant l’opération principale en présence de modifications locales. Vous pouvez annuler ou poursuivre l’opération principale sans synchroniser les sous-modules. Après un changement réussi, les sous-modules sont mis à jour ; un échec de mise à jour n’annule pas le changement de branche.
+- La synchronisation normale n’utilise jamais `--remote` : le commit enregistré par le parent, et non un commit distant plus récent, fait foi.
+
 ### Créer une branche
 
 Sélectionnez **New branch** pour partir de `HEAD`, ou faites un clic droit sur un commit et choisissez **Create branch here**. Saisissez un nom de branche valide. La nouvelle branche est créée et extraite immédiatement.

@@ -529,6 +529,7 @@
         target.AiCustomInstruction = source.AiCustomInstruction;
         target.SlackNotificationsMuted = source.SlackNotificationsMuted;
         target.HiddenStashCommitHashes = source.HiddenStashCommitHashes.ToList();
+        target.AutoSyncSubmodules = source.AutoSyncSubmodules;
     }
 
     private AgentStartupState? GetAgentStartupState(string agent) => StartupDetection.GetAgentState(agent);

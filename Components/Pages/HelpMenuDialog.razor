@@ -9,14 +9,16 @@
     </TitleContent>
     <DialogContent>
         <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">@L.T("Choose what you need help with.")</MudText>
-        <MudButton FullWidth="true" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.MenuBook"
-                   OnClick="OpenManuals">
-            @L.T("Manuals")
-        </MudButton>
-        <MudButton FullWidth="true" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Info"
-                   OnClick="OpenAbout">
-            @L.T("About CodeBadger")
-        </MudButton>
+        <MudStack Spacing="2">
+            <MudButton FullWidth="true" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.MenuBook"
+                       OnClick="OpenManuals">
+                @L.T("Manuals")
+            </MudButton>
+            <MudButton FullWidth="true" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Info"
+                       OnClick="OpenAbout">
+                @L.T("About CodeBadger")
+            </MudButton>
+        </MudStack>
     </DialogContent>
     <DialogActions>
         <MudButton Size="Size.Small" OnClick="Close">@L.T("Close")</MudButton>

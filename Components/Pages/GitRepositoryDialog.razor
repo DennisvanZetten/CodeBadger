@@ -292,6 +292,64 @@
                             </MudStack>
                         </MudPaper>
 
+                        <MudPaper Class="pa-3 git-dialog-panel git-maintenance-destructive" Outlined="true" Elevation="0">
+                            <MudStack Spacing="2">
+                                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Warning">
+                                    <MudText Typo="Typo.subtitle2">@L.T("Remote branch cleanup deletes branches from origin")</MudText>
+                                    <MudText Typo="Typo.body2">@L.T("This permanently removes the selected branch references from the origin server. Check with the last commit author before deleting.")</MudText>
+                                </MudAlert>
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
+                                    <div>
+                                        <MudText Typo="Typo.subtitle1">@L.T("Old merged remote branches (origin)")</MudText>
+                                        @if (!string.IsNullOrWhiteSpace(_remoteMaintenanceSnapshot?.DefaultBranchName))
+                                        {
+                                            <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Remote candidates are checked against '{0}' and inactive for at least 90 days. Protected branches are excluded.", _remoteMaintenanceSnapshot.DefaultBranchName)</MudText>
+                                        }
+                                        else
+                                        {
+                                            <MudText Typo="Typo.body2" Color="Color.Warning">@L.T("Could not detect the origin default branch. Remote branch candidates cannot be safely determined.")</MudText>
+                                        }
+                                    </div>
+                                    <MudStack Row="true" Spacing="1" Class="flex-wrap">
+                                        <MudButton Variant="Variant.Outlined" Disabled="@(_isOperating || _isLoadingMaintenance)" OnClick="LoadRemoteMaintenanceSnapshotAsync">@L.T("Refresh candidates")</MudButton>
+                                        <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="@(_isOperating || _isLoadingMaintenance || _selectedRemoteMaintenanceBranches.Count == 0 || _remoteMaintenanceSnapshot?.Success != true)"
+                                                   OnClick="RemoveRemoteMaintenanceBranchesAsync">@L.T("Remove selected from origin ({0})", _selectedRemoteMaintenanceBranches.Count)</MudButton>
+                                    </MudStack>
+                                </MudStack>
+                                @if (_remoteMaintenanceSnapshot is { Success: false })
+                                {
+                                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("Could not load remote branch candidates: {0}", _remoteMaintenanceSnapshot.Message)</MudAlert>
+                                }
+                                else if (_remoteMaintenanceSnapshot?.DefaultBranchName is not null && _remoteMaintenanceSnapshot.OldMergedBranches.Count > 0)
+                                {
+                                    <MudCheckBox T="bool" Value="@AreAllRemoteMaintenanceBranchesSelected" ValueChanged="SetAllRemoteMaintenanceBranchesSelected"
+                                                 Label="@L.T("Select all branches")" Disabled="@_isOperating" Size="Size.Small" />
+                                    <MudList T="string" Dense="true">
+                                        @foreach (var branch in _remoteMaintenanceSnapshot.OldMergedBranches)
+                                        {
+                                            <MudListItem T="string" Value="@branch.Name">
+                                                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100 flex-wrap">
+                                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                                        <MudCheckBox T="bool" Value="@_selectedRemoteMaintenanceBranches.Contains(branch.Name)"
+                                                                     ValueChanged="@(selected => SetRemoteMaintenanceBranchSelected(branch.Name, selected))"
+                                                                     Disabled="@_isOperating" Size="Size.Small" />
+                                                        <MudStack Spacing="0">
+                                                            <MudText>@branch.Name <MudText Inline="true" Typo="Typo.caption" Color="Color.Secondary">@L.T("Inactive for {0} days", branch.AgeDays)</MudText></MudText>
+                                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Last commit author: {0}", string.IsNullOrWhiteSpace(branch.Author) ? L.T("Unknown") : branch.Author)</MudText>
+                                                        </MudStack>
+                                                    </MudStack>
+                                                </MudStack>
+                                            </MudListItem>
+                                        }
+                                    </MudList>
+                                }
+                                else if (_remoteMaintenanceSnapshot is { Success: true, DefaultBranchName: not null })
+                                {
+                                    <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("No old merged remote branches found.")</MudText>
+                                }
+                            </MudStack>
+                        </MudPaper>
+
                         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Info">
                             @L.T("Removing commits from shared history is not a routine speed optimization. For large historical files, consider a filtered clone or a carefully backed-up history rewrite instead.")
                         </MudAlert>
@@ -860,6 +918,8 @@
     private string? _maintenanceMessage;
     private GitMaintenanceSnapshot? _maintenanceSnapshot;
     private readonly HashSet<string> _selectedMaintenanceBranches = new(StringComparer.Ordinal);
+    private GitRemoteMaintenanceSnapshot? _remoteMaintenanceSnapshot;
+    private readonly HashSet<string> _selectedRemoteMaintenanceBranches = new(StringComparer.Ordinal);
     private bool _isGeneratingMessage;
     private bool _isCheckingAiConnection = true;
     private bool _hasAiConnection;
@@ -922,6 +982,8 @@
     private IReadOnlyList<GitBranchEntry> VisibleRemoteBranches => FilteredRemoteBranches.Take(_remoteBranchLimit).ToList();
     private bool AreAllMaintenanceBranchesSelected => _maintenanceSnapshot?.OldMergedBranches.Count > 0 &&
         _maintenanceSnapshot.OldMergedBranches.All(branch => _selectedMaintenanceBranches.Contains(branch.Name));
+    private bool AreAllRemoteMaintenanceBranchesSelected => _remoteMaintenanceSnapshot?.OldMergedBranches.Count > 0 &&
+        _remoteMaintenanceSnapshot.OldMergedBranches.All(branch => _selectedRemoteMaintenanceBranches.Contains(branch.Name));
     private IReadOnlyList<BranchFolder> VisibleLocalBranchFolders => GroupBranchesIntoFolders(VisibleLocalBranches);
     private IReadOnlyList<BranchFolder> VisibleRemoteBranchFolders => GroupBranchesIntoFolders(VisibleRemoteBranches);
     private IReadOnlyList<GitFileChange> StagedFiles => _files.Where(file => file.IsStaged && !file.IsConflicted).ToList();
@@ -1155,6 +1217,8 @@
         _view = GitView.Maintenance;
         if (_maintenanceSnapshot is null)
             await LoadMaintenanceSnapshotAsync();
+        if (_remoteMaintenanceSnapshot is null)
+            await LoadRemoteMaintenanceSnapshotAsync();
     }
 
     private async Task LoadMaintenanceSnapshotAsync()
@@ -1164,6 +1228,21 @@
         {
             _maintenanceSnapshot = await GitBranchService.GetMaintenanceSnapshotAsync(RepositoryPath);
             _selectedMaintenanceBranches.IntersectWith(_maintenanceSnapshot?.OldMergedBranches.Select(branch => branch.Name) ?? []);
+        }
+        finally
+        {
+            _isLoadingMaintenance = false;
+        }
+    }
+
+    private async Task LoadRemoteMaintenanceSnapshotAsync()
+    {
+        _isLoadingMaintenance = true;
+        try
+        {
+            _remoteMaintenanceSnapshot = await GitBranchService.GetRemoteMaintenanceSnapshotAsync(RepositoryPath);
+            _selectedRemoteMaintenanceBranches.IntersectWith(
+                _remoteMaintenanceSnapshot.OldMergedBranches.Select(branch => branch.Name));
         }
         finally
         {
@@ -1325,6 +1404,75 @@
             _maintenanceMessage = failures.Count == 0
                 ? L.T("Removed {0} local branches.", removed)
                 : L.T("Removed {0} of {1} branches. These branches could not be removed: {2}", removed, branches.Count, string.Join(", ", failures));
+        }
+        finally
+        {
+            _isOperating = false;
+        }
+    }
+
+    private void SetAllRemoteMaintenanceBranchesSelected(bool selected)
+    {
+        _selectedRemoteMaintenanceBranches.Clear();
+        if (selected && _remoteMaintenanceSnapshot is not null)
+            _selectedRemoteMaintenanceBranches.UnionWith(_remoteMaintenanceSnapshot.OldMergedBranches.Select(branch => branch.Name));
+    }
+
+    private void SetRemoteMaintenanceBranchSelected(string branchName, bool selected)
+    {
+        if (selected)
+            _selectedRemoteMaintenanceBranches.Add(branchName);
+        else
+            _selectedRemoteMaintenanceBranches.Remove(branchName);
+    }
+
+    private async Task RemoveRemoteMaintenanceBranchesAsync()
+    {
+        if (_remoteMaintenanceSnapshot is not { Success: true })
+            return;
+
+        var branches = _remoteMaintenanceSnapshot.OldMergedBranches
+            .Where(branch => _selectedRemoteMaintenanceBranches.Contains(branch.Name))
+            .ToList();
+        if (branches.Count == 0)
+            return;
+
+        var branchReview = string.Join("\n", branches.Select(branch =>
+            $"{branch.Name} — {L.T("Last commit author: {0}", string.IsNullOrWhiteSpace(branch.Author) ? L.T("Unknown") : branch.Author)}"));
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            L.T("Delete selected remote branches?"),
+            L.T("This permanently deletes {0} branch(es) from origin. Check with the last commit author before proceeding:\n{1}", branches.Count, branchReview),
+            yesText: L.T("Delete from origin"), cancelText: L.T("Cancel"),
+            options: new DialogOptions { CloseOnEscapeKey = true });
+        if (confirmed != true)
+            return;
+
+        _isOperating = true;
+        _maintenanceMessage = null;
+        try
+        {
+            var removed = 0;
+            var failures = new List<string>();
+            foreach (var branch in branches)
+            {
+                var result = await GitBranchService.DeleteMergedRemoteBranchAsync(RepositoryPath, branch.Name, branch.TipHash);
+                if (result.Success)
+                {
+                    removed++;
+                    _selectedRemoteMaintenanceBranches.Remove(branch.Name);
+                }
+                else
+                {
+                    failures.Add($"{branch.Name}: {result.Message}");
+                }
+            }
+
+            _maintenanceSucceeded = failures.Count == 0;
+            _maintenanceMessage = failures.Count == 0
+                ? L.T("Deleted {0} remote branches from origin.", removed)
+                : L.T("Deleted {0} of {1} remote branches. Check these results: {2}", removed, branches.Count, string.Join("; ", failures));
+            await LoadRemoteMaintenanceSnapshotAsync();
+            _snapshot = await GitBranchService.GetRepositorySnapshotAsync(RepositoryPath);
         }
         finally
         {

@@ -819,6 +819,42 @@ public sealed class GitBranchService
             branchResult);
     }
 
+    public async Task<GitRemoteMaintenanceSnapshot> GetRemoteMaintenanceSnapshotAsync(string path)
+    {
+        var fetchResult = await RunGitAsync(path, "fetch", "origin", "--prune");
+        if (!fetchResult.Success)
+            return new GitRemoteMaintenanceSnapshot(false, fetchResult.Message, null, []);
+
+        var mergeTarget = await GetOriginMaintenanceMergeTargetAsync(path);
+        if (mergeTarget is null)
+            return new GitRemoteMaintenanceSnapshot(true, string.Empty, null, []);
+
+        var branches = await GetOldMergedRemoteBranchesAsync(path, mergeTarget.Value);
+        return new GitRemoteMaintenanceSnapshot(true, string.Empty, mergeTarget.Value.BranchName, branches);
+    }
+
+    public async Task<GitOperationResult> DeleteMergedRemoteBranchAsync(string path, string branchName, string expectedTipHash)
+    {
+        if (string.IsNullOrWhiteSpace(branchName) || branchName.StartsWith('-') ||
+            IsProtectedBranchName(branchName, (await GetOriginMaintenanceMergeTargetAsync(path))?.BranchName))
+            return new GitOperationResult(false, _localization.T("This branch is protected and cannot be removed."), string.Empty);
+
+        var fetchResult = await RunGitAsync(path, "fetch", "origin", "--prune");
+        if (!fetchResult.Success)
+            return fetchResult;
+
+        var mergeTarget = await GetOriginMaintenanceMergeTargetAsync(path);
+        if (mergeTarget is null)
+            return new GitOperationResult(false, _localization.T("The origin default branch could not be detected; the remote branch was not removed."), string.Empty);
+
+        var candidates = await GetOldMergedRemoteBranchesAsync(path, mergeTarget.Value);
+        var candidate = candidates.FirstOrDefault(branch => string.Equals(branch.Name, branchName, StringComparison.Ordinal));
+        if (candidate is null || !string.Equals(candidate.TipHash, expectedTipHash, StringComparison.Ordinal))
+            return new GitOperationResult(false, _localization.T("The remote branch changed or no longer meets the cleanup rules; it was not removed."), string.Empty);
+
+        return await RunGitAsync(path, "push", "origin", $":refs/heads/{branchName}");
+    }
+
     public Task<GitOperationResult> RunMaintenanceAsync(string path) =>
         RunGitAsync(path, "maintenance", "run");
 
@@ -881,6 +917,48 @@ public sealed class GitBranchService
                 (int)((now - branch.CommitTime) / (24L * 60 * 60))))
             .OrderByDescending(branch => branch.AgeDays)
             .ToList();
+    }
+
+    private async Task<IReadOnlyList<GitRemoteMaintenanceBranch>> GetOldMergedRemoteBranchesAsync(
+        string path,
+        (string Reference, string BranchName) mergeTarget)
+    {
+        const int oldBranchDays = 90;
+        var branchesResult = await RunGitAsync(path, "for-each-ref",
+            "--format=%(refname:short)%09%(committerdate:unix)%09%(authorname)%09%(authoremail)%09%(objectname)",
+            "refs/remotes/origin");
+        var mergedResult = await RunGitAsync(path, "branch", "--remotes", "--merged", mergeTarget.Reference, "--format=%(refname:short)");
+        if (!branchesResult.Success || !mergedResult.Success)
+            return [];
+
+        var merged = mergedResult.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(branch => branch.TrimEnd('\r').Trim())
+            .ToHashSet(StringComparer.Ordinal);
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        return branchesResult.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r').Split('\t'))
+            .Where(parts => parts.Length == 5 && parts[0].StartsWith("origin/", StringComparison.Ordinal) &&
+                !parts[0].Equals("origin/HEAD", StringComparison.Ordinal) && long.TryParse(parts[1], out _))
+            .Select(parts => (Name: parts[0]["origin/".Length..], CommitTime: long.Parse(parts[1]), Author: $"{parts[2]} {parts[3].Trim('<', '>')}", TipHash: parts[4]))
+            .Where(branch => merged.Contains($"origin/{branch.Name}") &&
+                !IsProtectedBranchName(branch.Name, mergeTarget.BranchName) &&
+                now - branch.CommitTime >= oldBranchDays * 24L * 60 * 60)
+            .Select(branch => new GitRemoteMaintenanceBranch(branch.Name,
+                (int)((now - branch.CommitTime) / (24L * 60 * 60)), branch.Author, branch.TipHash))
+            .OrderByDescending(branch => branch.AgeDays)
+            .ToList();
+    }
+
+    private async Task<(string Reference, string BranchName)?> GetOriginMaintenanceMergeTargetAsync(string path)
+    {
+        var defaultResult = await RunGitAsync(path, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD");
+        var configuredDefault = defaultResult.Success ? defaultResult.Output.Trim() : null;
+        if (string.IsNullOrWhiteSpace(configuredDefault) || !configuredDefault.StartsWith("origin/", StringComparison.Ordinal))
+            return null;
+
+        var branchName = configuredDefault["origin/".Length..];
+        var reference = $"refs/remotes/{configuredDefault}";
+        return await RefExistsAsync(path, reference) ? (reference, branchName) : null;
     }
 
     private async Task<(string Reference, string BranchName)?> GetMaintenanceMergeTargetAsync(string path)
@@ -1639,6 +1717,8 @@ public sealed record GitMaintenanceSnapshot(
     string? DefaultBranchName,
     IReadOnlyList<GitMaintenanceBranch> OldMergedBranches);
 public sealed record GitMaintenanceBranch(string Name, int AgeDays);
+public sealed record GitRemoteMaintenanceSnapshot(bool Success, string Message, string? DefaultBranchName, IReadOnlyList<GitRemoteMaintenanceBranch> OldMergedBranches);
+public sealed record GitRemoteMaintenanceBranch(string Name, int AgeDays, string Author, string TipHash);
 public sealed record GitConflictVersions(string Ours, string Theirs, string WorkingContent, string Fingerprint, string LineEnding, bool HasUtf8Bom);
 public sealed record GitCommitBranchCheck(bool? IsOnCurrentBranch, string? Error);
 public sealed record GitSubmoduleSnapshot(IReadOnlyList<GitSubmoduleEntry> Entries)

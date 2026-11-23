@@ -1797,11 +1797,21 @@
 
     private GitCommitBranchLabel? GetPathBranchLabel(GitCommitEntry commit)
     {
-        if (commit.BranchLabels is { Count: > 0 })
-            return commit.BranchLabels[0];
-
         if (_snapshot is null)
             return null;
+
+        var currentBranch = _snapshot.Branches.FirstOrDefault(branch => branch.IsCurrent && !branch.IsRemote);
+        if (currentBranch is not null && IsCommitReachableFromTip(commit.Hash, currentBranch.TipHash))
+        {
+            var currentBranchLabel = _snapshot.Commits
+                .SelectMany(candidate => candidate.BranchLabels ?? [])
+                .FirstOrDefault(label => string.Equals(label.Name, currentBranch.Name, StringComparison.Ordinal));
+            if (currentBranchLabel is not null)
+                return currentBranchLabel;
+        }
+
+        if (commit.BranchLabels is { Count: > 0 })
+            return commit.BranchLabels[0];
 
         var currentIndex = _snapshot.Commits.ToList().FindIndex(candidate => candidate.Hash == commit.Hash);
         if (currentIndex < 0)
@@ -1815,6 +1825,31 @@
             .ThenBy(item => item.Index < currentIndex ? 1 : 0)
             .Select(item => item.Label)
             .FirstOrDefault();
+    }
+
+    private bool IsCommitReachableFromTip(string targetHash, string tipHash)
+    {
+        if (_snapshot is null)
+            return false;
+
+        var commitsByHash = _snapshot.Commits.ToDictionary(candidate => candidate.Hash, StringComparer.Ordinal);
+        var pending = new Stack<string>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        pending.Push(tipHash);
+        while (pending.TryPop(out var hash))
+        {
+            if (!visited.Add(hash))
+                continue;
+            if (string.Equals(hash, targetHash, StringComparison.Ordinal))
+                return true;
+            if (commitsByHash.TryGetValue(hash, out var candidate))
+            {
+                foreach (var parent in candidate.Parents)
+                    pending.Push(parent);
+            }
+        }
+
+        return false;
     }
 
     private sealed record BranchFolder(string? Name, IReadOnlyList<GitBranchEntry> Branches);

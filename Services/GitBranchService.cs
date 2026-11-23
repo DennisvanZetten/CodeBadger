@@ -557,14 +557,6 @@ public sealed class GitBranchService
                     : branchColors.Count <= 1 ? baseColor : nextColor++ % colors.Length;
                 SetLane(lanes, column, new GraphLane(commit.Hash, SelectLaneColor(color, column, lanes, colors.Length)));
             }
-            else if (branchColors.TryGetValue(commit.Hash, out var tipColor))
-            {
-                // A branch tip must keep the same color as its label, even when its lane
-                // was introduced earlier through another commit's parent edge.
-                var activeLane = lanes[column]!;
-                lanes[column] = activeLane with { Color = SelectLaneColor(tipColor, column, lanes, colors.Length) };
-            }
-
             var lanesBefore = lanes.ToArray();
             var currentLane = lanes[column]!;
             lanes[column] = null;
@@ -579,14 +571,6 @@ public sealed class GitBranchService
                 var existingParentColumn = FindLaneColumn(lanes, parentHash);
                 if (existingParentColumn >= 0)
                 {
-                    if (branchColors.TryGetValue(parentHash, out var existingParentColor))
-                    {
-                        var existingLane = lanes[existingParentColumn]!;
-                        lanes[existingParentColumn] = existingLane with
-                        {
-                            Color = SelectLaneColor(existingParentColor, existingParentColumn, lanes, colors.Length)
-                        };
-                    }
                     parentColors[parentHash] = lanes[existingParentColumn]!.Color;
                     continue;
                 }
@@ -594,10 +578,13 @@ public sealed class GitBranchService
                 // The first parent continues the current lane. Side parents use a free
                 // lane to the right where possible, without moving any active path.
                 var parentColumn = parentIndex == 0 ? column : FindFreeLaneColumn(lanes, column + 1);
-                var color = branchColors.TryGetValue(parentHash, out var parentColor)
-                    ? parentColor
-                    : parentIndex == 0
-                        ? currentLane.Color
+                // The first parent continues this lane even when it is also a branch tip.
+                // Coloring it from the ref would make the new branch appear to own all
+                // shared history below its tip.
+                var color = parentIndex == 0
+                    ? currentLane.Color
+                    : branchColors.TryGetValue(parentHash, out var parentColor)
+                        ? parentColor
                         : branchColors.Count <= 1 ? baseColor : nextColor++ % colors.Length;
                 var laneColor = SelectLaneColor(color, parentColumn, lanes, colors.Length);
                 SetLane(lanes, parentColumn, new GraphLane(parentHash, laneColor));
@@ -654,7 +641,7 @@ public sealed class GitBranchService
                         group.Key,
                         group.Any(branch => !branch.IsRemote),
                         group.Any(branch => branch.IsRemote),
-                        currentLane.Color,
+                        branchColors.TryGetValue(group.First().TipHash, out var labelColor) ? labelColor : currentLane.Color,
                         group.First().TipHash))
                     .ToList()
             });

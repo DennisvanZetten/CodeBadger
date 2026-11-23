@@ -64,10 +64,10 @@
                                      <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="@L.T("Close")" OnClick="Close" />
                     </MudStack>
                 </MudStack>
-                <div class="git-overview-progress @(_isLoading || _isOperating ? "git-overview-progress-active" : "")" aria-live="polite">
+                <div class="git-overview-progress @(_isLoading || _isOperating || _isLoadingSubmodules ? "git-overview-progress-active" : "")" aria-live="polite">
                     <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
-                    <span>@L.T(_loadingStage)</span>
-                    @if (_loadedBranchCount is not null)
+                    <span>@L.T(_isLoading || _isOperating ? _loadingStage : "Loading submodules...")</span>
+                    @if ((_isLoading || _isOperating) && _loadedBranchCount is not null)
                     {
                         <span class="git-overview-progress-count">@L.T("Branches loaded: {0}", _loadedBranchCount.Value)</span>
                     }
@@ -86,33 +86,11 @@
                                  OnClick="@(() => SwitchToCommitViewAsync())">@L.T("Create commit")</MudButton>
                     <MudButton Class="@(_view == GitView.Submodules ? "git-view-active" : "git-view-inactive")"
                                StartIcon="@Icons.Material.Filled.AccountTree" Color="@(_view == GitView.Submodules ? Color.Primary : Color.Default)" Variant="@(_view == GitView.Submodules ? Variant.Filled : Variant.Outlined)"
-                                OnClick="@(() => SwitchToSubmodulesViewAsync())">@L.T("Submodules") (@_submodules.Entries.Count)</MudButton>
+                                 OnClick="@(() => SwitchToSubmodulesViewAsync())">@L.T("Submodules")@(!_isLoadingSubmodules ? $" ({_submodules.Entries.Count})" : "")</MudButton>
                     <MudButton Class="@(_view == GitView.Maintenance ? "git-view-active" : "git-view-inactive")"
                                StartIcon="@Icons.Material.Filled.Build" Color="@(_view == GitView.Maintenance ? Color.Primary : Color.Default)" Variant="@(_view == GitView.Maintenance ? Variant.Filled : Variant.Outlined)"
                                OnClick="@SwitchToMaintenanceViewAsync">@L.T("Maintenance")</MudButton>
                 </MudButtonGroup>
-
-                @if (_isLoadingSubmodules)
-                {
-                    <MudPaper Class="pa-2 git-submodule-summary" Outlined="true" Elevation="0">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
-                            <MudText Typo="Typo.body2">@L.T("Loading submodules...")</MudText>
-                        </MudStack>
-                    </MudPaper>
-                }
-                else if (_submodules.Entries.Count > 0)
-                {
-                    <MudPaper Class="pa-2 git-submodule-summary" Outlined="true" Elevation="0">
-                        <MudText Typo="Typo.body2">@L.T("Submodules: {0} in sync · {1} out of sync · {2} not initialized", _submodules.InSyncCount, _submodules.OutOfSyncCount, _submodules.UninitializedCount)</MudText>
-                    </MudPaper>
-                }
-                else
-                {
-                    <MudPaper Class="pa-2 git-submodule-summary" Outlined="true" Elevation="0">
-                        <MudText Typo="Typo.body2">@L.T("No submodules in this repository.")</MudText>
-                    </MudPaper>
-                }
 
                 @if (_snapshot.Conflicts.Count > 0)
                 {
@@ -149,17 +127,13 @@
                                     <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_isOperating || _submodules.Entries.Count == 0)" OnClick="UpdateSubmodulesAsync">@L.T("Synchronize all")</MudButton>
                                 </MudStack>
                             </MudStack>
-            @if (_isLoadingSubmodules)
-            {
-                <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
-                <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Loading submodules...")</MudText>
-            }
-            else if (_submodules.Entries.Count == 0)
+            @if (!_isLoadingSubmodules && _submodules.Entries.Count == 0)
             {
                 <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("No submodules in this repository.")</MudText>
             }
-            else
+            else if (!_isLoadingSubmodules)
                             {
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Submodules: {0} in sync · {1} out of sync · {2} not initialized", _submodules.InSyncCount, _submodules.OutOfSyncCount, _submodules.UninitializedCount)</MudText>
                                 <div class="git-submodule-tree">@SubmoduleTree(string.Empty)</div>
                             }
                             @if (!string.IsNullOrWhiteSpace(_submoduleMessage))
@@ -869,7 +843,8 @@
     private string _commitDescription = string.Empty;
     private bool _isLoading = true;
     private bool _isLoadingSubmodules = true;
-    private int _refreshVersion;
+    private int _submoduleRefreshVersion;
+    private bool _isDisposed;
     private string _loadingStage = "Checking repository...";
     private int? _loadedBranchCount;
     private bool _isLoadingDiff;
@@ -1122,7 +1097,7 @@
 
     private async Task RefreshAsync(bool fetch = false)
     {
-        var refreshVersion = ++_refreshVersion;
+        ++_submoduleRefreshVersion;
         _isLoading = true;
         _loadingStage = fetch ? "Fetching remotes..." : "Checking repository...";
         _loadedBranchCount = null;
@@ -1132,7 +1107,7 @@
             _snapshot = await GitBranchService.GetRepositorySnapshotAsync(RepositoryPath, fetch, ReportSnapshotProgressAsync);
             RefreshSoloBranchCommits();
             await InvokeAsync(StateHasChanged);
-            _ = LoadSubmodulesInBackgroundAsync(refreshVersion);
+            _ = LoadSubmodulesInBackgroundAsync();
             await ReportSnapshotProgressAsync(new GitSnapshotProgress("Loading files..."));
             _shouldScrollToCurrentBranch = _snapshot?.IsValid == true && _snapshot.Branch is not null;
             _files = await GitBranchService.GetFileChangesAsync(RepositoryPath);
@@ -1157,22 +1132,14 @@
         }
     }
 
-    private async Task LoadSubmodulesInBackgroundAsync(int refreshVersion)
+    private async Task LoadSubmodulesInBackgroundAsync()
     {
         try
         {
-            var snapshot = await GitBranchService.GetSubmoduleSnapshotAsync(RepositoryPath);
-            if (refreshVersion != _refreshVersion)
-                return;
-
-            _submodules = snapshot;
-            _isLoadingSubmodules = false;
-            await InvokeAsync(StateHasChanged);
+            await RefreshSubmoduleSnapshotAsync();
         }
         catch (Exception exception)
         {
-            if (refreshVersion == _refreshVersion)
-                _isLoadingSubmodules = false;
             Logger.LogWarning(exception, "Could not load submodule overview for {RepositoryPath}", RepositoryPath);
         }
     }
@@ -2520,14 +2487,21 @@
 
     private async Task RefreshSubmoduleSnapshotAsync()
     {
+        var version = ++_submoduleRefreshVersion;
         _isLoadingSubmodules = true;
         try
         {
-            _submodules = await GitBranchService.GetSubmoduleSnapshotAsync(RepositoryPath);
+            var snapshot = await GitBranchService.GetSubmoduleSnapshotAsync(RepositoryPath);
+            if (!_isDisposed && version == _submoduleRefreshVersion)
+                _submodules = snapshot;
         }
         finally
         {
-            _isLoadingSubmodules = false;
+            if (!_isDisposed && version == _submoduleRefreshVersion)
+            {
+                _isLoadingSubmodules = false;
+                await InvokeAsync(StateHasChanged);
+            }
         }
     }
 
@@ -2537,10 +2511,9 @@
         _submoduleMessage = null;
     }
 
-    private Task SwitchToSubmodulesViewAsync()
+    private void SwitchToSubmodulesViewAsync()
     {
         _view = GitView.Submodules;
-        return RefreshSubmoduleSnapshotAsync();
     }
 
     private async Task SetAutoSyncSubmodulesAsync(bool enabled)
@@ -2594,7 +2567,6 @@
             var result = await operation();
             _submoduleOperationSucceeded = result.Success;
             _submoduleMessage = result.Success ? L.T("Submodule operation completed.") : result.Message;
-            await RefreshSubmoduleSnapshotAsync();
             await RefreshAsync();
             _view = GitView.Submodules;
         }
@@ -2807,6 +2779,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        _isDisposed = true;
         if (_gitHistoryModule is not null)
         {
             try

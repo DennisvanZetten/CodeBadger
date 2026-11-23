@@ -1109,8 +1109,11 @@ public sealed class GitBranchService
 
     public async Task<GitSubmoduleSnapshot> GetSubmoduleSnapshotAsync(string repositoryPath)
     {
-        var entries = new List<GitSubmoduleEntry>();
-        await ReadSubmodulesRecursiveAsync(repositoryPath, string.Empty, entries);
+        var startedAt = Stopwatch.GetTimestamp();
+        using var concurrency = new SemaphoreSlim(4);
+        var entries = await ReadSubmodulesRecursiveAsync(repositoryPath, string.Empty, concurrency);
+        _logger.LogInformation("Loaded {SubmoduleCount} submodules in {ElapsedMilliseconds} ms", entries.Count,
+            Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
         return new GitSubmoduleSnapshot(entries);
     }
 
@@ -1172,17 +1175,29 @@ public sealed class GitBranchService
         return new GitOperationResult(true, string.Empty, string.Empty);
     }
 
-    private async Task ReadSubmodulesRecursiveAsync(string repositoryPath, string prefix, List<GitSubmoduleEntry> entries)
+    private async Task<List<GitSubmoduleEntry>> ReadSubmodulesRecursiveAsync(string repositoryPath, string prefix, SemaphoreSlim concurrency)
     {
-        var status = await RunGitAsync(repositoryPath, "submodule", "status");
-        if (!status.Success)
+        GitOperationResult status;
+        GitOperationResult? configuredPaths = null;
+        await concurrency.WaitAsync();
+        try
         {
-            if (!string.IsNullOrWhiteSpace(status.Message))
-                entries.Add(new GitSubmoduleEntry(prefix, prefix, string.Empty, string.Empty, null, null, false, false, false, false, false, status.Message));
-            return;
+            status = await RunGitAsync(repositoryPath, "submodule", "status");
+            if (status.Success && !string.IsNullOrWhiteSpace(status.Output))
+                configuredPaths = await RunGitAllowExitOneAsync(repositoryPath, "config", "--file", ".gitmodules", "--get-regexp", "^submodule\\..*\\.path$");
         }
-        var configuredPaths = await RunGitAsync(repositoryPath, "config", "--file", ".gitmodules", "--get-regexp", "^submodule\\..*\\.path$");
-        var namesByPath = configuredPaths.Success
+        finally
+        {
+            concurrency.Release();
+        }
+
+        if (!status.Success)
+            return string.IsNullOrWhiteSpace(status.Message) ? [] :
+                [new GitSubmoduleEntry(prefix, prefix, string.Empty, string.Empty, null, null, false, false, false, false, false, status.Message)];
+        if (string.IsNullOrWhiteSpace(status.Output))
+            return [];
+
+        var namesByPath = configuredPaths?.Success == true
             ? configuredPaths.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(item => item.TrimEnd('\r'))
                 .Select(item => item.Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries))
                 .Where(parts => parts.Length == 2)
@@ -1190,20 +1205,32 @@ public sealed class GitBranchService
                     ? parts[0][10..^5] : parts[0], StringComparer.Ordinal)
             : new Dictionary<string, string>(StringComparer.Ordinal);
 
-        foreach (var line in status.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        var tasks = status.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => ReadSubmoduleAsync(repositoryPath, prefix, line, namesByPath, concurrency));
+        var children = await Task.WhenAll(tasks);
+        return children.SelectMany(child => child).ToList();
+    }
+
+    private async Task<List<GitSubmoduleEntry>> ReadSubmoduleAsync(
+        string repositoryPath, string prefix, string line, IReadOnlyDictionary<string, string> namesByPath, SemaphoreSlim concurrency)
+    {
+        var trimmed = line.TrimEnd('\r');
+        if (trimmed.Length < 42)
+            return [];
+        var marker = trimmed[0];
+        var hash = trimmed.Substring(1, 40);
+        var remainder = trimmed[41..].TrimStart();
+        var path = ParseSubmoduleStatusPath(remainder, namesByPath.Keys);
+        var fullPath = string.IsNullOrEmpty(prefix) ? path : Path.Combine(prefix, path).Replace('\\', '/');
+        var absolutePath = Path.Combine(repositoryPath, path.Replace('/', Path.DirectorySeparatorChar));
+        bool initialized;
+        GitSubmoduleEntry entry;
+        await concurrency.WaitAsync();
+        try
         {
-            var trimmed = line.TrimEnd('\r');
-            if (trimmed.Length < 42)
-                continue;
-            var marker = trimmed[0];
-            var hash = trimmed.Substring(1, 40);
-            var remainder = trimmed[41..].TrimStart();
-            var path = ParseSubmoduleStatusPath(remainder, namesByPath.Keys);
-            var fullPath = string.IsNullOrEmpty(prefix) ? path : Path.Combine(prefix, path).Replace('\\', '/');
-            var absolutePath = Path.Combine(repositoryPath, path.Replace('/', Path.DirectorySeparatorChar));
             var expectedResult = await RunGitAsync(repositoryPath, "rev-parse", $"HEAD:{path}");
             var expected = expectedResult.Success ? expectedResult.Output.Trim() : hash;
-            var initialized = Directory.Exists(absolutePath) && await IsRepositoryRootAsync(absolutePath);
+            initialized = Directory.Exists(absolutePath) && await IsRepositoryRootAsync(absolutePath);
             string? actual = null;
             string? branch = null;
             var changed = false;
@@ -1215,12 +1242,12 @@ public sealed class GitBranchService
                 var actualResult = await RunGitAsync(absolutePath, "rev-parse", "HEAD");
                 actual = actualResult.Success ? actualResult.Output.Trim() : null;
                 var branchResult = await RunGitAllowExitOneAsync(absolutePath, "symbolic-ref", "--quiet", "--short", "HEAD");
-                branch = branchResult.Success ? branchResult.Output.Trim() : null;
+                branch = branchResult.Success && branchResult.ExitCode == 0 ? branchResult.Output.Trim() : null;
                 var working = await RunGitAsync(absolutePath, "status", "--porcelain=v1", "-uall", "--ignore-submodules=all");
                 if (working.Success)
                 {
                     var lines = working.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(value => value.TrimEnd('\r')).ToArray();
-                changed = lines.Any(value => value.Length >= 2 && value[..2] != "??");
+                    changed = lines.Any(value => value.Length >= 2 && value[..2] != "??");
                     untracked = lines.Any(value => value.StartsWith("??", StringComparison.Ordinal));
                     conflicted |= lines.Any(value => value.Length >= 2 && (value[0] == 'U' || value[1] == 'U' || value.StartsWith("AA", StringComparison.Ordinal) || value.StartsWith("DD", StringComparison.Ordinal)));
                 }
@@ -1230,11 +1257,17 @@ public sealed class GitBranchService
             else if (marker != '-')
                 error = _localization.T("Submodule directory is unavailable");
 
-            entries.Add(new GitSubmoduleEntry(fullPath, prefix, namesByPath.GetValueOrDefault(path, Path.GetFileName(path)), expected, actual, branch, initialized,
-                string.Equals(expected, actual, StringComparison.Ordinal), changed, untracked, conflicted, error));
-            if (initialized)
-                await ReadSubmodulesRecursiveAsync(absolutePath, fullPath, entries);
+            entry = new GitSubmoduleEntry(fullPath, prefix, namesByPath.GetValueOrDefault(path, Path.GetFileName(path)), expected, actual, branch, initialized,
+                string.Equals(expected, actual, StringComparison.Ordinal), changed, untracked, conflicted, error);
         }
+        finally
+        {
+            concurrency.Release();
+        }
+        var entries = new List<GitSubmoduleEntry> { entry };
+        if (initialized)
+            entries.AddRange(await ReadSubmodulesRecursiveAsync(absolutePath, fullPath, concurrency));
+        return entries;
     }
 
     private async Task InspectSubmoduleTreeAsync(string repositoryPath, string prefix, List<string> dirty, List<string> conflicts)
@@ -1242,7 +1275,9 @@ public sealed class GitBranchService
         var status = await RunGitAsync(repositoryPath, "submodule", "status");
         if (!status.Success)
             return;
-        var configured = await RunGitAsync(repositoryPath, "config", "--file", ".gitmodules", "--get-regexp", "^submodule\\..*\\.path$");
+        if (string.IsNullOrWhiteSpace(status.Output))
+            return;
+        var configured = await RunGitAllowExitOneAsync(repositoryPath, "config", "--file", ".gitmodules", "--get-regexp", "^submodule\\..*\\.path$");
         var paths = configured.Success
             ? configured.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(item => item.TrimEnd('\r'))
                 .Select(item => item.Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries))

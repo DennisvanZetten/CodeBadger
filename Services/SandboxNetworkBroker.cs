@@ -154,7 +154,7 @@ public sealed class SandboxNetworkBroker : IDisposable
                 _logger.LogError("Sandbox provider response contained protected authentication material for repository {RepositoryId}.", repositoryId);
                 throw new InvalidDataException("Provider response contained protected authentication material.");
             }
-            _logger.LogDebug("Sandbox provider request completed for repository {RepositoryId}, host {ProviderHost}, method {HttpMethod} in {ElapsedMilliseconds} ms.",
+            _logger.LogInformation("Sandbox provider request completed for repository {RepositoryId}, host {ProviderHost}, method {HttpMethod} in {ElapsedMilliseconds} ms; response content omitted.",
                 repositoryId, destination.IdnHost, method.Method, System.Diagnostics.Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
             return text;
         }

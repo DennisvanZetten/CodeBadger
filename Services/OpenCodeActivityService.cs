@@ -354,8 +354,8 @@ public sealed class OpenCodeActivityService
             throw new ArgumentException("Invalid OpenCode session ID.", nameof(sessionId));
         if (string.IsNullOrWhiteSpace(text) || text.Length > 32000)
             throw new ArgumentException("Reply must contain 1–32,000 characters.", nameof(text));
-        _logger.LogInformation("Submitting a prompt to OpenCode session {SessionId} with agent {Agent}; prompt content omitted.",
-            sessionId, agent ?? "current");
+        _logger.LogInformation("Submitting prompt to OpenCode session {SessionId} with agent {Agent}. Prompt excerpt: {PromptExcerpt}",
+            sessionId, agent ?? "current", CreateLogExcerpt(text));
         var payload = agent is "build" or "plan"
             ? JsonSerializer.Serialize(new { text, delivery = "steer", agent })
             : JsonSerializer.Serialize(new { text, delivery = "steer" });
@@ -363,7 +363,7 @@ public sealed class OpenCodeActivityService
             HttpMethod.Post, payload, directory);
         if (response is null)
             throw new InvalidOperationException("Could not submit the reply to the OpenCode session.");
-        _logger.LogDebug("Prompt submitted to OpenCode session {SessionId}.", sessionId);
+        _logger.LogInformation("Prompt submitted to OpenCode session {SessionId}; prompt content omitted.", sessionId);
     }
 
     public async Task<ActiveSession> CreateSessionAsync(string directory, CancellationToken cancellationToken)
@@ -449,7 +449,15 @@ public sealed class OpenCodeActivityService
         {
             var startedAt = Stopwatch.GetTimestamp();
             var methodName = method == HttpMethod.Post ? "POST" : "GET";
-            _logger.LogDebug("Calling managed OpenCode API {HttpMethod} {ApiPath}.", methodName, path);
+            if (method == HttpMethod.Post)
+            {
+                var requestExcerpt = path.EndsWith("/prompt", StringComparison.Ordinal) && body is not null
+                    ? ExtractPromptExcerpt(body) : "[request payload omitted]";
+                _logger.LogInformation("Calling managed OpenCode API {HttpMethod} {ApiPath}. Request excerpt: {RequestExcerpt}",
+                    methodName, path, requestExcerpt);
+            }
+            else
+                _logger.LogDebug("Calling managed OpenCode API {HttpMethod} {ApiPath}.", methodName, path);
             if (!process.Start())
             {
                 _logger.LogWarning("Could not start managed OpenCode process for API request {ApiPath}.", path);
@@ -466,8 +474,12 @@ public sealed class OpenCodeActivityService
                 return null;
             }
             var json = await output;
-            _logger.LogDebug("Managed OpenCode API {ApiPath} completed successfully in {ElapsedMilliseconds} ms.",
-                path, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+            if (method == HttpMethod.Post)
+                _logger.LogInformation("Managed OpenCode API {ApiPath} completed successfully in {ElapsedMilliseconds} ms.",
+                    path, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+            else
+                _logger.LogDebug("Managed OpenCode API {ApiPath} completed successfully in {ElapsedMilliseconds} ms.",
+                    path, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
             return JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -491,5 +503,27 @@ public sealed class OpenCodeActivityService
             catch (InvalidOperationException) { }
             catch (System.ComponentModel.Win32Exception) { }
         }
+    }
+
+    private static string ExtractPromptExcerpt(string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            return document.RootElement.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String
+                ? CreateLogExcerpt(text.GetString() ?? string.Empty)
+                : "[prompt unavailable]";
+        }
+        catch (JsonException) { return "[prompt unavailable]"; }
+    }
+
+    private static string CreateLogExcerpt(string text)
+    {
+        const int maximumLength = 4000;
+        var excerpt = System.Text.RegularExpressions.Regex.Replace(text,
+            @"(?i)(https?://)[^/@\s]+:[^/@\s]+@", "$1[redacted]@");
+        excerpt = System.Text.RegularExpressions.Regex.Replace(excerpt,
+            @"(?i)(token|authorization|password|api[_-]?key)(\s*[:=]\s*)[^\s,;]+", "$1$2[redacted]");
+        return excerpt.Length <= maximumLength ? excerpt : excerpt[..maximumLength] + "… [truncated]";
     }
 }

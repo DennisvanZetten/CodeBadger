@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace CodeBadger.Services;
 
@@ -8,6 +9,7 @@ namespace CodeBadger.Services;
 public sealed class SandboxSdkChatBridge : IDisposable
 {
     private readonly SandboxBrokerPipe _pipe;
+    private readonly ILogger _logger;
     private readonly ConcurrentQueue<string> _prompts = new();
     private int _queued;
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -16,8 +18,9 @@ public sealed class SandboxSdkChatBridge : IDisposable
     public Task Completion { get; }
     public event Action<string, string>? Updated;
 
-    public SandboxSdkChatBridge(string sid)
+    public SandboxSdkChatBridge(string sid, ILogger logger)
     {
+        _logger = logger;
         _pipe = new SandboxBrokerPipe(sid, maxMessages: 432000);
         Completion = _pipe.ServeAsync(HandleAsync);
     }
@@ -41,6 +44,7 @@ public sealed class SandboxSdkChatBridge : IDisposable
         var events = body.GetProperty("events");
         if (events.ValueKind != JsonValueKind.Array) throw new InvalidDataException("SDK events must be an array.");
         if (events.GetArrayLength() > 32) throw new InvalidDataException("Too many SDK events.");
+        var acceptedEvents = 0;
         foreach (var item in events.EnumerateArray())
         {
             string type = item.GetProperty("type").GetString() ?? "";
@@ -48,11 +52,19 @@ public sealed class SandboxSdkChatBridge : IDisposable
             if (text.Length > 32000 || type is not ("ready" or "text" or "busy" or "idle" or "error" or "tool"))
                 throw new InvalidDataException("Invalid SDK event.");
             if (type == "ready") _ready.TrySetResult();
+            if (type is "busy" or "idle" or "tool" or "error")
+                acceptedEvents++;
             foreach (Action<string, string> listener in Updated?.GetInvocationList() ?? [])
                 try { listener(type, text); } catch { }
         }
         string? prompt = null;
-        if (body.GetProperty("acceptPrompt").GetBoolean() && _prompts.TryDequeue(out prompt)) Interlocked.Decrement(ref _queued);
+        if (body.GetProperty("acceptPrompt").GetBoolean() && _prompts.TryDequeue(out prompt))
+        {
+            Interlocked.Decrement(ref _queued);
+            _logger.LogInformation("Direct OpenCode SDK accepted a queued prompt; prompt content omitted.");
+        }
+        if (acceptedEvents > 0)
+            _logger.LogInformation("Received {SdkEventCount} OpenCode SDK lifecycle/tool events.", acceptedEvents);
         return Task.FromResult(JsonSerializer.Serialize(new { response = new { prompt } }));
     }
 

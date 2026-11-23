@@ -1473,7 +1473,7 @@ public sealed class GitBranchService
         try
         {
             var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
-            _logger.LogDebug("Running git command in {RepositoryPath}: git {GitArguments}", path, command);
+            _logger.LogInformation("Running git command in {RepositoryPath}: git {GitArguments}", path, command);
             using var process = Process.Start(startInfo);
             if (process is null)
                 return new GitOperationResult(false, _localization.T("Git could not be started."), string.Empty);
@@ -1485,8 +1485,10 @@ public sealed class GitBranchService
             var success = process.ExitCode == 0 || (allowExitCodeOne && process.ExitCode == 1);
             var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(startedAt);
             if (success)
-                _logger.LogDebug("Git command completed with exit code {ExitCode} in {ElapsedMilliseconds} ms: git {GitArguments}. Output: {GitOutput}",
+            {
+                _logger.LogInformation("Git command completed with exit code {ExitCode} in {ElapsedMilliseconds} ms: git {GitArguments}. Response: {GitOutput}",
                     process.ExitCode, elapsed.TotalMilliseconds, command, TruncateLogOutput(output));
+            }
             else
                 _logger.LogWarning("Git command failed with exit code {ExitCode} in {ElapsedMilliseconds} ms: git {GitArguments}. Error: {GitError}",
                     process.ExitCode, elapsed.TotalMilliseconds, command, TruncateLogOutput(error));

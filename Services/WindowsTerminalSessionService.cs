@@ -54,7 +54,8 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         {
             if (IsRunning(id))
                 return;
-            _logger.LogInformation("Starting agent terminal for repository {RepositoryId} in {WorkingDirectory}.", id, workingDirectory);
+            _logger.LogInformation("Starting agent terminal for repository {RepositoryId} in {WorkingDirectory} with configured command {Command}.",
+                id, workingDirectory, SanitizeCommandForLog(commandLine));
             if (!OperatingSystem.IsWindows())
                 throw new PlatformNotSupportedException(_localization.T("The built-in terminal is only available on Windows."));
             if (!Directory.Exists(workingDirectory))
@@ -102,7 +103,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
             var bytes = Encoding.UTF8.GetBytes(input);
             await session.Input.WriteAsync(bytes);
             await session.Input.FlushAsync();
-            _logger.LogDebug("Forwarded {InputByteCount} bytes to agent terminal for repository {RepositoryId}; content omitted.", bytes.Length, id);
+            _logger.LogInformation("Forwarded terminal input to agent for repository {RepositoryId}.", id);
             }
             finally { gate.Release(); }
         }
@@ -353,6 +354,16 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         }
 
         return (resolvedExecutable, $"\"{resolvedExecutable}\"{(string.IsNullOrWhiteSpace(argumentText) ? string.Empty : " " + argumentText)}");
+    }
+
+    private static string SanitizeCommandForLog(string command)
+    {
+        const int maximumLength = 500;
+        var sanitized = System.Text.RegularExpressions.Regex.Replace(command,
+            @"(?i)(https?://)[^/@\s]+:[^/@\s]+@", "$1[redacted]@");
+        sanitized = System.Text.RegularExpressions.Regex.Replace(sanitized,
+            @"(?i)(token|authorization|password|api[_-]?key)(\s*[:=]\s*)[^\s,;]+", "$1$2[redacted]");
+        return sanitized.Length <= maximumLength ? sanitized : sanitized[..maximumLength] + "… [truncated]";
     }
 
     private string ReadExecutableToken(string command, out string arguments)

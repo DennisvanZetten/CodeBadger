@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+
 namespace CodeBadger.Services;
 
 public sealed partial class WindowsSandboxSessionService
@@ -5,6 +7,8 @@ public sealed partial class WindowsSandboxSessionService
     private async Task StartSdkOpenCodeAsync(Guid repositoryId, string repositoryPath, IReadOnlyList<string> files,
         Uri endpoint, string model, string key, SandboxNetworkBroker broker, SandboxApprovalService approvals)
     {
+        _logger.LogInformation("Preparing direct OpenCode SDK session for repository {RepositoryId} with model {Model} and {FileCount} selected files.",
+            repositoryId, model, files.Count);
         if (repositoryId == Guid.Empty) throw new ArgumentException("A repository ID is required.");
         string path = CanonicalPath(repositoryPath);
         // Load and verify runtime before granting any repository rights.
@@ -32,9 +36,27 @@ public sealed partial class WindowsSandboxSessionService
                 terminal = await Task.Run(() => WindowsSandboxTerminal.StartDirectRuntime(path, files, (sid, folder) =>
                 {
                     bridge = new SandboxProviderBridge(sid, repositoryId, path, endpoint, model, key, broker, approvals);
-                    chat = new SandboxSdkChatBridge(sid);
+                    chat = new SandboxSdkChatBridge(sid, _logger);
                     chat.Updated += (type, text) =>
                     {
+                        if (type == "tool")
+                            _logger.LogInformation("OpenCode SDK invoked a tool for repository {RepositoryId}.", repositoryId);
+                        else if (type == "busy")
+                            _logger.LogInformation("OpenCode SDK began processing a request for repository {RepositoryId}.", repositoryId);
+                        else if (type == "idle")
+                            _logger.LogInformation("OpenCode SDK finished processing a request for repository {RepositoryId}.", repositoryId);
+                        else if (type == "text")
+                            _logger.LogInformation("OpenCode SDK response excerpt for repository {RepositoryId}: {ResponseExcerpt}",
+                                repositoryId, CreateLogExcerpt(text));
+                        else if (type == "tool")
+                        {
+                            var separator = text.IndexOf(':');
+                            var toolName = separator > 0 ? text[..separator].Trim() : "unknown";
+                            _logger.LogInformation("OpenCode SDK tool activity for repository {RepositoryId}: {ToolName}.",
+                                repositoryId, toolName);
+                        }
+                        else if (type == "error")
+                            _logger.LogWarning("OpenCode SDK reported an error for repository {RepositoryId}.", repositoryId);
                         foreach (Action<Guid, string, string> listener in ChatUpdated?.GetInvocationList() ?? [])
                             try { listener(repositoryId, type, text); } catch { }
                     };
@@ -83,6 +105,8 @@ public sealed partial class WindowsSandboxSessionService
         {
             if (!_sessions.TryGetValue(repositoryId, out var session) || session.Chat is null)
                 throw new InvalidOperationException("The direct SDK chat is not running.");
+            _logger.LogInformation("Submitting prompt to direct OpenCode SDK session for repository {RepositoryId}. Prompt excerpt: {PromptExcerpt}",
+                repositoryId, CreateLogExcerpt(prompt));
             session.Chat.Send(prompt);
         }
         finally { _gate.Release(); }
@@ -100,5 +124,15 @@ public sealed partial class WindowsSandboxSessionService
             foreach (Action<Guid, string> listener in ProviderFailed?.GetInvocationList() ?? [])
                 try { listener(repositoryId, "SDK chat stopped; repository access cleanup could not be confirmed. Recovery is required."); } catch { }
         }
+    }
+
+    private static string CreateLogExcerpt(string text)
+    {
+        const int maximumLength = 4000;
+        var excerpt = System.Text.RegularExpressions.Regex.Replace(text,
+            @"(?i)(https?://)[^/@\s]+:[^/@\s]+@", "$1[redacted]@");
+        excerpt = System.Text.RegularExpressions.Regex.Replace(excerpt,
+            @"(?i)(token|authorization|password|api[_-]?key)(\s*[:=]\s*)[^\s,;]+", "$1$2[redacted]");
+        return excerpt.Length <= maximumLength ? excerpt : excerpt[..maximumLength] + "… [truncated]";
     }
 }

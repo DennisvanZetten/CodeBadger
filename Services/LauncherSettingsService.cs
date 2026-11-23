@@ -31,6 +31,7 @@ public sealed class LauncherSettingsService
             {
                 var json = await File.ReadAllTextAsync(_settingsPath);
                 var root = JsonNode.Parse(json);
+                MigrateLoggingDefaults(root);
                 MigrateLegacyTicketSettings(root);
                 MigrateLegacyAiCommitInstruction(root);
                 settings = root?.Deserialize<LauncherSettings>(JsonOptions) ?? new LauncherSettings();
@@ -192,10 +193,28 @@ public sealed class LauncherSettingsService
     private static void NormalizeLogSettings(LauncherSettings settings)
     {
         settings.LogRetentionDays = Math.Clamp(settings.LogRetentionDays, 1, 3650);
-        settings.GeneralLogLevel = LauncherSettings.NormalizeLogLevel(settings.GeneralLogLevel);
+        settings.LoggingSettingsVersion = 1;
+        settings.GeneralLogLevel = LauncherSettings.NormalizeLogLevel(settings.GeneralLogLevel, "Warning");
         settings.GitLogLevel = LauncherSettings.NormalizeLogLevel(settings.GitLogLevel, "Warning");
-        settings.NotificationsLogLevel = LauncherSettings.NormalizeLogLevel(settings.NotificationsLogLevel);
-        settings.AiLogLevel = LauncherSettings.NormalizeLogLevel(settings.AiLogLevel);
+        settings.NotificationsLogLevel = LauncherSettings.NormalizeLogLevel(settings.NotificationsLogLevel, "Warning");
+        settings.AiLogLevel = LauncherSettings.NormalizeLogLevel(settings.AiLogLevel, "Warning");
+    }
+
+    private static void MigrateLoggingDefaults(JsonNode? root)
+    {
+        if (root is not JsonObject settings || settings["LoggingSettingsVersion"] is not null)
+            return;
+
+        // Earlier builds shipped with Information as the default. Normalize the
+        // legacy defaults once; subsequent user changes are retained on saves.
+        foreach (var key in new[] { "GeneralLogLevel", "GitLogLevel", "NotificationsLogLevel", "AiLogLevel" })
+        {
+            if (settings[key] is not JsonValue storedLevel ||
+                !storedLevel.TryGetValue<string>(out var level) ||
+                string.Equals(level, "Information", StringComparison.OrdinalIgnoreCase))
+                settings[key] = "Warning";
+        }
+        settings["LoggingSettingsVersion"] = 1;
     }
 
     private static string NormalizeGitOverviewStartSize(string? value) => value?.Trim().ToLowerInvariant() switch

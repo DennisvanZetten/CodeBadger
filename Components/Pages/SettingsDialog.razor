@@ -677,10 +677,10 @@
         _isSaving = true;
         try
         {
-            Settings.GeneralLogLevel = _logLevelValues.GetValueOrDefault(ApplicationLogCategories.General, "Information");
+            Settings.GeneralLogLevel = _logLevelValues.GetValueOrDefault(ApplicationLogCategories.General, "Warning");
             Settings.GitLogLevel = _logLevelValues.GetValueOrDefault(ApplicationLogCategories.Git, "Warning");
-            Settings.NotificationsLogLevel = _logLevelValues.GetValueOrDefault(ApplicationLogCategories.Notifications, "Information");
-            Settings.AiLogLevel = _logLevelValues.GetValueOrDefault(ApplicationLogCategories.Ai, "Information");
+            Settings.NotificationsLogLevel = _logLevelValues.GetValueOrDefault(ApplicationLogCategories.Notifications, "Warning");
+            Settings.AiLogLevel = _logLevelValues.GetValueOrDefault(ApplicationLogCategories.Ai, "Warning");
             await SettingsService.SaveAsync(Settings);
             ApplicationLogs.PruneExpired(Settings.LogRetentionDays);
             Snackbar.Configuration.VisibleStateDuration = Settings.ToastDurationSeconds * 1000;

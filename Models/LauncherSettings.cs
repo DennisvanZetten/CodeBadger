@@ -12,10 +12,11 @@ public sealed class LauncherSettings
     public string QuestionSound { get; set; } = "chime";
     public int ToastDurationSeconds { get; set; } = 1;
     public int LogRetentionDays { get; set; } = 30;
-    public string GeneralLogLevel { get; set; } = "Information";
+    public string GeneralLogLevel { get; set; } = "Warning";
     public string GitLogLevel { get; set; } = "Warning";
-    public string NotificationsLogLevel { get; set; } = "Information";
-    public string AiLogLevel { get; set; } = "Information";
+    public string NotificationsLogLevel { get; set; } = "Warning";
+    public string AiLogLevel { get; set; } = "Warning";
+    public int LoggingSettingsVersion { get; set; } = 1;
     public string GitOverviewStartSize { get; set; } = "Large";
     public string DismissedUpdateVersion { get; set; } = string.Empty;
     public string AiProvider { get; set; } = "OpenAI";

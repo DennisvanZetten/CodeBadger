@@ -246,7 +246,7 @@ public sealed class GitHostService(LocalizationService localization, ILogger<Git
         try
         {
             var startedAt = Stopwatch.GetTimestamp();
-            logger.LogDebug("Running Git host CLI {Executable} with {ArgumentCount} arguments.", executable, arguments.Length);
+            logger.LogInformation("Running Git host CLI: {Executable} {Arguments}.", executable, FormatLogArguments(arguments));
             using var process = Process.Start(startInfo) ?? throw new InvalidOperationException(localization.T("Could not start {0}.", executable));
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
@@ -254,10 +254,13 @@ public sealed class GitHostService(LocalizationService localization, ILogger<Git
             var output = await outputTask;
             var error = await errorTask;
             if (process.ExitCode == 0)
-                logger.LogDebug("Git host CLI {Executable} completed with exit code 0 in {ElapsedMilliseconds} ms.", executable, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+                logger.LogInformation("Git host CLI {Executable} completed with exit code 0 in {ElapsedMilliseconds} ms.", executable, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
             else
                 logger.LogWarning("Git host CLI {Executable} failed with exit code {ExitCode} in {ElapsedMilliseconds} ms.", executable, process.ExitCode, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
-            return new CommandResult(process.ExitCode == 0, output.Trim(), string.IsNullOrWhiteSpace(error) ? output.Trim() : error.Trim());
+            var message = string.IsNullOrWhiteSpace(error) ? output.Trim() : error.Trim();
+            if (process.ExitCode == 0)
+                logger.LogInformation("Git host CLI {Executable} response: {CommandResponse}", executable, TruncateLogOutput(output));
+            return new CommandResult(process.ExitCode == 0, output.Trim(), message);
         }
         catch (Win32Exception exception)
         {
@@ -294,7 +297,7 @@ public sealed class GitHostService(LocalizationService localization, ILogger<Git
         try
         {
             var startedAt = Stopwatch.GetTimestamp();
-            logger.LogDebug("Running Git host CLI {Executable} with {ArgumentCount} arguments.", executable, arguments.Length);
+            logger.LogInformation("Running Git host CLI: {Executable} {Arguments}.", executable, FormatLogArguments(arguments));
             using var process = Process.Start(startInfo) ?? throw new InvalidOperationException(localization.T("Could not start {0}.", executable));
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
@@ -302,10 +305,12 @@ public sealed class GitHostService(LocalizationService localization, ILogger<Git
             var output = await outputTask;
             var error = await errorTask;
             if (process.ExitCode == 0)
-                logger.LogDebug("Git host CLI {Executable} completed with exit code 0 in {ElapsedMilliseconds} ms.", executable, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+                logger.LogInformation("Git host CLI {Executable} completed with exit code 0 in {ElapsedMilliseconds} ms.", executable, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
             else
                 logger.LogWarning("Git host CLI {Executable} failed with exit code {ExitCode} in {ElapsedMilliseconds} ms.", executable, process.ExitCode, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
             var message = suppressStandardError ? string.Empty : string.IsNullOrWhiteSpace(error) ? output.Trim() : error.Trim();
+            if (process.ExitCode == 0 && !suppressStandardError)
+                logger.LogInformation("Git host CLI {Executable} response: {CommandResponse}", executable, TruncateLogOutput(output));
             return new CommandResult(process.ExitCode == 0, output.Trim(), message);
         }
         catch (Win32Exception exception)
@@ -318,6 +323,39 @@ public sealed class GitHostService(LocalizationService localization, ILogger<Git
             logger.LogWarning("Git host CLI {Executable} working folder does not exist: {ErrorMessage}", executable, exception.Message);
             return new CommandResult(false, string.Empty, localization.T("The selected destination folder does not exist."));
         }
+    }
+
+    private static string FormatLogArguments(IEnumerable<string> arguments)
+    {
+        var result = new List<string>();
+        var redactNext = false;
+        foreach (var argument in arguments)
+        {
+            if (redactNext)
+            {
+                result.Add("[redacted]");
+                redactNext = false;
+                continue;
+            }
+
+            var safe = System.Text.RegularExpressions.Regex.Replace(argument,
+                @"(?i)(https?://)[^/@\s]+:[^/@\s]+@", "$1[redacted]@");
+            safe = System.Text.RegularExpressions.Regex.Replace(safe,
+                @"(?i)(token|authorization|password|api[_-]?key)(\s*[:=]\s*)[^\s,;]+", "$1$2[redacted]");
+            result.Add(safe.Contains(' ') ? "\"" + safe.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"" : safe);
+            redactNext = argument is "-m" or "--message" or "--body" or "--body-file";
+        }
+        return string.Join(' ', result);
+    }
+
+    private static string TruncateLogOutput(string value)
+    {
+        const int maximumLength = 2000;
+        var safe = System.Text.RegularExpressions.Regex.Replace(value.Trim(),
+            @"(?i)(https?://)[^/@\s]+:[^/@\s]+@", "$1[redacted]@");
+        safe = System.Text.RegularExpressions.Regex.Replace(safe,
+            @"(?i)(token|authorization|password|api[_-]?key)(\s*[:=]\s*)[^\s,;]+", "$1$2[redacted]");
+        return safe.Length <= maximumLength ? safe : safe[..maximumLength] + "…";
     }
 
     private static void EnsureSuccess(CommandResult result)

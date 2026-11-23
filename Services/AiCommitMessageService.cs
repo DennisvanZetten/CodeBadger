@@ -49,8 +49,8 @@ public sealed class AiCommitMessageService
         try
         {
             var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
-            _logger.LogDebug("Starting AI {Operation} with provider {Provider} and model {Model}.",
-                commitMessage ? "commit-message generation" : "conflict resolution", provider, model);
+            _logger.LogInformation("Starting AI {Operation} with provider {Provider} and model {Model}. Input excerpt: {InputExcerpt}",
+                commitMessage ? "commit-message generation" : "conflict resolution", provider, model, CreateLogExcerpt(promptText));
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
             using var request = commitMessage
                 ? CreateRequest(provider, uri, settings, LimitInput(promptText, settings.AiMaxInputTokens), branchName, customInstruction)
@@ -72,7 +72,10 @@ public sealed class AiCommitMessageService
                 var result = string.IsNullOrWhiteSpace(title)
                     ? new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("The provider returned no commit title."))
                     : new AiCommitMessageResult(true, title.Trim().Trim('`'), description.Trim().Trim('`'), string.Empty);
-                LogAiResult(result.Success, provider, model, commitMessage, startedAt);
+                if (result.Success)
+                    _logger.LogInformation("AI commit-message result excerpt: {ResultExcerpt}",
+                        CreateLogExcerpt(title + (string.IsNullOrWhiteSpace(description) ? string.Empty : "\n" + description)));
+                LogAiResult(result.Success, provider, model, commitMessage, startedAt, title.Length + description.Length);
                 return result;
             }
 
@@ -80,7 +83,9 @@ public sealed class AiCommitMessageService
             var conflictResult = string.IsNullOrWhiteSpace(resolvedContent)
                 ? new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("The AI provider returned no resolved content."))
                 : new AiCommitMessageResult(true, resolvedContent, string.Empty, string.Empty);
-            LogAiResult(conflictResult.Success, provider, model, commitMessage, startedAt);
+            if (conflictResult.Success)
+                _logger.LogInformation("AI conflict-resolution result excerpt: {ResultExcerpt}", CreateLogExcerpt(resolvedContent));
+            LogAiResult(conflictResult.Success, provider, model, commitMessage, startedAt, resolvedContent.Length);
             return conflictResult;
         }
         catch (TaskCanceledException)
@@ -103,15 +108,25 @@ public sealed class AiCommitMessageService
         }
     }
 
-    private void LogAiResult(bool success, string provider, string model, bool commitMessage, long startedAt)
+    private void LogAiResult(bool success, string provider, string model, bool commitMessage, long startedAt, int outputCharacters)
     {
         var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
         if (success)
-            _logger.LogInformation("AI {Operation} with provider {Provider} and model {Model} completed in {ElapsedMilliseconds} ms.",
-                commitMessage ? "commit-message generation" : "conflict resolution", provider, model, elapsed);
+            _logger.LogInformation("AI {Operation} with provider {Provider} and model {Model} completed in {ElapsedMilliseconds} ms; generated {OutputCharacters} characters.",
+                commitMessage ? "commit-message generation" : "conflict resolution", provider, model, elapsed, outputCharacters);
         else
             _logger.LogWarning("AI {Operation} with provider {Provider} and model {Model} returned no usable result after {ElapsedMilliseconds} ms.",
                 commitMessage ? "commit-message generation" : "conflict resolution", provider, model, elapsed);
+    }
+
+    private static string CreateLogExcerpt(string text)
+    {
+        const int maximumLength = 4000;
+        var excerpt = System.Text.RegularExpressions.Regex.Replace(text,
+            @"(?i)(https?://)[^/@\s]+:[^/@\s]+@", "$1[redacted]@");
+        excerpt = System.Text.RegularExpressions.Regex.Replace(excerpt,
+            @"(?i)(token|authorization|password|api[_-]?key)(\s*[:=]\s*)[^\s,;]+", "$1$2[redacted]");
+        return excerpt.Length <= maximumLength ? excerpt : excerpt[..maximumLength] + "… [truncated]";
     }
 
     public async Task<AiCommitMessageResult> TestConnectionAsync(LauncherSettings settings)
@@ -226,7 +241,7 @@ public sealed class AiCommitMessageService
     {
         var provider = settings.AiProvider;
         var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
-        _logger.LogDebug("Loading available models from AI provider {Provider}.", provider);
+        _logger.LogInformation("Loading available models from AI provider {Provider}.", provider);
         var endpoint = ResolveModelsEndpoint(settings);
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
             return new AiModelListResult(false, [], _localization.T("Enter a valid provider URL."));

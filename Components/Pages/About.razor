@@ -1,0 +1,264 @@
+@page "/about"
+@implements IDisposable
+@inject LocalizationService L
+@inject LauncherSettingsService SettingsService
+@inject StartupDetectionService StartupDetection
+@inject GitHostService GitHost
+@inject SlackNotificationService Notifications
+@inject UpdateService Updates
+@inject NavigationManager Navigation
+
+<PageTitle>@L.T("About CodeBadger") - CodeBadger</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="py-4">
+    <MudStack Spacing="3">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="GoBack" aria-label="@L.T("Back")" />
+            <MudText Typo="Typo.h5">@L.T("About CodeBadger")</MudText>
+        </MudStack>
+
+        <MudPaper Outlined="true" Elevation="0" Class="pa-4">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">CodeBadger</MudText>
+                <MudText Typo="Typo.body2">@L.T("App version"): @_appVersion</MudText>
+                <MudStack Row="true" Spacing="2" Class="flex-wrap">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SystemUpdate"
+                               OnClick="CheckForUpdatesAsync" Disabled="@_isCheckingUpdate">
+                        @(_isCheckingUpdate ? L.T("Checking for updates...") : L.T("Check for updates"))
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.OpenInNew"
+                               Href="https://github.com/DennisvanZetten/CodeBadger" Target="_blank">
+                        @L.T("Open GitHub")
+                    </MudButton>
+                </MudStack>
+                @if (!string.IsNullOrWhiteSpace(_updateStatus))
+                {
+                    <MudAlert Severity="@_updateSeverity" Variant="Variant.Outlined">@L.T(_updateStatus, _updateVersion)</MudAlert>
+                }
+            </MudStack>
+        </MudPaper>
+
+        <MudPaper Outlined="true" Elevation="0" Class="pa-4">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">@L.T("Configured integrations")</MudText>
+                @foreach (var integration in _integrations)
+                {
+                    <MudPaper Outlined="true" Elevation="0" Class="pa-3">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
+                            <MudStack Spacing="0">
+                                <MudText Typo="Typo.subtitle1">@integration.Name</MudText>
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T(integration.Status)</MudText>
+                            </MudStack>
+                            <MudChip T="string" Size="Size.Small" Color="@(integration.Active ? Color.Success : Color.Default)" Variant="Variant.Outlined">
+                                @L.T(integration.Badge)
+                            </MudChip>
+                        </MudStack>
+                        @if (!string.IsNullOrWhiteSpace(integration.Version))
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T(integration.VersionLabel): @integration.Version</MudText>
+                        }
+                    </MudPaper>
+                }
+            </MudStack>
+        </MudPaper>
+
+        <MudPaper Outlined="true" Elevation="0" Class="pa-4">
+            <MudStack Spacing="2">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                    <MudText Typo="Typo.h6">@L.T("Current release")</MudText>
+                    @if (_release is not null)
+                    {
+                        <MudLink Href="@_release.Url.ToString()" Target="_blank" Typo="Typo.caption">@_release.Version</MudLink>
+                    }
+                </MudStack>
+                @if (_isLoadingRelease)
+                {
+                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                }
+                else if (_release is null && !string.IsNullOrWhiteSpace(_releaseError))
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("Release information could not be loaded: {0}", _releaseError)</MudAlert>
+                }
+                else if (_release is null || string.IsNullOrWhiteSpace(_release.Notes))
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("No release notes are available.")</MudText>
+                }
+                else
+                {
+                    <MarkdownContent Content="@_release.Notes" />
+                }
+            </MudStack>
+        </MudPaper>
+    </MudStack>
+</MudContainer>
+
+@code {
+    private sealed record Integration(string Name, string Status, string Badge, bool Active, string Version = "", string VersionLabel = "Version");
+
+    private readonly List<Integration> _integrations = [];
+    private AppRelease? _release;
+    private string _releaseError = string.Empty;
+    private bool _isLoadingRelease = true;
+    private bool _isCheckingUpdate;
+    private string _updateStatus = string.Empty;
+    private string _updateVersion = string.Empty;
+    private Severity _updateSeverity = Severity.Info;
+    private string _appVersion = "—";
+
+    protected override async Task OnInitializedAsync()
+    {
+        L.LanguageChanged += HandleLanguageChanged;
+        _appVersion = GetAppVersion();
+        await LoadIntegrationsAsync();
+        await LoadReleaseAsync();
+    }
+
+    private async Task LoadIntegrationsAsync()
+    {
+        var settings = await SettingsService.LoadAsync();
+        _integrations.Clear();
+
+        var aiConfigured = settings.AiProvider.Equals("Ollama", StringComparison.OrdinalIgnoreCase) ||
+            !string.IsNullOrWhiteSpace(settings.AiApiKey) ||
+            settings.AiProvider is "Custom URL" or "Azure OpenAI" && !string.IsNullOrWhiteSpace(settings.AiCustomUrl);
+        _integrations.Add(new Integration($"AI — {settings.AiProvider}",
+            aiConfigured ? "Configured" : "Not configured", aiConfigured ? "Configured" : "Not configured", aiConfigured,
+            string.IsNullOrWhiteSpace(settings.AiModel) ? string.Empty : settings.AiModel, "Model"));
+
+        foreach (var agent in new[] { AgentTools.OpenCode, AgentTools.ClaudeCode, AgentTools.Codex, AgentTools.Hermes })
+        {
+            var state = StartupDetection.GetAgentState(agent);
+            var installed = state?.Installed == true;
+            var command = AgentTools.GetCommand(agent);
+            var version = installed ? await GetCommandVersionAsync(command, "--version") : string.Empty;
+            _integrations.Add(new Integration(agent, installed ? "Installed" : "Not installed",
+                installed ? "Available" : "Not installed", installed, version));
+        }
+
+        var github = await GitHost.CheckGitHubAsync();
+        var ghVersion = await GetCommandVersionAsync("gh", "--version");
+        _integrations.Add(new Integration("GitHub CLI", github.IsAvailable ? "Connected" : "Not connected",
+            github.IsAvailable ? "Connected" : "Not connected", github.IsAvailable, ghVersion));
+        var azure = await GitHost.CheckAzureDevOpsCliAsync();
+        var azVersion = await GetCommandVersionAsync("az", "version");
+        _integrations.Add(new Integration("Azure DevOps CLI", azure.IsAvailable ? "Connected" : "Not connected",
+            azure.IsAvailable ? "Connected" : "Not connected", azure.IsAvailable, azVersion));
+
+        var notificationConfigured = settings.SlackNotificationsEnabled;
+        var channelConfigured = settings.NotificationChannel == "Discord"
+            ? !string.IsNullOrWhiteSpace(settings.DiscordBotToken) && !string.IsNullOrWhiteSpace(settings.DiscordChannelId)
+            : !string.IsNullOrWhiteSpace(settings.SlackBotToken) && !string.IsNullOrWhiteSpace(settings.SlackAppToken) && !string.IsNullOrWhiteSpace(settings.SlackChannelId);
+        var notificationActive = notificationConfigured && channelConfigured && Notifications.IsConnected;
+        var provider = settings.NotificationChannel == "Discord" ? "Discord" : "Slack";
+        var notificationStatus = !notificationConfigured ? "Disabled" :
+            !channelConfigured ? "Incomplete configuration" :
+            Notifications.IsConnected ? "Connected" : "Configured but disconnected";
+        _integrations.Add(new Integration($"{provider} notifications", notificationStatus,
+            notificationActive ? "Active" : "Inactive", notificationActive));
+    }
+
+    private async Task LoadReleaseAsync()
+    {
+        _isLoadingRelease = true;
+        _releaseError = string.Empty;
+        try
+        {
+            _release = await Updates.GetLatestReleaseAsync();
+        }
+        catch (Exception exception)
+        {
+            _releaseError = exception.Message;
+        }
+        finally
+        {
+            _isLoadingRelease = false;
+        }
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        _isCheckingUpdate = true;
+        _updateStatus = string.Empty;
+        _updateVersion = string.Empty;
+        try
+        {
+            _release = await Updates.GetLatestReleaseAsync();
+            var update = await Updates.CheckForUpdateAsync();
+            if (update is not null)
+            {
+                _updateStatus = "Update {0} is available.";
+                _updateVersion = update.Version;
+                _updateSeverity = Severity.Success;
+            }
+            else if (_release is not null && Version.TryParse(_appVersion, out var installed) &&
+                     Version.TryParse(_release.Version, out var latest) && latest > installed)
+            {
+                _updateStatus = "Version {0} is available, but automatic installation is not supported by this build.";
+                _updateVersion = _release.Version;
+                _updateSeverity = Severity.Info;
+            }
+            else
+            {
+                _updateStatus = "You are using the latest available version.";
+                _updateSeverity = Severity.Success;
+            }
+        }
+        catch (Exception exception)
+        {
+            _updateStatus = "Update check failed: {0}";
+            _updateVersion = exception.Message;
+            _updateSeverity = Severity.Error;
+        }
+        finally
+        {
+            _isCheckingUpdate = false;
+        }
+    }
+
+    private static string GetAppVersion()
+    {
+#if WINDOWS
+        try
+        {
+            var version = Windows.ApplicationModel.Package.Current.Id.Version;
+            return $"{version.Major}.{version.Minor}.{version.Build}";
+        }
+        catch { }
+#endif
+        return typeof(About).Assembly.GetName().Version?.ToString(3) ?? "—";
+    }
+
+    private static async Task<string> GetCommandVersionAsync(string command, string argument)
+    {
+        if (!OperatingSystem.IsWindows())
+            return string.Empty;
+        try
+        {
+            var startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = command,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            startInfo.ArgumentList.Add(argument);
+            using var process = System.Diagnostics.Process.Start(startInfo);
+            if (process is null) return string.Empty;
+            var output = await process.StandardOutput.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            var line = output.Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.Trim() ?? string.Empty;
+            if (command == "az" && !string.IsNullOrWhiteSpace(line))
+            {
+                using var json = System.Text.Json.JsonDocument.Parse(output);
+                return json.RootElement.TryGetProperty("azure-cli", out var cliVersion) ? cliVersion.GetString() ?? string.Empty : string.Empty;
+            }
+            return line;
+        }
+        catch { return string.Empty; }
+    }
+
+    private void GoBack() => Navigation.NavigateTo("/manual");
+    private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => L.LanguageChanged -= HandleLanguageChanged;
+}

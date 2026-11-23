@@ -323,12 +323,13 @@ else
 
         var result = await dialog.Result;
         ClearActiveDialog(dialog);
-        if (result is { Canceled: false, Data: true })
+        if (result is { Canceled: false, Data: string destination })
         {
-            if (WindowTitleBar.UsesNativeTitleBar)
+            var route = destination == "about" ? "/about" : "/manual";
+            if (WindowTitleBar.UsesNativeTitleBar && destination != "about")
                 DetachedWindows.OpenManualWindow();
             else
-                Navigation.NavigateTo("/manual");
+                Navigation.NavigateTo(route);
         }
     }
 

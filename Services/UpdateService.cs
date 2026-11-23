@@ -6,6 +6,7 @@ using System.Text.Json;
 namespace CodeBadger.Services;
 
 public sealed record AppUpdate(string Version, Uri PackageUri, Uri CertificateUri, Uri RuntimeDependencyUri);
+public sealed record AppRelease(string Version, string Name, string Notes, Uri Url);
 
 public sealed class UpdateService
 {
@@ -92,6 +93,38 @@ public sealed class UpdateService
         await Task.CompletedTask;
         return null;
 #endif
+    }
+
+    public async Task<AppRelease?> GetLatestReleaseAsync(CancellationToken cancellationToken = default)
+    {
+        using var response = await UpdateCheckHttp.GetAsync(LatestReleaseApi, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        if (response.Content.Headers.ContentLength is > 1024 * 1024)
+            throw new InvalidOperationException("The GitHub release response is unexpectedly large.");
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var releases = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        if (releases.RootElement.ValueKind != JsonValueKind.Array)
+            return null;
+
+        return releases.RootElement.EnumerateArray()
+            .Where(item => item.TryGetProperty("prerelease", out var prerelease) && !prerelease.GetBoolean() &&
+                item.TryGetProperty("draft", out var draft) && !draft.GetBoolean() &&
+                item.TryGetProperty("tag_name", out var tag) &&
+                Version.TryParse(tag.GetString()?.TrimStart('v', 'V'), out _))
+            .OrderByDescending(item => Version.Parse(item.GetProperty("tag_name").GetString()!.TrimStart('v', 'V')))
+            .Select(item =>
+            {
+                var urlText = item.TryGetProperty("html_url", out var htmlUrl) ? htmlUrl.GetString() : null;
+                return Uri.TryCreate(urlText, UriKind.Absolute, out var url) && url.Host == "github.com"
+                    ? new AppRelease(
+                        item.GetProperty("tag_name").GetString()!.TrimStart('v', 'V'),
+                        item.TryGetProperty("name", out var name) ? name.GetString() ?? string.Empty : string.Empty,
+                        item.TryGetProperty("body", out var body) ? body.GetString() ?? string.Empty : string.Empty,
+                        url)
+                    : null;
+            })
+            .FirstOrDefault(release => release is not null);
     }
 
     public async Task DownloadAndStartInstallAsync(AppUpdate update, CancellationToken cancellationToken = default)

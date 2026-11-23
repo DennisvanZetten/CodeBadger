@@ -39,7 +39,7 @@ else
                 <img class="appbar-logo mr-3" src="codebadger.svg" alt="CodeBadger" />
                 <MudText Typo="Typo.h6">CodeBadger</MudText>
                 <MudSpacer />
-                <MudBadge Dot="true" Visible="@AgentUpdates.HasUpdates" Color="Color.Warning" Overlap="true" Origin="Origin.TopRight">
+                <MudBadge Dot="true" Visible="@AgentUpdates.HasUpdates" Color="Color.Warning" Class="settings-update-badge" Overlap="true" Origin="Origin.TopRight">
                     <MudIconButton Icon="@Icons.Material.Filled.Settings" Color="Color.Default" Size="Size.Small"
                                     aria-label="@L.T("Open settings")" OnClick="OpenSettingsAsync" />
                 </MudBadge>

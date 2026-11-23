@@ -42,7 +42,7 @@ public sealed class WindowTitleBarService
             WidthRequest = 8,
             HeightRequest = 8,
             CornerRadius = 4,
-            BackgroundColor = Colors.OrangeRed,
+            BackgroundColor = Color.FromArgb("#F5A623"),
             HorizontalOptions = LayoutOptions.End,
             VerticalOptions = LayoutOptions.Start,
             Margin = new Thickness(0, 4, 5, 0),

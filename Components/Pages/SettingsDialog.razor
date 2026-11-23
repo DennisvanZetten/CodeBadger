@@ -111,7 +111,7 @@
                      {
                          <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
                              <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
-                                 <span>@L.T("Update {0} from {1} to {2} is available.", pendingUpdate.Agent, pendingUpdate.InstalledVersion, pendingUpdate.LatestVersion ?? "?")</span>
+                                  <span>@L.T("Update {0} from {1} to {2} is available.", pendingUpdate.Agent, pendingUpdate.InstalledVersion ?? "?", pendingUpdate.LatestVersion ?? "?")</span>
                                  <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="@(() => UpdateAgentAsync(pendingUpdate.Agent))">@L.T("Review and update")</MudButton>
                              </MudStack>
                          </MudAlert>
@@ -143,14 +143,26 @@
                                       <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="@AgentUpdates.IsChecking"
                                                  OnClick="RefreshAgentUpdatesAsync">@L.T("Check again")</MudButton>
                                   </MudStack>
-                                  <MudText Typo="Typo.body2">
-                                      @L.T("Installed: {0}", updateStatus.InstalledVersion)
+                                   <MudText Typo="Typo.body2">
+                                       @if (updateStatus.InstalledVersion is { } installedVersion)
+                                       {
+                                           @L.T("Installed: {0}", installedVersion)
+                                       }
+                                       else
+                                       {
+                                           @L.T("The installed version could not be read from the detected command.")
+                                       }
                                       @if (updateStatus.LatestVersion is { } latest)
                                       {
                                           <span> · @L.T("Latest: {0}", latest)</span>
                                       }
                                   </MudText>
-                                  @if (!updateStatus.IsCheckVerified)
+                                   @if (updateStatus.InstalledVersion is null)
+                                   {
+                                       <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("The installed version could not be read from the detected command.")</MudAlert>
+                                       <MudText Typo="Typo.caption" Color="Color.Secondary">@updateStatus.ExecutablePath</MudText>
+                                   }
+                                   else if (!updateStatus.IsCheckVerified)
                                   {
                                       <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("Could not verify the latest version from the official release source. Update status is unknown.")</MudAlert>
                                   }

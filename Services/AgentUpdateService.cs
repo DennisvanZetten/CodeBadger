@@ -10,7 +10,7 @@ namespace CodeBadger.Services;
 
 public sealed record AgentUpdateStatus(
     string Agent,
-    string InstalledVersion,
+    string? InstalledVersion,
     string? LatestVersion,
     bool IsUpdateAvailable,
     bool IsCheckVerified,
@@ -163,7 +163,7 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
 
     private static string GetCodexUpdateCommand()
     {
-        var executable = FindExecutableAsync("codex", CancellationToken.None).GetAwaiter().GetResult();
+        var executable = FindExecutableCandidatesAsync("codex", CancellationToken.None).GetAwaiter().GetResult().FirstOrDefault();
         if (executable is null)
             throw new FileNotFoundException("Codex could not be found on PATH.");
         var path = executable.Replace("'", "''", StringComparison.Ordinal);
@@ -174,14 +174,22 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
         (string Agent, string Command, string Repository, string NotesUrl) definition,
         CancellationToken cancellationToken)
     {
-        string? executable;
+        string? executable = null;
         string installedText;
         try
         {
-            executable = await FindExecutableAsync(definition.Command, cancellationToken);
-            if (executable is null)
+            var executables = await FindExecutableCandidatesAsync(definition.Command, cancellationToken);
+            if (executables.Count == 0)
                 return null;
-            installedText = await RunVersionAsync(executable, cancellationToken);
+
+            installedText = string.Empty;
+            foreach (var candidate in executables)
+            {
+                executable = candidate;
+                installedText = await RunVersionAsync(candidate, cancellationToken);
+                if (ExtractVersion(installedText) is not null)
+                    break;
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -192,12 +200,14 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
             logger.LogDebug(exception, "Could not identify installed {Agent}.", definition.Agent);
             return null;
         }
+        if (executable is null)
+            return null;
 
         try
         {
             var installedVersion = ExtractVersion(installedText);
             if (installedVersion is null)
-                return null;
+                return new AgentUpdateStatus(definition.Agent, null, null, false, false, false, false, false, definition.NotesUrl, executable!);
 
             var release = definition.Agent == AgentTools.ClaudeCode
                 ? await GetLatestClaudeCodeReleaseAsync(installedVersion, cancellationToken)
@@ -304,8 +314,15 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
         return latestTag is null ? null : (latestTag, latestUrl, string.Join("\n", notes), reachedInstalledVersion);
     }
 
-    private static async Task<string?> FindExecutableAsync(string command, CancellationToken cancellationToken)
+    private static async Task<IReadOnlyList<string>> FindExecutableCandidatesAsync(string command, CancellationToken cancellationToken)
     {
+        if (command.Equals("opencode", StringComparison.OrdinalIgnoreCase))
+        {
+            var standalone = OpenCodeExecutableLocator.FindInPath(Environment.GetEnvironmentVariable("PATH") ?? string.Empty);
+            if (standalone is not null)
+                return new[] { standalone };
+        }
+
         using var process = Process.Start(new ProcessStartInfo
         {
             FileName = "where.exe",
@@ -316,26 +333,45 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
             ArgumentList = { command }
         });
         if (process is null)
-            return null;
+            return Array.Empty<string>();
         var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken);
-        return process.ExitCode == 0
-            ? output.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault(File.Exists)
-            : null;
+        if (process.ExitCode != 0)
+            return Array.Empty<string>();
+        return output.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries)
+            .Select(path => path.Trim())
+            .Where(File.Exists)
+            .Where(path => Path.GetExtension(path).ToLowerInvariant() is ".exe" or ".cmd" or ".bat" or ".ps1" or ".com")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => Path.GetExtension(path).Equals(".exe", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ToArray();
     }
 
     private static async Task<string> RunVersionAsync(string executable, CancellationToken cancellationToken)
     {
-        var escaped = executable.Replace("'", "''", StringComparison.Ordinal);
-        using var process = Process.Start(new ProcessStartInfo
+        var isNativeExecutable = Path.GetExtension(executable).Equals(".exe", StringComparison.OrdinalIgnoreCase) ||
+                                 Path.GetExtension(executable).Equals(".com", StringComparison.OrdinalIgnoreCase);
+        var startInfo = isNativeExecutable
+            ? new ProcessStartInfo
+            {
+                FileName = executable,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            }
+            : new ProcessStartInfo
         {
             FileName = "pwsh.exe",
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
-            ArgumentList = { "-NoProfile", "-NonInteractive", "-Command", $"& '{escaped}' --version" }
-        });
+            ArgumentList = { "-NoProfile", "-NonInteractive", "-Command", $"& '{executable.Replace("'", "''", StringComparison.Ordinal)}' --version" }
+        };
+        if (isNativeExecutable)
+            startInfo.ArgumentList.Add("--version");
+        using var process = Process.Start(startInfo);
         if (process is null)
             return string.Empty;
 

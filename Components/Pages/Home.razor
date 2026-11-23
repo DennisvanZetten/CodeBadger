@@ -13,6 +13,7 @@
 @inject RepositoryDetachedWindowService DetachedWindows
 @inject NavigationManager Navigation
 @inject Microsoft.Extensions.Logging.ILogger<Home> Logger
+@inject SessionShareService SessionShares
 @using Microsoft.Extensions.Logging
 @using CodeBadger.Components.Pages
 @implements IAsyncDisposable
@@ -62,6 +63,18 @@
                             <img class="repository-agent-logo" src="@AgentLogo(repository)" alt="@AgentTools.GetDisplayName(repository.AgentTool)"
                                  title="@AgentTools.GetDisplayName(repository.AgentTool)" />
                             <MudText>@RepositoryTitle(repository)</MudText>
+                            @if (SessionShares.CurrentShare is { } currentShare && currentShare.RepositoryId == repository.Id)
+                            {
+                                <MudTooltip Text="@($"{SessionShares.GetViewerCountForSession(currentShare.SessionId)} people viewing this session")">
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">
+                                        <MudIcon Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" /> @SessionShares.GetViewerCountForSession(currentShare.SessionId)
+                                    </MudChip>
+                                </MudTooltip>
+                                <MudTooltip Text="@L.T("Stop sharing")">
+                                    <MudIconButton Icon="@Icons.Material.Filled.LinkOff" Size="Size.Small"
+                                                   aria-label="@L.T("Stop sharing")" OnClick="StopSharingAsync" />
+                                </MudTooltip>
+                            }
                             @if (_questionSessions.Contains(repository.Id))
                             {
                                 <MudTooltip Text="@L.T("Agent is waiting for your answer")">
@@ -81,6 +94,14 @@
                             <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small"
                                            Class="repository-undock-button" aria-label="@L.T("Undock tab")"
                                            title="@L.T("Undock tab")" OnClick="@(() => UndockRepository(repository))" />
+                            @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && !repository.OpenCodeSandboxEnabled)
+                            {
+                                <MudTooltip Text="@L.T("Share read-only session")">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Share" Size="Size.Small"
+                                                   aria-label="@L.T("Share read-only session")"
+                                                   OnClick="@(() => ShareSessionAsync(repository))" />
+                                </MudTooltip>
+                            }
                         </MudStack>
                     </TabContent>
                     <ChildContent>
@@ -128,6 +149,7 @@
     private readonly Dictionary<string, DateTime> _lastSlackMessageSync = new(StringComparer.Ordinal);
     private readonly HashSet<string> _slackStartedSessions = new(StringComparer.Ordinal);
     private readonly Dictionary<Guid, string> _selectedOpenCodeSessions = [];
+    private bool _isSharing;
     private bool _activityNeedsBaseline = true;
     private bool _isRefreshingBranches;
     private bool _isDockDragActive;
@@ -858,6 +880,101 @@
     private string? SelectedOpenCodeSession(RepositoryEntry repository) =>
         _selectedOpenCodeSessions.TryGetValue(repository.Id, out var sessionId) ? sessionId : null;
 
+    protected override void OnInitialized() => SessionShares.ShareChanged += HandleShareChanged;
+
+    private void HandleShareChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task ShareSessionAsync(RepositoryEntry repository)
+    {
+        if (_isSharing)
+            return;
+        if (SessionShares.CurrentShare is { } activeShare && activeShare.RepositoryId == repository.Id)
+        {
+            var copyExisting = await DialogService.ShowMessageBoxAsync(L.T("Read-only session link"),
+                L.T("The session is already being shared. Anyone with this link can read its transcript:\n\n{0}", activeShare.Url),
+                yesText: L.T("Copy link"), cancelText: L.T("Close"),
+                options: new DialogOptions { CloseOnEscapeKey = true });
+            if (copyExisting == true)
+            {
+                await JS.InvokeVoidAsync("navigator.clipboard.writeText", activeShare.Url);
+                Snackbar.Add(L.T("Share link copied."), Severity.Success);
+            }
+            return;
+        }
+        var selection = await DialogService.ShowAsync<SessionShareDialog>(L.T("Share a session"),
+            new DialogParameters<SessionShareDialog>
+            {
+                { dialog => dialog.RepositoryPath, repository.Path },
+                { dialog => dialog.RepositoryId, repository.Id }
+            },
+            new DialogOptions { CloseButton = true, CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true });
+        var selectedSession = await selection.Result;
+        if (selectedSession is not { Canceled: false, Data: string sessionId } || string.IsNullOrWhiteSpace(sessionId))
+            return;
+
+        if (!await SessionShares.IsInstalledAndRunnableAsync(_statusMonitorCancellation.Token))
+        {
+            var install = await DialogService.ShowMessageBoxAsync(L.T("Install cloudflared"),
+                L.T("Sharing creates a temporary internet link through Cloudflare. CodeBadger will download cloudflared from Cloudflare's official GitHub release and verify its digital signature. Anyone with the link can read this session transcript, but cannot access the repository or send commands. Continue?"),
+                yesText: L.T("Download and continue"), cancelText: L.T("Cancel"),
+                options: new DialogOptions { CloseOnEscapeKey = true });
+            if (install != true)
+                return;
+            try
+            {
+                _isSharing = true;
+                StateHasChanged();
+                await SessionShares.InstallCloudflaredAsync(_statusMonitorCancellation.Token);
+                Snackbar.Add(L.T("cloudflared installed and verified."), Severity.Success);
+            }
+            catch (Exception exception)
+            {
+                Snackbar.Add(L.T("Could not install cloudflared: {0}", exception.Message), Severity.Error);
+                return;
+            }
+            finally
+            {
+                _isSharing = false;
+            }
+        }
+
+        var activeSession = _runningOpenCodeSessions.GetValueOrDefault(sessionId);
+        var title = string.IsNullOrWhiteSpace(activeSession?.Title) ? RepositoryTitle(repository) : activeSession.Title;
+        try
+        {
+            _isSharing = true;
+            var share = await SessionShares.StartAsync(repository.Id, sessionId, repository.Path, title,
+                token => OpenCodeActivity.GetShareableSessionMessagesAsync(sessionId, repository.Path, token),
+                _statusMonitorCancellation.Token);
+            _selectedOpenCodeSessions[repository.Id] = sessionId;
+            var result = await DialogService.ShowMessageBoxAsync(L.T("Read-only session link"),
+                L.T("Anyone with this link can read the selected session. It does not grant access to the repository or allow sending prompts. The link stops working when you stop sharing or close CodeBadger.\n\n{0}", share.Url),
+                yesText: L.T("Copy link"), cancelText: L.T("Close"),
+                options: new DialogOptions { CloseOnEscapeKey = true });
+            if (result == true)
+            {
+                await JS.InvokeVoidAsync("navigator.clipboard.writeText", share.Url);
+                Snackbar.Add(L.T("Share link copied."), Severity.Success);
+            }
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not start session sharing: {0}", exception.Message), Severity.Error);
+        }
+        finally
+        {
+            _isSharing = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task StopSharingAsync()
+    {
+        await SessionShares.StopAsync();
+        Snackbar.Add(L.T("Session sharing stopped. The link has been revoked."), Severity.Success);
+        await InvokeAsync(StateHasChanged);
+    }
+
     private string BranchLabel(RepositoryEntry repository)
     {
         if (_repositoriesLoading.Contains(repository.Id))
@@ -874,6 +991,7 @@
     public async ValueTask DisposeAsync()
     {
         SandboxApprovals.Requested -= HandleSandboxApproval;
+        SessionShares.ShareChanged -= HandleShareChanged;
         SandboxSessions.StateChanged -= HandleSandboxState;
         DetachedWindows.StateChanged -= HandleDetachedWindowsChanged;
         DetachedWindows.DockRequested -= HandleDockRequested;

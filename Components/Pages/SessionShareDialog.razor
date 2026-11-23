@@ -1,0 +1,100 @@
+@inject OpenCodeActivityService Activity
+@inject LocalizationService L
+@inject ISnackbar Snackbar
+@inject SessionShareService SessionShares
+@implements IDisposable
+
+<MudDialog Class="settings-dialog">
+    <TitleContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icons.Material.Filled.Visibility" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">@L.T("Share a session")</MudText>
+        </MudStack>
+    </TitleContent>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                @L.T("Choose an OpenCode session to share as a read-only transcript. Repository files, terminal access, and the ability to send prompts are not shared.")
+            </MudAlert>
+            @if (_loading)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else if (_shareActiveElsewhere)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("A session is already being shared from another repository. Stop that share before creating another link.")</MudAlert>
+            }
+            else if (_sessionsUnavailable)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("Could not load OpenCode sessions. Make sure the managed OpenCode service is available and try again.")</MudAlert>
+            }
+            else if (_sessions.Count == 0)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("No OpenCode sessions were found for this repository.")</MudAlert>
+            }
+            else
+            {
+                <MudSelect T="string" @bind-Value="_selectedSessionId" Label="@L.T("Session")" Variant="Variant.Outlined">
+                    @foreach (var session in _sessions)
+                    {
+                        <MudSelectItem T="string" Value="@session.Id">@(string.IsNullOrWhiteSpace(session.Title) ? session.Id : session.Title)</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">@L.T("Cancel")</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(_loading || _selectedSessionId is null || _shareActive || _shareActiveElsewhere)" OnClick="Confirm">
+            @(_shareActive ? L.T("Sharing active") : L.T("Create read-only link"))
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter, EditorRequired] public string RepositoryPath { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public Guid RepositoryId { get; set; }
+
+    private IReadOnlyList<OpenCodeActivityService.ShareSession> _sessions = [];
+    private string? _selectedSessionId;
+    private bool _loading = true;
+    private bool _shareActive;
+    private bool _shareActiveElsewhere;
+    private bool _sessionsUnavailable;
+
+    protected override async Task OnInitializedAsync()
+    {
+        SessionShares.ShareChanged += HandleShareChanged;
+        try
+        {
+            var loaded = await Activity.GetRepositorySessionsAsync(RepositoryPath, CancellationToken.None);
+            _sessionsUnavailable = loaded is null;
+            _sessions = loaded ?? [];
+            var active = SessionShares.CurrentShare;
+            if (active is not null && active.RepositoryId == RepositoryId)
+            {
+                _shareActive = true;
+                _selectedSessionId = active.SessionId;
+            }
+            else
+            {
+                _shareActiveElsewhere = active is not null;
+                _selectedSessionId = _sessions.FirstOrDefault()?.Id;
+            }
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not load OpenCode sessions: {0}", exception.Message), Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void Confirm() => MudDialog.Close(DialogResult.Ok(_selectedSessionId));
+    private void Cancel() => MudDialog.Cancel();
+    private void HandleShareChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => SessionShares.ShareChanged -= HandleShareChanged;
+}

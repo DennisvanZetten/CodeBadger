@@ -367,13 +367,19 @@
                                     <section class="git-branch-group git-stash-group">
                                          <div class="git-stash-header">
                                              <MudText Typo="Typo.body2">@L.T("Stashes")</MudText>
-                                             @if (HiddenStashCount > 0)
-                                             {
-                                                 <MudIconButton Size="Size.Small" Icon="@(_showHiddenStashes ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
-                                                                aria-label="@(_showHiddenStashes ? L.T("Hide hidden stashes") : L.T("Show hidden stashes ({0})", HiddenStashCount))"
-                                                                title="@(_showHiddenStashes ? L.T("Hide hidden stashes") : L.T("Show hidden stashes ({0})", HiddenStashCount))"
-                                                                OnClick="ToggleHiddenStashes" />
-                                             }
+                                             <div class="git-stash-header-actions">
+                                                 <MudText Typo="Typo.caption" Class="git-stash-count">@_stashes.Count</MudText>
+                                                 <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.DeleteSweep"
+                                                                aria-label="@L.T("Delete all stashes")" title="@L.T("Delete all stashes")"
+                                                                Disabled="@(_isOperating || _stashes.Count == 0)" OnClick="DeleteAllStashesAsync" />
+                                                 @if (HiddenStashCount > 0)
+                                                 {
+                                                     <MudIconButton Size="Size.Small" Icon="@(_showHiddenStashes ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                                                    aria-label="@(_showHiddenStashes ? L.T("Hide hidden stashes") : L.T("Show hidden stashes ({0})", HiddenStashCount))"
+                                                                    title="@(_showHiddenStashes ? L.T("Hide hidden stashes") : L.T("Show hidden stashes ({0})", HiddenStashCount))"
+                                                                    OnClick="ToggleHiddenStashes" />
+                                                 }
+                                             </div>
                                          </div>
                                          <div class="git-dialog-list git-branch-list git-stash-list">
                                              @foreach (var stash in VisibleStashes)
@@ -2502,6 +2508,52 @@
                 _isLoadingSubmodules = false;
                 await InvokeAsync(StateHasChanged);
             }
+        }
+    }
+
+    private async Task DeleteAllStashesAsync()
+    {
+        if (_isOperating || _stashes.Count == 0)
+            return;
+
+        var stashCount = _stashes.Count;
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            L.T("Delete all stashes"), L.T("Delete all {0} stashes? This cannot be undone.", stashCount),
+            yesText: L.T("Delete all"), cancelText: L.T("Cancel"));
+        if (confirmed != true)
+            return;
+
+        _isOperating = true;
+        var deletedCount = 0;
+        GitOperationResult? failure = null;
+        try
+        {
+            while (deletedCount < stashCount)
+            {
+                // Always drop the current top entry so the shifting stash indices remain valid.
+                var result = await GitBranchService.DropStashAsync(RepositoryPath, "stash@{0}");
+                if (!result.Success)
+                {
+                    failure = result;
+                    break;
+                }
+
+                deletedCount++;
+            }
+
+            _stashes = await GitBranchService.GetStashesAsync(RepositoryPath);
+            _hiddenStashCommitHashes.RemoveWhere(hash => _stashes.All(stash => !string.Equals(stash.CommitHash, hash, StringComparison.Ordinal)));
+            await SaveHiddenStashesAsync();
+
+            if (failure is null)
+                Snackbar.Add(L.T("Deleted {0} stashes.", deletedCount), Severity.Success);
+            else
+                Snackbar.Add(L.T("Deleted {0} of {1} stashes. Could not delete the rest: {2}", deletedCount, stashCount, failure.Message), Severity.Error);
+        }
+        finally
+        {
+            _isOperating = false;
+            await RefreshStashesAsync();
         }
     }
 

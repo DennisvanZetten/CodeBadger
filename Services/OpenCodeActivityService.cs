@@ -11,6 +11,7 @@ public sealed class OpenCodeActivityService
     public OpenCodeActivityService(ILogger<OpenCodeActivityService> logger) => _logger = logger;
 
     public sealed record ActiveSession(string Id, string Directory, string Agent, string Title);
+    public sealed record ShareSession(string Id, string Title);
     public sealed record SessionTextMessage(string Id, string Role, string Text);
     public sealed record FormField(string Key, string Title, string Description, string Type, bool Required,
         IReadOnlyList<(string Value, string Label)> Options, bool Custom);
@@ -281,6 +282,82 @@ public sealed class OpenCodeActivityService
                 return new SessionTextMessage(id, "user", text);
         }
         return null;
+    }
+
+    public async Task<IReadOnlyList<SessionTextMessage>> GetShareableSessionMessagesAsync(string sessionId, string directory,
+        CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId))
+            return [];
+        using var session = await RequestAsync($"/api/session/{sessionId}", cancellationToken, workingDirectory: directory);
+        if (session?.RootElement.TryGetProperty("data", out var sessionData) != true ||
+            !sessionData.TryGetProperty("location", out var location) ||
+            !location.TryGetProperty("directory", out var sessionDirectory) || sessionDirectory.ValueKind != JsonValueKind.String ||
+            !string.Equals(NormalizePath(sessionDirectory.GetString()!), NormalizePath(directory), StringComparison.OrdinalIgnoreCase))
+            return [];
+        using var response = await RequestAsync($"/api/session/{sessionId}/message?order=asc&limit=200", cancellationToken,
+            workingDirectory: directory);
+        if (response is null || !response.RootElement.TryGetProperty("data", out var messages) ||
+            messages.ValueKind != JsonValueKind.Array)
+            return [];
+
+        var result = new List<SessionTextMessage>();
+        foreach (var message in messages.EnumerateArray())
+        {
+            var info = message.TryGetProperty("info", out var infoValue) && infoValue.ValueKind == JsonValueKind.Object
+                ? infoValue : message;
+            var role = info.TryGetProperty("role", out var roleValue) ? roleValue :
+                info.TryGetProperty("type", out var typeValue) ? typeValue : default;
+            if (role.ValueKind != JsonValueKind.String || role.GetString() is not ("user" or "assistant"))
+                continue;
+
+            var id = info.TryGetProperty("id", out var idValue) && idValue.ValueKind == JsonValueKind.String
+                ? idValue.GetString() : null;
+            var parts = message.TryGetProperty("parts", out var partsValue) && partsValue.ValueKind == JsonValueKind.Array
+                ? partsValue
+                : info.TryGetProperty("content", out var contentValue) && contentValue.ValueKind == JsonValueKind.Array
+                    ? contentValue : default;
+            if (string.IsNullOrWhiteSpace(id) || parts.ValueKind != JsonValueKind.Array)
+                continue;
+
+            var text = string.Join("\n", parts.EnumerateArray()
+                .Where(part => part.TryGetProperty("type", out var partType) && partType.ValueKind == JsonValueKind.String &&
+                    partType.GetString() == "text")
+                .Select(part => part.TryGetProperty("text", out var partText) && partText.ValueKind == JsonValueKind.String
+                    ? partText.GetString() : null)
+                .Where(partText => !string.IsNullOrWhiteSpace(partText))).Trim();
+            if (text.Length > 0)
+                result.Add(new SessionTextMessage(id!, role.GetString()!, text.Length > 20000 ? text[..20000] + "\n…" : text));
+        }
+        return result;
+    }
+
+    public async Task<IReadOnlyList<ShareSession>?> GetRepositorySessionsAsync(string directory, CancellationToken cancellationToken)
+    {
+        if (NormalizePath(directory) is null || !Directory.Exists(directory))
+            return [];
+        using var response = await RequestAsync("/api/session?limit=30", cancellationToken, workingDirectory: directory);
+        if (response is null || !response.RootElement.TryGetProperty("data", out var sessions) ||
+            sessions.ValueKind != JsonValueKind.Array)
+            return null;
+        var candidates = sessions.EnumerateArray()
+            .Where(session => session.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String &&
+                IsValidSessionId(id.GetString() ?? string.Empty))
+            .Select(session => new ShareSession(GetString(session, "id"), GetString(session, "title")))
+            .ToArray();
+        var matching = new List<ShareSession>();
+        foreach (var session in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var details = await RequestAsync($"/api/session/{session.Id}", cancellationToken, workingDirectory: directory);
+            if (details?.RootElement.TryGetProperty("data", out var data) != true ||
+                !data.TryGetProperty("location", out var location) ||
+                !location.TryGetProperty("directory", out var path) || path.ValueKind != JsonValueKind.String ||
+                !string.Equals(NormalizePath(path.GetString()!), NormalizePath(directory), StringComparison.OrdinalIgnoreCase))
+                continue;
+            matching.Add(session);
+        }
+        return matching;
     }
 
     public async Task<bool> HasPendingInteractionAsync(string sessionId, string directory, CancellationToken cancellationToken)

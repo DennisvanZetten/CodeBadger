@@ -43,6 +43,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<SandboxApprovalService>();
 		builder.Services.AddSingleton<SandboxOpenCodeProviderService>();
 		builder.Services.AddSingleton<OpenCodeActivityService>();
+		builder.Services.AddSingleton<SessionShareService>();
 		builder.Services.AddSingleton<SlackNotificationService>();
 		builder.Services.AddSingleton<GitBranchService>();
 		builder.Services.AddSingleton<GitHostService>();

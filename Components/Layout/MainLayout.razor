@@ -111,10 +111,13 @@ else
         }
     }
 
-    private bool IsMainWindowRoute() => !IsDetachedRepositoryRoute() && !IsDocumentationWindowRoute();
+    private bool IsMainWindowRoute() => !IsDetachedRepositoryRoute() && !IsDocumentationWindowRoute() && !IsShareViewerRoute();
 
     private bool IsDetachedRepositoryRoute() =>
         Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("repository/", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsShareViewerRoute() =>
+        Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("s/", StringComparison.OrdinalIgnoreCase);
 
     private void HandleLanguageChanged() => _ = InvokeAsync(() =>
     {

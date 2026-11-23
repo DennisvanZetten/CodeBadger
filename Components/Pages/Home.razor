@@ -413,7 +413,7 @@
             { dialog => dialog.RepositoryMuted, repository.SlackNotificationsMuted }
         };
         var dialog = await DialogService.ShowAsync<SlackSessionNotificationsDialog>(L.T("Session notifications"), parameters,
-            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Medium, CloseButton = true, CloseOnEscapeKey = true });
+            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Small, CloseButton = true, CloseOnEscapeKey = true });
         await dialog.Result;
     }
 

@@ -402,6 +402,37 @@ h1:focus {
     max-height: 92vh;
 }
 
+.mud-dialog.session-notifications-dialog,
+.mud-dialog.session-share-dialog {
+    box-sizing: border-box;
+    width: min(680px, 92vw);
+    min-width: min(420px, 92vw);
+    max-width: min(900px, 96vw);
+    max-height: 88vh;
+    resize: both;
+    overflow: auto;
+}
+
+.mud-dialog.session-notifications-dialog .mud-dialog-content,
+.mud-dialog.session-share-dialog .mud-dialog-content {
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.mud-dialog.session-share-dialog {
+    width: min(640px, 92vw);
+}
+
+@media (max-width: 600px) {
+    .mud-dialog.session-notifications-dialog,
+    .mud-dialog.session-share-dialog {
+        width: 92vw;
+        min-width: 0;
+        max-width: 96vw;
+        resize: none;
+    }
+}
+
 .settings-dialog .mud-dialog-content {
     height: calc(100% - 1rem);
     min-height: 0;

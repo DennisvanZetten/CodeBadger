@@ -320,13 +320,26 @@
                                 <details class="git-branch-group" open>
                                     <summary><span>@L.T("Local branches")</span><span class="git-branch-count">@LocalBranches.Count</span></summary>
                                     <div class="git-dialog-list git-branch-list">
-                                        @foreach (var folder in LocalBranchFolders)
+                                        <MudTextField T="string" Value="@_localBranchSearch" ValueChanged="SetLocalBranchSearch"
+                                                      Placeholder="@L.T("Search local branches")" aria-label="@L.T("Search local branches")"
+                                                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                                      Immediate="true" Clearable="true" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Showing {0} of {1}", VisibleLocalBranches.Count, FilteredLocalBranches.Count)</MudText>
+                                        @foreach (var folder in VisibleLocalBranchFolders)
                                         {
                                             @BranchFolderContent(folder, false)
                                         }
                                         @if (LocalBranches.Count == 0)
                                         {
                                             <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No local branches.")</MudText>
+                                        }
+                                        else if (FilteredLocalBranches.Count == 0)
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No branches match your search.")</MudText>
+                                        }
+                                        @if (VisibleLocalBranches.Count < FilteredLocalBranches.Count)
+                                        {
+                                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="LoadMoreLocalBranches">@L.T("Load more local branches")</MudButton>
                                         }
                                     </div>
                                 </details>
@@ -335,13 +348,26 @@
                                 <details class="git-branch-group" open>
                                     <summary><span>@L.T("Remote branches")</span><span class="git-branch-count">@RemoteBranches.Count</span></summary>
                                     <div class="git-dialog-list git-branch-list">
-                                        @foreach (var folder in RemoteBranchFolders)
+                                        <MudTextField T="string" Value="@_remoteBranchSearch" ValueChanged="SetRemoteBranchSearch"
+                                                      Placeholder="@L.T("Search remote branches")" aria-label="@L.T("Search remote branches")"
+                                                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                                      Immediate="true" Clearable="true" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Showing {0} of {1}", VisibleRemoteBranches.Count, FilteredRemoteBranches.Count)</MudText>
+                                        @foreach (var folder in VisibleRemoteBranchFolders)
                                         {
                                             @BranchFolderContent(folder, true)
                                         }
                                         @if (RemoteBranches.Count == 0)
                                         {
                                             <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No remote branches.")</MudText>
+                                        }
+                                        else if (FilteredRemoteBranches.Count == 0)
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No branches match your search.")</MudText>
+                                        }
+                                        @if (VisibleRemoteBranches.Count < FilteredRemoteBranches.Count)
+                                        {
+                                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="LoadMoreRemoteBranches">@L.T("Load more remote branches")</MudButton>
                                         }
                                     </div>
                                 </details>
@@ -872,6 +898,10 @@
     private string _newBranchName = string.Empty;
     private string _createBranchStartPoint = "HEAD";
     private string _createBranchStartPointLabel = "HEAD";
+    private string _localBranchSearch = string.Empty;
+    private string _remoteBranchSearch = string.Empty;
+    private int _localBranchLimit = 100;
+    private int _remoteBranchLimit = 100;
     private bool _shouldScrollToCurrentBranch;
     private IJSObjectReference? _gitHistoryModule;
     private string? _selectedCommitHash;
@@ -888,10 +918,14 @@
     private readonly HashSet<string> _selectedUnstagedFilePaths = new(StringComparer.Ordinal);
     private IReadOnlyList<GitBranchEntry> LocalBranches => _snapshot?.Branches.Where(branch => !branch.IsRemote).ToList() ?? [];
     private IReadOnlyList<GitBranchEntry> RemoteBranches => _snapshot?.Branches.Where(branch => branch.IsRemote).ToList() ?? [];
+    private IReadOnlyList<GitBranchEntry> FilteredLocalBranches => FilterBranches(LocalBranches, _localBranchSearch);
+    private IReadOnlyList<GitBranchEntry> FilteredRemoteBranches => FilterBranches(RemoteBranches, _remoteBranchSearch);
+    private IReadOnlyList<GitBranchEntry> VisibleLocalBranches => FilteredLocalBranches.Take(_localBranchLimit).ToList();
+    private IReadOnlyList<GitBranchEntry> VisibleRemoteBranches => FilteredRemoteBranches.Take(_remoteBranchLimit).ToList();
     private bool AreAllMaintenanceBranchesSelected => _maintenanceSnapshot?.OldMergedBranches.Count > 0 &&
         _maintenanceSnapshot.OldMergedBranches.All(branch => _selectedMaintenanceBranches.Contains(branch.Name));
-    private IReadOnlyList<BranchFolder> LocalBranchFolders => GroupBranchesIntoFolders(LocalBranches);
-    private IReadOnlyList<BranchFolder> RemoteBranchFolders => GroupBranchesIntoFolders(RemoteBranches);
+    private IReadOnlyList<BranchFolder> VisibleLocalBranchFolders => GroupBranchesIntoFolders(VisibleLocalBranches);
+    private IReadOnlyList<BranchFolder> VisibleRemoteBranchFolders => GroupBranchesIntoFolders(VisibleRemoteBranches);
     private IReadOnlyList<GitFileChange> StagedFiles => _files.Where(file => file.IsStaged && !file.IsConflicted).ToList();
     private IReadOnlyList<GitFileChange> UnstagedFiles => _files.Where(file => file.IsUnstaged || file.IsUntracked).ToList();
     private IReadOnlyList<GitFileChange> StageableUnstagedFiles => UnstagedFiles.Where(file => !file.IsConflicted).ToList();
@@ -1064,7 +1098,7 @@
 
         if (!firstRender)
             return;
-        await RefreshAsync(fetch: true);
+        await RefreshAsync();
         _view = _files.Count > 0 ? GitView.Commit : GitView.History;
         await InvokeAsync(StateHasChanged);
     }
@@ -1301,6 +1335,29 @@
         _view = GitView.Commit;
         await RefreshAsync();
     }
+
+    private static IReadOnlyList<GitBranchEntry> FilterBranches(IReadOnlyList<GitBranchEntry> branches, string search) =>
+        branches
+            .Where(branch => string.IsNullOrWhiteSpace(search) || branch.Name.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(branch => branch.IsCurrent)
+            .ThenBy(branch => branch.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private void SetLocalBranchSearch(string? search)
+    {
+        _localBranchSearch = search ?? string.Empty;
+        _localBranchLimit = 100;
+    }
+
+    private void SetRemoteBranchSearch(string? search)
+    {
+        _remoteBranchSearch = search ?? string.Empty;
+        _remoteBranchLimit = 100;
+    }
+
+    private void LoadMoreLocalBranches() => _localBranchLimit += 100;
+
+    private void LoadMoreRemoteBranches() => _remoteBranchLimit += 100;
 
     private async Task SelectFileAsync(GitFileChange file, bool staged)
     {

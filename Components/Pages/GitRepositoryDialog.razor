@@ -247,16 +247,29 @@
                                         <MudText Typo="Typo.subtitle1">@L.T("Old merged branches")</MudText>
                                         <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Candidates are local branches merged into the current branch and inactive for at least 90 days. Protected branches are excluded.")</MudText>
                                     </div>
-                                    <MudButton Variant="Variant.Outlined" Disabled="@(_isOperating || _isLoadingMaintenance)" OnClick="LoadMaintenanceSnapshotAsync">@L.T("Refresh candidates")</MudButton>
+                                    <MudStack Row="true" Spacing="1" Class="flex-wrap">
+                                        <MudButton Variant="Variant.Outlined" Disabled="@(_isOperating || _isLoadingMaintenance)" OnClick="LoadMaintenanceSnapshotAsync">@L.T("Refresh candidates")</MudButton>
+                                        <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="@(_isOperating || _isLoadingMaintenance || _selectedMaintenanceBranches.Count == 0)"
+                                                   OnClick="@(() => RemoveMaintenanceBranchesAsync(false))">@L.T("Remove selected ({0})", _selectedMaintenanceBranches.Count)</MudButton>
+                                        <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="@(_isOperating || _isLoadingMaintenance || _maintenanceSnapshot?.OldMergedBranches.Count == 0)"
+                                                   OnClick="@(() => RemoveMaintenanceBranchesAsync(true))">@L.T("Remove all")</MudButton>
+                                    </MudStack>
                                 </MudStack>
                                 @if (_maintenanceSnapshot?.OldMergedBranches.Count > 0)
                                 {
+                                    <MudCheckBox T="bool" Value="@AreAllMaintenanceBranchesSelected" ValueChanged="SetAllMaintenanceBranchesSelected"
+                                                 Label="@L.T("Select all branches")" Disabled="@_isOperating" Size="Size.Small" />
                                     <MudList T="string" Dense="true">
                                         @foreach (var branch in _maintenanceSnapshot.OldMergedBranches)
                                         {
                                             <MudListItem T="string" Value="@branch.Name">
                                                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100 flex-wrap">
-                                                    <MudText>@branch.Name <MudText Inline="true" Typo="Typo.caption" Color="Color.Secondary">@L.T("Inactive for {0} days", branch.AgeDays)</MudText></MudText>
+                                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                                        <MudCheckBox T="bool" Value="@_selectedMaintenanceBranches.Contains(branch.Name)"
+                                                                     ValueChanged="@(selected => SetMaintenanceBranchSelected(branch.Name, selected))"
+                                                                     Disabled="@_isOperating" Size="Size.Small" />
+                                                        <MudText>@branch.Name <MudText Inline="true" Typo="Typo.caption" Color="Color.Secondary">@L.T("Inactive for {0} days", branch.AgeDays)</MudText></MudText>
+                                                    </MudStack>
                                                     <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning"
                                                                Disabled="@_isOperating" OnClick="@(() => DeleteMergedBranchAsync(branch))">@L.T("Remove local branch")</MudButton>
                                                 </MudStack>
@@ -803,6 +816,7 @@
     private bool _maintenanceSucceeded;
     private string? _maintenanceMessage;
     private GitMaintenanceSnapshot? _maintenanceSnapshot;
+    private readonly HashSet<string> _selectedMaintenanceBranches = new(StringComparer.Ordinal);
     private bool _isGeneratingMessage;
     private bool _isCheckingAiConnection = true;
     private bool _hasAiConnection;
@@ -855,6 +869,8 @@
     private readonly HashSet<string> _selectedUnstagedFilePaths = new(StringComparer.Ordinal);
     private IReadOnlyList<GitBranchEntry> LocalBranches => _snapshot?.Branches.Where(branch => !branch.IsRemote).ToList() ?? [];
     private IReadOnlyList<GitBranchEntry> RemoteBranches => _snapshot?.Branches.Where(branch => branch.IsRemote).ToList() ?? [];
+    private bool AreAllMaintenanceBranchesSelected => _maintenanceSnapshot?.OldMergedBranches.Count > 0 &&
+        _maintenanceSnapshot.OldMergedBranches.All(branch => _selectedMaintenanceBranches.Contains(branch.Name));
     private IReadOnlyList<BranchFolder> LocalBranchFolders => GroupBranchesIntoFolders(LocalBranches);
     private IReadOnlyList<BranchFolder> RemoteBranchFolders => GroupBranchesIntoFolders(RemoteBranches);
     private IReadOnlyList<GitFileChange> StagedFiles => _files.Where(file => file.IsStaged && !file.IsConflicted).ToList();
@@ -1078,6 +1094,7 @@
         try
         {
             _maintenanceSnapshot = await GitBranchService.GetMaintenanceSnapshotAsync(RepositoryPath);
+            _selectedMaintenanceBranches.IntersectWith(_maintenanceSnapshot?.OldMergedBranches.Select(branch => branch.Name) ?? []);
         }
         finally
         {
@@ -1173,6 +1190,72 @@
                 ? L.T("Local branch '{0}' removed.", branch.Name)
                 : L.T("Could not remove local branch '{0}': {1}", branch.Name, result.Message);
             await LoadMaintenanceSnapshotAsync();
+        }
+        finally
+        {
+            _isOperating = false;
+        }
+    }
+
+    private void SetAllMaintenanceBranchesSelected(bool selected)
+    {
+        _selectedMaintenanceBranches.Clear();
+        if (selected && _maintenanceSnapshot is not null)
+            _selectedMaintenanceBranches.UnionWith(_maintenanceSnapshot.OldMergedBranches.Select(branch => branch.Name));
+    }
+
+    private void SetMaintenanceBranchSelected(string branchName, bool selected)
+    {
+        if (selected)
+            _selectedMaintenanceBranches.Add(branchName);
+        else
+            _selectedMaintenanceBranches.Remove(branchName);
+    }
+
+    private async Task RemoveMaintenanceBranchesAsync(bool removeAll)
+    {
+        if (_maintenanceSnapshot is null)
+            return;
+
+        var branches = removeAll
+            ? _maintenanceSnapshot.OldMergedBranches
+            : _maintenanceSnapshot.OldMergedBranches.Where(branch => _selectedMaintenanceBranches.Contains(branch.Name)).ToList();
+        if (branches.Count == 0)
+            return;
+
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            removeAll ? L.T("Remove all old merged branches?") : L.T("Remove selected branches?"),
+            removeAll
+                ? L.T("Remove all {0} old merged local branches? Each branch will be checked again and Git will refuse removal if it is not safely merged.", branches.Count)
+                : L.T("Remove {0} selected local branches? Each branch will be checked again and Git will refuse removal if it is not safely merged.", branches.Count),
+            yesText: L.T("Remove {0} branches", branches.Count), cancelText: L.T("Cancel"),
+            options: new DialogOptions { CloseOnEscapeKey = true });
+        if (confirmed != true)
+            return;
+
+        _isOperating = true;
+        _maintenanceMessage = null;
+        try
+        {
+            var removed = 0;
+            var failures = new List<string>();
+            foreach (var branch in branches)
+            {
+                var result = await GitBranchService.DeleteMergedBranchAsync(RepositoryPath, branch.Name);
+                if (result.Success)
+                {
+                    removed++;
+                    _selectedMaintenanceBranches.Remove(branch.Name);
+                }
+                else
+                    failures.Add(branch.Name);
+            }
+
+            await LoadMaintenanceSnapshotAsync();
+            _maintenanceSucceeded = failures.Count == 0;
+            _maintenanceMessage = failures.Count == 0
+                ? L.T("Removed {0} local branches.", removed)
+                : L.T("Removed {0} of {1} branches. These branches could not be removed: {2}", removed, branches.Count, string.Join(", ", failures));
         }
         finally
         {

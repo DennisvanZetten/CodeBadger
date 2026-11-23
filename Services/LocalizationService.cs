@@ -40,6 +40,7 @@ public sealed class LocalizationService
         ["Settings"] = ["Settings", "Instellingen", "Einstellungen", "Paramètres"],
         ["Application logs"] = ["Application logs", "Applicatielogboeken", "Anwendungsprotokolle", "Journaux de l’application"],
         ["Unknown repository"] = ["Unknown repository", "Onbekende repository", "Unbekanntes Repository", "Dépôt inconnu"],
+        ["Show full message"] = ["Show full message", "Volledig bericht tonen", "Vollständige Meldung anzeigen", "Afficher le message complet"],
         ["Logging"] = ["Logging", "Logging", "Protokollierung", "Journalisation"],
         ["General"] = ["General", "Algemeen", "Allgemein", "Général"],
         ["General settings"] = ["General settings", "Algemene instellingen", "Allgemeine Einstellungen", "Paramètres généraux"],

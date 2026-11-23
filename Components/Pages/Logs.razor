@@ -54,7 +54,20 @@
                                         {
                                             <span class="log-repository">@(string.IsNullOrWhiteSpace(entry.Repository) ? L.T("Unknown repository") : entry.Repository)</span>
                                         }
-                                        <span class="log-message">@entry.Message</span>
+                                        @if (IsExpandable(entry.Message))
+                                        {
+                                            <details class="log-message-details">
+                                                <summary>
+                                                    <span class="log-message-summary">@GetMessageSummary(entry.Message)</span>
+                                                    <span class="log-expand-hint">@L.T("Show full message")</span>
+                                                </summary>
+                                                <pre>@GetDisplayMessage(entry.Message)</pre>
+                                            </details>
+                                        }
+                                        else
+                                        {
+                                            <span class="log-message">@GetDisplayMessage(entry.Message)</span>
+                                        }
                                         @if (!string.IsNullOrWhiteSpace(entry.Exception))
                                         {
                                             <details class="log-exception"><summary>@L.T("Exception details")</summary><pre>@entry.Exception</pre></details>
@@ -81,8 +94,11 @@
     .log-time { color: var(--mud-palette-text-secondary); white-space: nowrap; }
     .log-repository { overflow-wrap: anywhere; color: var(--mud-palette-primary); }
     .log-message { overflow-wrap: anywhere; white-space: pre-wrap; }
-    .log-exception { grid-column: 4; white-space: normal; }
-    .log-exception pre { overflow: auto; white-space: pre-wrap; }
+    .log-message-details, .log-exception { grid-column: 4; min-width: 0; white-space: normal; }
+    .log-message-details summary { cursor: pointer; }
+    .log-message-summary { overflow-wrap: anywhere; }
+    .log-expand-hint { display: inline-block; margin-left: 10px; color: var(--mud-palette-primary); font-family: var(--mud-typography-default-family); font-size: .75rem; }
+    .log-message-details pre, .log-exception pre { margin: 6px 0 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
     @@media (max-width: 700px) { .log-filter-row { grid-template-columns: 1fr; } .log-entry { grid-template-columns: 1fr auto; } .log-time, .log-repository, .log-message, .log-exception { grid-column: 1 / -1; } }
 </style>
 
@@ -121,6 +137,28 @@
                 (string.IsNullOrWhiteSpace(_search) || entry.Message.Contains(_search, StringComparison.CurrentCultureIgnoreCase) ||
                  (entry.Exception?.Contains(_search, StringComparison.CurrentCultureIgnoreCase) ?? false)))
             .ToArray();
+    }
+
+    private const int MessagePreviewLength = 140;
+
+    private static string GetDisplayMessage(string message) =>
+        System.Text.RegularExpressions.Regex.Replace(message, @"(?:\.\s*)?Error:\s*$", string.Empty,
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    private static bool IsExpandable(string message) => GetDisplayMessage(message).Length > MessagePreviewLength;
+
+    private static string GetMessageSummary(string message)
+    {
+        var displayMessage = GetDisplayMessage(message).Trim();
+        var firstLine = displayMessage.Split(['\r', '\n'], 2)[0];
+        if (firstLine.Length <= MessagePreviewLength)
+            return firstLine;
+
+        var sentenceEnd = firstLine.IndexOf(". ", StringComparison.Ordinal);
+        if (sentenceEnd is > 20 and < MessagePreviewLength)
+            return firstLine[..(sentenceEnd + 1)];
+
+        return firstLine[..MessagePreviewLength].TrimEnd() + "…";
     }
 
     private void HandleEntryWritten(ApplicationLogEntry entry)

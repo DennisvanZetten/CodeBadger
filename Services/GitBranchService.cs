@@ -167,7 +167,7 @@ public sealed class GitBranchService
 
     private async Task<bool> RefExistsAsync(string path, string reference)
     {
-        var result = await RunGitAsync(path, "show-ref", "--verify", "--quiet", reference);
+        var result = await RunGitAllowExitOneAsync(path, "show-ref", "--verify", "--quiet", reference);
         return result.Success;
     }
 
@@ -439,7 +439,7 @@ public sealed class GitBranchService
     {
         foreach (var reference in new[] { "refs/heads/development", "refs/remotes/origin/development" })
         {
-            var result = await RunGitAsync(path, "show-ref", "--verify", "--quiet", reference);
+            var result = await RunGitAllowExitOneAsync(path, "show-ref", "--verify", "--quiet", reference);
             if (result.Success)
                 return reference.StartsWith("refs/heads/", StringComparison.Ordinal) ? "development" : "origin/development";
         }
@@ -448,7 +448,7 @@ public sealed class GitBranchService
 
     public async Task<GitBranchMergeCheck> CheckBranchCanMergeAsync(string path, string sourceBranch)
     {
-        var sourceResult = await RunGitAsync(path, "show-ref", "--verify", "--quiet", $"refs/heads/{sourceBranch}");
+        var sourceResult = await RunGitAllowExitOneAsync(path, "show-ref", "--verify", "--quiet", $"refs/heads/{sourceBranch}");
         if (!sourceResult.Success)
             return new GitBranchMergeCheck(false, _localization.T("Local branch '{0}' is no longer available.", sourceBranch));
 
@@ -1008,7 +1008,7 @@ public sealed class GitBranchService
         }
 
         var remoteRef = $"refs/remotes/{remote}/{remoteBranch}";
-        var remoteBranchExistsResult = await RunGitAsync(path, "show-ref", "--verify", "--quiet", remoteRef);
+        var remoteBranchExistsResult = await RunGitAllowExitOneAsync(path, "show-ref", "--verify", "--quiet", remoteRef);
         var remoteBranchExists = remoteBranchExistsResult.Success;
         if (!remoteBranchExists && remoteBranchExistsResult.ExitCode != 1)
             return new GitOperationResult(false, _localization.T("Push aborted: failed to check remote branch. {0}", remoteBranchExistsResult.Message), string.Empty);
@@ -1092,7 +1092,7 @@ public sealed class GitBranchService
         else if (branch.StartsWith("refs/remotes/", StringComparison.Ordinal))
             branch = branch[13..];
 
-        var localBranchResult = await RunGitAsync(path, "show-ref", "--verify", "--quiet", $"refs/heads/{branch}");
+            var localBranchResult = await RunGitAllowExitOneAsync(path, "show-ref", "--verify", "--quiet", $"refs/heads/{branch}");
         var operation = localBranchResult.Success
             ? await RunGitAsync(path, "-c", "submodule.recurse=false", "switch", branch)
             : await RunGitAsync(path, "-c", "submodule.recurse=false", "switch", "--track", branch);
@@ -1535,8 +1535,15 @@ public sealed class GitBranchService
                     process.ExitCode, elapsed.TotalMilliseconds, command, TruncateLogOutput(output));
             }
             else
-                _logger.LogWarning("Git command failed with exit code {ExitCode} in {ElapsedMilliseconds} ms: git {GitArguments}. Error: {GitError}",
-                    process.ExitCode, elapsed.TotalMilliseconds, command, TruncateLogOutput(error));
+            {
+                var errorOutput = TruncateLogOutput(error);
+                if (string.IsNullOrWhiteSpace(errorOutput))
+                    _logger.LogWarning("Git command failed with exit code {ExitCode} in {ElapsedMilliseconds} ms: git {GitArguments}. Git did not provide error output.",
+                        process.ExitCode, elapsed.TotalMilliseconds, command);
+                else
+                    _logger.LogWarning("Git command failed with exit code {ExitCode} in {ElapsedMilliseconds} ms: git {GitArguments}. Error: {GitError}",
+                        process.ExitCode, elapsed.TotalMilliseconds, command, errorOutput);
+            }
             return new GitOperationResult(success, success ? output.Trim() : error.Trim(), output, process.ExitCode);
         }
         catch (Win32Exception exception)

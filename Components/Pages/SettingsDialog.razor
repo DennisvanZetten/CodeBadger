@@ -680,9 +680,10 @@
 
         if (update.Agent == AgentTools.OpenCode)
         {
-            if (AgentUpdates.HasRunningOpenCodeProcess())
+            var processCheck = await AgentUpdates.CheckOpenCodeProcessesAsync();
+            if (!processCheck.CouldVerify)
             {
-                Snackbar.Add(L.T("Close all OpenCode sessions and terminals before updating."), Severity.Warning);
+                Snackbar.Add(L.T("Could not verify OpenCode processes. Close any OpenCode session and retry; the update was not started."), Severity.Warning);
                 return;
             }
         }
@@ -693,10 +694,14 @@
         var configurationScope = update.Agent == AgentTools.Hermes
             ? L.T("Detected Hermes config.yaml, including HERMES_HOME, will be archived.")
             : L.T("Detected global and configured repository config files will be archived.");
+        var processScope = update.Agent == AgentTools.OpenCode
+            ? "\n\n" + L.T("Confirm that no OpenCode session has unsaved work. CodeBadger will stop all OpenCode sessions and background processes, run the update, then restart the OpenCode background service. Unsaved session work may be lost.")
+            : string.Empty;
         var confirmed = await DialogService.ShowMessageBoxAsync(
             L.T("Update {0} to {1}?", update.Agent, update.LatestVersion ?? "?"),
-            confirmation + "\n\n" + configurationScope + " " + L.T("The terminal performs the tool's official update command; CodeBadger will not update configuration files automatically."),
-            yesText: L.T("Back up and continue"), cancelText: L.T("Cancel"),
+            confirmation + "\n\n" + configurationScope + " " + L.T("The terminal performs the tool's official update command; CodeBadger will not update configuration files automatically.") + processScope,
+            yesText: update.Agent == AgentTools.OpenCode ? L.T("Stop OpenCode, back up and update") : L.T("Back up and continue"),
+            cancelText: L.T("Cancel"),
             options: new DialogOptions { CloseOnEscapeKey = true });
         if (confirmed != true)
             return;
@@ -705,7 +710,7 @@
         try
         {
             var backupPath = await AgentUpdates.CreateConfigBackupAsync(update.Agent, Settings);
-            AgentUpdates.StartUpdateInTerminal(update.Agent);
+            AgentUpdates.StartUpdateInTerminal(update.Agent, update.ExecutablePath);
             Snackbar.Add(L.T("Config backup created: {0}", backupPath), Severity.Success);
         }
         catch (Exception exception)

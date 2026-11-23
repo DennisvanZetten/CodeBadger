@@ -20,6 +20,8 @@ public sealed record AgentUpdateStatus(
     string ReleaseNotesUrl,
     string ExecutablePath);
 
+public sealed record OpenCodeUpdateProcessCheck(bool HasInteractiveSession, bool CouldVerify);
+
 public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
 {
     private static readonly HttpClient Http = CreateHttpClient();
@@ -49,16 +51,74 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
     public bool HasChecked { get { lock (_sync) return _hasChecked; } }
     public bool IsChecking { get { lock (_sync) return _isChecking; } }
 
-    public bool HasRunningOpenCodeProcess()
+    public async Task<OpenCodeUpdateProcessCheck> CheckOpenCodeProcessesAsync(CancellationToken cancellationToken = default)
     {
         if (!OperatingSystem.IsWindows())
-            return false;
-        var processes = Process.GetProcessesByName("opencode");
-        try { return processes.Length > 0; }
-        finally
+            return new OpenCodeUpdateProcessCheck(false, true);
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(8));
+        try
         {
-            foreach (var process in processes)
-                process.Dispose();
+            const string script = "$items = @(Get-CimInstance Win32_Process -Filter \"Name='opencode.exe'\" | Select-Object ProcessId, CommandLine); ConvertTo-Json -InputObject $items -Compress -Depth 3";
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "pwsh.exe",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                ArgumentList = { "-NoProfile", "-NonInteractive", "-Command", script }
+            });
+            if (process is null)
+                return new OpenCodeUpdateProcessCheck(false, false);
+
+            var outputTask = process.StandardOutput.ReadToEndAsync(timeout.Token);
+            var errorTask = process.StandardError.ReadToEndAsync(timeout.Token);
+            await process.WaitForExitAsync(timeout.Token);
+            if (process.ExitCode != 0)
+            {
+                var error = await errorTask;
+                logger.LogWarning("Could not inspect OpenCode processes (exit code {ExitCode}): {Error}", process.ExitCode, error);
+                return new OpenCodeUpdateProcessCheck(false, false);
+            }
+
+            var output = await outputTask;
+            if (string.IsNullOrWhiteSpace(output))
+                return new OpenCodeUpdateProcessCheck(false, true);
+            using var document = JsonDocument.Parse(output);
+            var processes = document.RootElement.ValueKind == JsonValueKind.Array
+                ? document.RootElement.EnumerateArray().ToArray()
+                : [document.RootElement];
+            foreach (var item in processes)
+            {
+                var commandLine = item.TryGetProperty("CommandLine", out var commandLineElement)
+                    ? commandLineElement.GetString()
+                    : null;
+                if (commandLine is null)
+                    return new OpenCodeUpdateProcessCheck(false, false);
+
+                // CodeBadger uses short-lived `opencode api get/post ...` processes to
+                // query the managed service. Those are not interactive sessions and
+                // must not prevent the user from upgrading OpenCode.
+                // `serve --service` is OpenCode's background service, not a user TUI.
+                // Treating it as an open session made the update guard permanently fire.
+                if (!Regex.IsMatch(commandLine, @"(?i)(?:^|\s)api\s+(?:get|post|put|patch|delete)\s+") &&
+                    !Regex.IsMatch(commandLine, @"(?i)(?:^|\s)serve\s+--service(?:\s|$)"))
+                    return new OpenCodeUpdateProcessCheck(true, true);
+            }
+
+            return new OpenCodeUpdateProcessCheck(false, true);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning("Timed out while checking whether OpenCode has active sessions.");
+            return new OpenCodeUpdateProcessCheck(false, false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "Could not check whether OpenCode has active sessions.");
+            return new OpenCodeUpdateProcessCheck(false, false);
         }
     }
 
@@ -140,11 +200,11 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
         return archivePath;
     }
 
-    public void StartUpdateInTerminal(string agent)
+    public void StartUpdateInTerminal(string agent, string? executablePath = null)
     {
         var command = agent switch
         {
-            AgentTools.OpenCode => "opencode upgrade",
+            AgentTools.OpenCode => BuildOpenCodeUpdateCommand(executablePath),
             AgentTools.ClaudeCode => "claude update",
             AgentTools.Codex => GetCodexUpdateCommand(),
             AgentTools.Hermes => "hermes update --backup",
@@ -156,9 +216,46 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
         startInfo.ArgumentList.Add("pwsh.exe");
         startInfo.ArgumentList.Add("-NoExit");
         startInfo.ArgumentList.Add("-Command");
-        startInfo.ArgumentList.Add($"{command}; if ($LASTEXITCODE -eq 0) {{ Write-Host 'Update command completed. Review the output above; restart CodeBadger if the updated executable is still in use.' -ForegroundColor Green }} else {{ Write-Host 'Update command failed or did not complete. Review the output above.' -ForegroundColor Yellow }}");
+        startInfo.ArgumentList.Add(agent == AgentTools.OpenCode
+            ? command
+            : $"{command}; if ($LASTEXITCODE -eq 0) {{ Write-Host 'Update command completed. Review the output above; restart CodeBadger if the updated executable is still in use.' -ForegroundColor Green }} else {{ Write-Host 'Update command failed or did not complete. Review the output above.' -ForegroundColor Yellow }}");
         if (Process.Start(startInfo) is null)
             throw new InvalidOperationException("Could not start Windows Terminal.");
+    }
+
+    private static string BuildOpenCodeUpdateCommand(string? executablePath)
+    {
+        var executable = string.IsNullOrWhiteSpace(executablePath)
+            ? FindExecutableCandidatesAsync("opencode", CancellationToken.None).GetAwaiter().GetResult().FirstOrDefault()
+            : executablePath;
+        if (string.IsNullOrWhiteSpace(executable) || !File.Exists(executable))
+            throw new FileNotFoundException("The OpenCode executable could not be found.");
+        if (!Path.GetExtension(executable).Equals(".exe", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Automatic OpenCode updates require its native Windows executable. This installation type is not supported safely.");
+
+        var escapedPath = executable.Replace("'", "''", StringComparison.Ordinal);
+        return "$ErrorActionPreference = 'Continue'; " +
+            $"$openCode = '{escapedPath}'; " +
+            "$updateExit = 1; " +
+            "try { " +
+                "& $openCode service stop; " +
+                "$managedServiceStopped = $LASTEXITCODE -eq 0; " +
+                "if (-not $managedServiceStopped) { throw 'OpenCode background service did not stop cleanly; update cancelled.' }; " +
+                "$openCodeProcesses = @(Get-CimInstance Win32_Process -Filter \"Name='opencode.exe'\" -ErrorAction Stop); " +
+                "foreach ($openCodeProcess in $openCodeProcesses) { " +
+                    "$commandLine = [string]$openCodeProcess.CommandLine; " +
+                    "if ($commandLine -match '(?i)(?:^|\\s)api\\s+(?:get|post|put|patch|delete)\\s+' -or $commandLine -match '(?i)(?:^|\\s)upgrade(?:\\s|$)') { continue }; " +
+                    "Stop-Process -Id $openCodeProcess.ProcessId -Force -ErrorAction SilentlyContinue; " +
+                "}; " +
+                "Start-Sleep -Seconds 2; " +
+                "& $openCode upgrade; " +
+                "$updateExit = $LASTEXITCODE; " +
+            "} finally { " +
+                "if ($managedServiceStopped) { & $openCode service start; " +
+                "if ($LASTEXITCODE -ne 0) { Write-Host 'OpenCode update finished, but its background service could not be restarted. Run: opencode service start' -ForegroundColor Yellow } } " +
+            "}; " +
+            "if ($updateExit -eq 0) { Write-Host 'OpenCode was updated and its background service restart was requested.' -ForegroundColor Green } " +
+            "else { Write-Host 'OpenCode update failed. The background service restart was requested; review the output above.' -ForegroundColor Yellow }";
     }
 
     private static string GetCodexUpdateCommand()

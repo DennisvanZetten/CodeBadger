@@ -94,14 +94,6 @@
                             <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small"
                                            Class="repository-undock-button" aria-label="@L.T("Undock tab")"
                                            title="@L.T("Undock tab")" OnClick="@(() => UndockRepository(repository))" />
-                            @if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && !repository.OpenCodeSandboxEnabled)
-                            {
-                                <MudTooltip Text="@L.T("Share read-only session")">
-                                    <MudIconButton Icon="@Icons.Material.Filled.Share" Size="Size.Small"
-                                                   aria-label="@L.T("Share read-only session")"
-                                                   OnClick="@(() => ShareSessionAsync(repository))" />
-                                </MudTooltip>
-                            }
                         </MudStack>
                     </TabContent>
                     <ChildContent>
@@ -119,14 +111,24 @@
             }
             </ChildContent>
         </MudTabs>
-        @if (_contextMenuRepository is not null && CanOpenRepositorySlackSessions(_contextMenuRepository))
+        @if (_contextMenuRepository is not null && HasRepositoryContextMenu(_contextMenuRepository))
         {
             <div class="repository-tab-context-backdrop" @onclick="CloseRepositoryContextMenu" @oncontextmenu:preventDefault="true"></div>
             <div class="repository-tab-context-menu git-commit-context-menu" style="left:@(_contextMenuX)px;top:@(_contextMenuY)px" @onclick:stopPropagation="true">
-                <button class="git-commit-context-menu-item" @onclick="OpenRepositorySlackSessionsAsync">
-                    <MudIcon Icon="@Icons.Material.Filled.NotificationsActive" Size="Size.Small" />
-                    <span>@L.T("Session notifications")</span>
-                </button>
+                @if (CanOpenRepositorySlackSessions(_contextMenuRepository))
+                {
+                    <button class="git-commit-context-menu-item" @onclick="OpenRepositorySlackSessionsAsync">
+                        <MudIcon Icon="@Icons.Material.Filled.NotificationsActive" Size="Size.Small" />
+                        <span>@L.T("Session notifications")</span>
+                    </button>
+                }
+                @if (CanShareRepositorySession(_contextMenuRepository))
+                {
+                    <button class="git-commit-context-menu-item" @onclick="ShareContextMenuRepositoryAsync">
+                        <MudIcon Icon="@Icons.Material.Filled.Share" Size="Size.Small" />
+                        <span>@L.T("Share read-only session")</span>
+                    </button>
+                }
             </div>
         }
         @if (_isDockDragActive)
@@ -277,7 +279,7 @@
         var repository = Guid.TryParse(repositoryId, out var id)
             ? DockedRepositories.FirstOrDefault(candidate => candidate.Id == id)
             : null;
-        if (repository is null || !CanOpenRepositorySlackSessions(repository))
+        if (repository is null || !HasRepositoryContextMenu(repository))
         {
             CloseRepositoryContextMenu();
             return InvokeAsync(StateHasChanged);
@@ -379,6 +381,20 @@
     private void HandleSandboxState(Guid id) => _ = InvokeAsync(StateHasChanged);
 
     private void CloseRepositoryContextMenu() => _contextMenuRepository = null;
+
+    private bool CanShareRepositorySession(RepositoryEntry repository) =>
+        AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && !repository.OpenCodeSandboxEnabled;
+
+    private bool HasRepositoryContextMenu(RepositoryEntry repository) =>
+        CanOpenRepositorySlackSessions(repository) || CanShareRepositorySession(repository);
+
+    private async Task ShareContextMenuRepositoryAsync()
+    {
+        var repository = _contextMenuRepository;
+        CloseRepositoryContextMenu();
+        if (repository is not null && CanShareRepositorySession(repository))
+            await ShareSessionAsync(repository);
+    }
 
     private bool CanOpenRepositorySlackSessions(RepositoryEntry repository) =>
         !repository.SlackNotificationsMuted && SlackNotifications.CanSendNotifications &&
@@ -915,7 +931,7 @@
         if (!await SessionShares.IsInstalledAndRunnableAsync(_statusMonitorCancellation.Token))
         {
             var install = await DialogService.ShowMessageBoxAsync(L.T("Install cloudflared"),
-                L.T("Sharing creates a temporary internet link through Cloudflare. CodeBadger will download cloudflared from Cloudflare's official GitHub release and verify its digital signature. Anyone with the link can read this session transcript, but cannot access the repository or send commands. Continue?"),
+                L.T("Sharing creates a temporary internet link through Cloudflare. CodeBadger will download cloudflared from Cloudflare's official GitHub release and verify its SHA-256 checksum against GitHub's release metadata. Anyone with the link can read this session transcript, but cannot access the repository or send commands. Continue?"),
                 yesText: L.T("Download and continue"), cancelText: L.T("Cancel"),
                 options: new DialogOptions { CloseOnEscapeKey = true });
             if (install != true)
@@ -929,6 +945,7 @@
             }
             catch (Exception exception)
             {
+                Logger.LogError(exception, "Could not install cloudflared for repository {RepositoryId} at stage download or verification.", repository.Id);
                 Snackbar.Add(L.T("Could not install cloudflared: {0}", exception.Message), Severity.Error);
                 return;
             }

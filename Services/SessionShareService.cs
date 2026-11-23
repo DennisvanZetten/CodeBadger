@@ -14,6 +14,8 @@ public sealed class SessionShareService(ILogger<SessionShareService> logger) : I
 {
     private const string CloudflaredDownloadUrl =
         "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe";
+    private const string CloudflaredReleaseApiUrl =
+        "https://api.github.com/repos/cloudflare/cloudflared/releases/latest";
     private readonly SemaphoreSlim _gate = new(1, 1);
     private ShareHost? _host;
     private Process? _tunnel;
@@ -130,12 +132,17 @@ public sealed class SessionShareService(ILogger<SessionShareService> logger) : I
 
         var destination = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "CodeBadger", "tools", "cloudflared.exe");
+        var stage = "prepare install directory";
+        logger.LogInformation("Starting cloudflared installation for session sharing.");
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         var temporary = destination + ".download";
+        var backup = destination + ".previous";
         try
         {
+            stage = "download official Cloudflare release";
             using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
             using var response = await client.GetAsync(CloudflaredDownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            logger.LogInformation("Cloudflared download returned HTTP {StatusCode}.", (int)response.StatusCode);
             response.EnsureSuccessStatusCode();
             if (response.Content.Headers.ContentLength is > 100_000_000)
                 throw new InvalidOperationException("The cloudflared download is unexpectedly large.");
@@ -163,15 +170,39 @@ public sealed class SessionShareService(ILogger<SessionShareService> logger) : I
                     throw new InvalidOperationException("The downloaded cloudflared file is not a Windows executable.");
             }
 
-            await VerifyAuthenticodeSignatureAsync(temporary, cancellationToken);
+            stage = "verify official Cloudflare release checksum";
+            await VerifyCloudflaredReleaseChecksumAsync(temporary, cancellationToken);
 
-            File.Move(temporary, destination, overwrite: true);
-            await VerifyCloudflaredAsync(destination, cancellationToken);
+            stage = "install and verify executable";
+            await VerifyCloudflaredAsync(temporary, cancellationToken);
+            var hadPrevious = File.Exists(destination);
+            if (hadPrevious)
+                File.Move(destination, backup, overwrite: true);
+            try
+            {
+                File.Move(temporary, destination, overwrite: true);
+                await VerifyCloudflaredAsync(destination, cancellationToken);
+                if (File.Exists(backup)) File.Delete(backup);
+            }
+            catch
+            {
+                if (File.Exists(destination)) File.Delete(destination);
+                if (File.Exists(backup)) File.Move(backup, destination, overwrite: true);
+                throw;
+            }
+            logger.LogInformation("cloudflared installed and verified successfully.");
             return destination;
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "cloudflared installation failed during stage {InstallStage}.", stage);
+            throw;
         }
         finally
         {
             try { if (File.Exists(temporary)) File.Delete(temporary); }
+            catch (IOException) { }
+            try { if (File.Exists(backup)) File.Delete(backup); }
             catch (IOException) { }
         }
     }
@@ -277,29 +308,48 @@ public sealed class SessionShareService(ILogger<SessionShareService> logger) : I
         }
     }
 
-    private static async Task VerifyAuthenticodeSignatureAsync(string executable, CancellationToken cancellationToken)
+    private static async Task VerifyCloudflaredReleaseChecksumAsync(string executable, CancellationToken cancellationToken)
     {
-        const string command = "$signature = Get-AuthenticodeSignature -LiteralPath $args[0]; " +
-            "if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Cloudflare') { exit 1 }";
-        using var process = Process.Start(new ProcessStartInfo
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("CodeBadger-SessionSharing/1.0");
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+        using var response = await client.GetAsync(CloudflaredReleaseApiUrl, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        using var release = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken),
+            cancellationToken: cancellationToken);
+        var root = release.RootElement;
+        var tag = root.TryGetProperty("tag_name", out var tagValue) && tagValue.ValueKind == JsonValueKind.String
+            ? tagValue.GetString() : null;
+        if (!root.TryGetProperty("html_url", out var releaseUrl) || releaseUrl.ValueKind != JsonValueKind.String ||
+            !Uri.TryCreate(releaseUrl.GetString(), UriKind.Absolute, out var parsedUrl) ||
+            parsedUrl.Scheme != Uri.UriSchemeHttps || parsedUrl.Host != "github.com" ||
+            string.IsNullOrWhiteSpace(tag) ||
+            !string.Equals(parsedUrl.AbsolutePath, $"/cloudflare/cloudflared/releases/tag/{tag}", StringComparison.Ordinal))
+            throw new InvalidOperationException("GitHub did not identify the official Cloudflare cloudflared release.");
+        if (!root.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException("The official cloudflared release did not include a checksum asset.");
+
+        string? expected = null;
+        foreach (var asset in assets.EnumerateArray())
         {
-            FileName = "powershell.exe",
-            ArgumentList = { "-NoProfile", "-NonInteractive", "-Command", command, executable },
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        }) ?? throw new InvalidOperationException("Could not verify the cloudflared download signature.");
-        try { await process.WaitForExitAsync(cancellationToken).WaitAsync(TimeSpan.FromSeconds(20), cancellationToken); }
-        catch
-        {
-            try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
-            catch (InvalidOperationException) { }
-            catch (System.ComponentModel.Win32Exception) { }
-            throw;
+            if (!asset.TryGetProperty("name", out var name) || name.GetString() != "cloudflared-windows-amd64.exe")
+                continue;
+            if (asset.TryGetProperty("digest", out var digest) && digest.ValueKind == JsonValueKind.String)
+            {
+                var value = digest.GetString();
+                if (value?.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) == true)
+                    expected = value[7..];
+            }
+            break;
         }
-        if (process.ExitCode != 0)
-            throw new InvalidOperationException("The cloudflared download does not have a valid Cloudflare code signature.");
+
+        if (string.IsNullOrWhiteSpace(expected) || expected.Length != 64 || expected.Any(character => !Uri.IsHexDigit(character)))
+            throw new InvalidOperationException("GitHub did not provide a valid SHA-256 digest for the cloudflared Windows release asset.");
+
+        await using var file = File.OpenRead(executable);
+        var actual = Convert.ToHexString(await SHA256.HashDataAsync(file, cancellationToken));
+        if (!CryptographicOperations.FixedTimeEquals(Convert.FromHexString(expected), Convert.FromHexString(actual)))
+            throw new InvalidOperationException("The downloaded cloudflared file does not match the SHA-256 digest published by the official GitHub release.");
     }
 
     private static bool IsValidSessionId(string id) => id.StartsWith("ses_", StringComparison.Ordinal) &&

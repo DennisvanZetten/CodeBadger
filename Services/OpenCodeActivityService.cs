@@ -1,10 +1,15 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace CodeBadger.Services;
 
 public sealed class OpenCodeActivityService
 {
+    private readonly ILogger<OpenCodeActivityService> _logger;
+
+    public OpenCodeActivityService(ILogger<OpenCodeActivityService> logger) => _logger = logger;
+
     public sealed record ActiveSession(string Id, string Directory, string Agent, string Title);
     public sealed record SessionTextMessage(string Id, string Role, string Text);
     public sealed record FormField(string Key, string Title, string Description, string Type, bool Required,
@@ -349,6 +354,8 @@ public sealed class OpenCodeActivityService
             throw new ArgumentException("Invalid OpenCode session ID.", nameof(sessionId));
         if (string.IsNullOrWhiteSpace(text) || text.Length > 32000)
             throw new ArgumentException("Reply must contain 1–32,000 characters.", nameof(text));
+        _logger.LogInformation("Submitting a prompt to OpenCode session {SessionId} with agent {Agent}; prompt content omitted.",
+            sessionId, agent ?? "current");
         var payload = agent is "build" or "plan"
             ? JsonSerializer.Serialize(new { text, delivery = "steer", agent })
             : JsonSerializer.Serialize(new { text, delivery = "steer" });
@@ -356,6 +363,7 @@ public sealed class OpenCodeActivityService
             HttpMethod.Post, payload, directory);
         if (response is null)
             throw new InvalidOperationException("Could not submit the reply to the OpenCode session.");
+        _logger.LogDebug("Prompt submitted to OpenCode session {SessionId}.", sessionId);
     }
 
     public async Task<ActiveSession> CreateSessionAsync(string directory, CancellationToken cancellationToken)
@@ -363,6 +371,7 @@ public sealed class OpenCodeActivityService
         if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
             throw new ArgumentException("Repository directory does not exist.", nameof(directory));
 
+        _logger.LogInformation("Creating OpenCode session for repository directory {RepositoryDirectory}.", directory);
         using var response = await RequestAsync("/api/session", cancellationToken,
             HttpMethod.Post, JsonSerializer.Serialize(new { location = new { directory }, agent = "plan" }), directory);
         if (response is null || !response.RootElement.TryGetProperty("data", out var data) ||
@@ -371,9 +380,11 @@ public sealed class OpenCodeActivityService
             throw new InvalidOperationException("Could not create a new OpenCode session.");
 
         var id = idValue.GetString()!;
-        return new ActiveSession(id, NormalizePath(directory) ?? directory, "plan",
+        var created = new ActiveSession(id, NormalizePath(directory) ?? directory, "plan",
             data.TryGetProperty("title", out var titleValue) && titleValue.ValueKind == JsonValueKind.String
                 ? titleValue.GetString() ?? string.Empty : string.Empty);
+        _logger.LogInformation("Created OpenCode session {SessionId} for repository directory {RepositoryDirectory}.", id, directory);
+        return created;
     }
 
     public async Task SwitchAgentAsync(string sessionId, string directory, string agent, CancellationToken cancellationToken)
@@ -382,6 +393,7 @@ public sealed class OpenCodeActivityService
             throw new ArgumentException("Invalid OpenCode session ID.", nameof(sessionId));
         if (agent is not ("build" or "plan"))
             throw new ArgumentException("Only the build and plan agents can be selected from Slack.", nameof(agent));
+        _logger.LogInformation("Switching OpenCode session {SessionId} to agent {Agent}.", sessionId, agent);
         using var response = await RequestAsync($"/api/session/{sessionId}/agent", cancellationToken,
             HttpMethod.Post, JsonSerializer.Serialize(new { agent }), directory);
         if (response is null)
@@ -400,7 +412,7 @@ public sealed class OpenCodeActivityService
         catch (PathTooLongException) { return null; }
     }
 
-    private static async Task<JsonDocument?> RequestAsync(string path, CancellationToken cancellationToken,
+    private async Task<JsonDocument?> RequestAsync(string path, CancellationToken cancellationToken,
         HttpMethod? method = null, string? body = null, string? workingDirectory = null)
     {
         if (!OperatingSystem.IsWindows())
@@ -435,20 +447,44 @@ public sealed class OpenCodeActivityService
         }
         try
         {
+            var startedAt = Stopwatch.GetTimestamp();
+            var methodName = method == HttpMethod.Post ? "POST" : "GET";
+            _logger.LogDebug("Calling managed OpenCode API {HttpMethod} {ApiPath}.", methodName, path);
             if (!process.Start())
+            {
+                _logger.LogWarning("Could not start managed OpenCode process for API request {ApiPath}.", path);
                 return null;
+            }
             var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
             var error = process.StandardError.ReadToEndAsync(timeout.Token);
             await process.WaitForExitAsync(timeout.Token);
             await error;
             if (process.ExitCode != 0)
+            {
+                _logger.LogWarning("Managed OpenCode API {ApiPath} exited with code {ExitCode} after {ElapsedMilliseconds} ms.",
+                    path, process.ExitCode, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
                 return null;
+            }
             var json = await output;
+            _logger.LogDebug("Managed OpenCode API {ApiPath} completed successfully in {ElapsedMilliseconds} ms.",
+                path, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
             return JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { return null; }
-        catch (System.ComponentModel.Win32Exception) { return null; }
-        catch (JsonException) { return null; }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("Managed OpenCode API request {ApiPath} timed out.", path);
+            return null;
+        }
+        catch (System.ComponentModel.Win32Exception exception)
+        {
+            _logger.LogWarning("Could not start managed OpenCode API request {ApiPath} ({ExceptionType}).", path, exception.GetType().Name);
+            return null;
+        }
+        catch (JsonException exception)
+        {
+            _logger.LogWarning("Managed OpenCode API request {ApiPath} returned invalid JSON ({ExceptionType}).", path, exception.GetType().Name);
+            return null;
+        }
         finally
         {
             try { if (!process.HasExited) process.Kill(entireProcessTree: true); }

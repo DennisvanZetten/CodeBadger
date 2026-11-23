@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace CodeBadger.Services;
 
@@ -16,12 +17,14 @@ namespace CodeBadger.Services;
 public sealed class SandboxNetworkBroker : IDisposable
 {
     private readonly SandboxPermissionService _permissions;
+    private readonly ILogger<SandboxNetworkBroker> _logger;
     private readonly SemaphoreSlim _requests = new(4, 4);
     private bool _disposed;
 
-    public SandboxNetworkBroker(SandboxPermissionService permissions)
+    public SandboxNetworkBroker(SandboxPermissionService permissions, ILogger<SandboxNetworkBroker> logger)
     {
         _permissions = permissions;
+        _logger = logger;
         _permissions.PermissionsRevoking += CancelRepository;
     }
 
@@ -69,6 +72,7 @@ public sealed class SandboxNetworkBroker : IDisposable
         HttpMethod method, string? requestJson, string? hostApiKey,
         Func<Uri, CancellationToken, Task<bool>> requestApproval, CancellationToken cancellationToken)
     {
+        var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
         ObjectDisposedException.ThrowIf(_disposed, this);
         ValidateDestination(destination);
         await _requests.WaitAsync(cancellationToken);
@@ -82,9 +86,13 @@ public sealed class SandboxNetworkBroker : IDisposable
             Uri origin = new(destination.GetLeftPart(UriPartial.Authority));
             if (!await _permissions.IsAllowedAsync(repositoryId, repositoryPath, origin))
             {
+                _logger.LogInformation("Sandbox network approval requested for repository {RepositoryId} and host {ProviderHost}.", repositoryId, destination.IdnHost);
                 lifetime.CancelAfter(TimeSpan.FromMinutes(5));
                 if (!await requestApproval(origin, lifetime.Token))
+                {
+                    _logger.LogWarning("Sandbox network request was denied for repository {RepositoryId} and host {ProviderHost}.", repositoryId, destination.IdnHost);
                     throw new SandboxBrokerException("Network access was rejected in CodeBadger.");
+                }
                 lifetime.Token.ThrowIfCancellationRequested();
                 await _permissions.GrantAsync(repositoryId, repositoryPath, origin);
                 lifetime.Token.ThrowIfCancellationRequested();
@@ -120,7 +128,11 @@ public sealed class SandboxNetworkBroker : IDisposable
             // Do not expose provider errors, headers or cookies to the sandbox:
             // they can contain authentication data or reflected request metadata.
             if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Sandbox provider request to {ProviderHost} returned HTTP {StatusCode} for repository {RepositoryId}.",
+                    destination.IdnHost, (int)response.StatusCode, repositoryId);
                 throw new SandboxBrokerException("Provider returned HTTP " + (int)response.StatusCode + ". Check provider access, API key and selected model in OpenCode settings.");
+            }
             const int maximumBytes = 1024 * 1024;
             if (response.Content.Headers.ContentLength is > maximumBytes)
                 throw new InvalidDataException("Network response exceeds the sandbox size limit.");
@@ -138,19 +150,29 @@ public sealed class SandboxNetworkBroker : IDisposable
             string text = Encoding.UTF8.GetString(body.ToArray());
             if (hostApiKey is not null && (text.Contains(hostApiKey, StringComparison.Ordinal) ||
                 text.Contains(JsonSerializer.Serialize(hostApiKey).Trim('"'), StringComparison.Ordinal)))
+            {
+                _logger.LogError("Sandbox provider response contained protected authentication material for repository {RepositoryId}.", repositoryId);
                 throw new InvalidDataException("Provider response contained protected authentication material.");
+            }
+            _logger.LogDebug("Sandbox provider request completed for repository {RepositoryId}, host {ProviderHost}, method {HttpMethod} in {ElapsedMilliseconds} ms.",
+                repositoryId, destination.IdnHost, method.Method, System.Diagnostics.Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
             return text;
         }
         catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
         {
+            _logger.LogWarning("Sandbox provider request timed out or was revoked for repository {RepositoryId} and host {ProviderHost}.", repositoryId, destination.IdnHost);
             throw new SandboxBrokerException("Provider request timed out or permission was revoked. Try again or check the permission dialog in CodeBadger.", error);
         }
         catch (HttpRequestException error)
         {
+            _logger.LogWarning("Sandbox provider connection failed for repository {RepositoryId} and host {ProviderHost}: {ErrorMessage}",
+                repositoryId, destination.IdnHost, error.Message);
             throw new SandboxBrokerException("CodeBadger could not connect to the provider (network or TLS error).", error);
         }
         catch (UnauthorizedAccessException error)
         {
+            _logger.LogWarning("Sandbox provider destination was blocked for repository {RepositoryId} and host {ProviderHost}: {ErrorMessage}",
+                repositoryId, destination.IdnHost, error.Message);
             throw new SandboxBrokerException("Provider destination resolved to a blocked local or non-public address.", error);
         }
         finally

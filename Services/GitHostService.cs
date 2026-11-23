@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace CodeBadger.Services;
 
@@ -8,7 +9,7 @@ public sealed record GitHostConnection(string Provider, bool IsAvailable, string
 public sealed record GitHostRepository(string Name, string Url, string FullName, bool IsPrivate = false);
 public sealed record GitHostProject(string Name, string Id);
 
-public sealed class GitHostService(LocalizationService localization)
+public sealed class GitHostService(LocalizationService localization, ILogger<GitHostService> logger)
 {
     public async Task<GitHostConnection> CheckGitHubAsync()
     {
@@ -244,16 +245,23 @@ public sealed class GitHostService(LocalizationService localization)
 
         try
         {
+            var startedAt = Stopwatch.GetTimestamp();
+            logger.LogDebug("Running Git host CLI {Executable} with {ArgumentCount} arguments.", executable, arguments.Length);
             using var process = Process.Start(startInfo) ?? throw new InvalidOperationException(localization.T("Could not start {0}.", executable));
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
             var output = await outputTask;
             var error = await errorTask;
+            if (process.ExitCode == 0)
+                logger.LogDebug("Git host CLI {Executable} completed with exit code 0 in {ElapsedMilliseconds} ms.", executable, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+            else
+                logger.LogWarning("Git host CLI {Executable} failed with exit code {ExitCode} in {ElapsedMilliseconds} ms.", executable, process.ExitCode, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
             return new CommandResult(process.ExitCode == 0, output.Trim(), string.IsNullOrWhiteSpace(error) ? output.Trim() : error.Trim());
         }
-        catch (Win32Exception)
+        catch (Win32Exception exception)
         {
+            logger.LogWarning("Could not start Git host CLI {Executable}: {ErrorMessage}", executable, exception.Message);
             return new CommandResult(false, string.Empty, localization.T("{0} is not installed or is not available in PATH.", executable));
         }
     }
@@ -285,21 +293,29 @@ public sealed class GitHostService(LocalizationService localization)
 
         try
         {
+            var startedAt = Stopwatch.GetTimestamp();
+            logger.LogDebug("Running Git host CLI {Executable} with {ArgumentCount} arguments.", executable, arguments.Length);
             using var process = Process.Start(startInfo) ?? throw new InvalidOperationException(localization.T("Could not start {0}.", executable));
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
             var output = await outputTask;
             var error = await errorTask;
+            if (process.ExitCode == 0)
+                logger.LogDebug("Git host CLI {Executable} completed with exit code 0 in {ElapsedMilliseconds} ms.", executable, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+            else
+                logger.LogWarning("Git host CLI {Executable} failed with exit code {ExitCode} in {ElapsedMilliseconds} ms.", executable, process.ExitCode, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
             var message = suppressStandardError ? string.Empty : string.IsNullOrWhiteSpace(error) ? output.Trim() : error.Trim();
             return new CommandResult(process.ExitCode == 0, output.Trim(), message);
         }
-        catch (Win32Exception)
+        catch (Win32Exception exception)
         {
+            logger.LogWarning("Could not start Git host CLI {Executable}: {ErrorMessage}", executable, exception.Message);
             return new CommandResult(false, string.Empty, localization.T("{0} is not installed or is not available in PATH.", executable));
         }
-        catch (DirectoryNotFoundException)
+        catch (DirectoryNotFoundException exception)
         {
+            logger.LogWarning("Git host CLI {Executable} working folder does not exist: {ErrorMessage}", executable, exception.Message);
             return new CommandResult(false, string.Empty, localization.T("The selected destination folder does not exist."));
         }
     }

@@ -225,6 +225,8 @@ public sealed class AiCommitMessageService
     public async Task<AiModelListResult> GetAvailableModelsAsync(LauncherSettings settings)
     {
         var provider = settings.AiProvider;
+        var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        _logger.LogDebug("Loading available models from AI provider {Provider}.", provider);
         var endpoint = ResolveModelsEndpoint(settings);
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
             return new AiModelListResult(false, [], _localization.T("Enter a valid provider URL."));
@@ -237,24 +239,32 @@ public sealed class AiCommitMessageService
             using var response = await client.SendAsync(request);
             var responseBody = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("AI provider {Provider} returned HTTP {StatusCode} while listing models.", provider, (int)response.StatusCode);
                 return new AiModelListResult(false, [],
                     _localization.T("Provider returned status {0}: {1}", (int)response.StatusCode, ExtractError(responseBody)));
+            }
 
             var models = ParseModelList(provider, responseBody);
+            _logger.LogInformation("Loaded {ModelCount} models from AI provider {Provider} in {ElapsedMilliseconds} ms.",
+                models.Count, provider, System.Diagnostics.Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
             return models.Count == 0
                 ? new AiModelListResult(false, [], _localization.T("The connection succeeded, but the provider returned no models."))
                 : new AiModelListResult(true, models, string.Empty);
         }
         catch (TaskCanceledException)
         {
+            _logger.LogWarning("AI provider {Provider} model listing timed out.", provider);
             return new AiModelListResult(false, [], _localization.T("The AI provider connection timed out."));
         }
         catch (HttpRequestException exception)
         {
+            _logger.LogWarning("AI provider {Provider} model listing failed ({ExceptionType}).", provider, exception.GetType().Name);
             return new AiModelListResult(false, [], _localization.T("Connection to the AI provider failed: {0}", exception.Message));
         }
         catch (JsonException exception)
         {
+            _logger.LogWarning("AI provider {Provider} model listing returned invalid JSON ({ExceptionType}).", provider, exception.GetType().Name);
             return new AiModelListResult(false, [], _localization.T("Invalid models response: {0}", exception.Message));
         }
     }

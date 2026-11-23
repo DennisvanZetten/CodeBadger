@@ -20,8 +20,14 @@ public static class ApplicationLogCategories
         "CodeBadger.Notifications" or "Notifications" => Notifications,
         "CodeBadger.AI" or "AI" => Ai,
         _ when category?.EndsWith("GitBranchService", StringComparison.Ordinal) == true => Git,
+        _ when category?.EndsWith("GitHostService", StringComparison.Ordinal) == true => Git,
         _ when category?.EndsWith("SlackNotificationService", StringComparison.Ordinal) == true => Notifications,
+        _ when category?.EndsWith("OpenCodeActivityService", StringComparison.Ordinal) == true => Ai,
+        _ when category?.EndsWith("WindowsTerminalSessionService", StringComparison.Ordinal) == true => Ai,
         _ when category?.EndsWith("AiCommitMessageService", StringComparison.Ordinal) == true => Ai,
+        _ when category?.EndsWith("WindowsSandboxSessionService", StringComparison.Ordinal) == true => Ai,
+        _ when category?.EndsWith("SandboxNetworkBroker", StringComparison.Ordinal) == true => Ai,
+        _ when category?.EndsWith("SandboxProviderBridge", StringComparison.Ordinal) == true => Ai,
         _ => General
     };
 }

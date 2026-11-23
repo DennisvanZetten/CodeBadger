@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using CodeBadger.Models;
-using Microsoft.Extensions.Logging;
 
 namespace CodeBadger.Services;
 

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using CodeBadger.Models;
+using Microsoft.Extensions.Logging;
 
 namespace CodeBadger.Services;
 
@@ -20,7 +21,8 @@ public sealed class StartupDetectionService(
     ClaudeRepositoryConfigService claudeConfigService,
     CodexConfigService codexConfigService,
     GitBranchService gitBranchService,
-    LocalizationService localization)
+    LocalizationService localization,
+    ILogger<StartupDetectionService> logger)
 {
     public StartupDetectionResult? Result { get; private set; }
 
@@ -28,6 +30,8 @@ public sealed class StartupDetectionService(
         LauncherSettings settings,
         Func<string, double, Task> reportProgress)
     {
+        var startedAt = Stopwatch.GetTimestamp();
+        logger.LogInformation("Startup checks started for {RepositoryCount} configured repositories.", settings.Repositories.Count);
         var repositories = settings.Repositories;
         var totalSteps = 4 + repositories.Count * 2;
         var completedSteps = 0;
@@ -40,19 +44,19 @@ public sealed class StartupDetectionService(
 
         await reportProgress(localization.T("Detecting OpenCode..."), 0);
         var openCodePath = GetExistingGlobalConfigPath(AgentTools.OpenCode);
-        var openCode = new AgentStartupState(await IsCommandAvailableAsync("opencode"), File.Exists(openCodePath), openCodePath);
+        var openCode = new AgentStartupState(await IsCommandAvailableAsync("opencode", logger), File.Exists(openCodePath), openCodePath);
         await Report(localization.T("Detecting Claude Code..."));
 
         var claudePath = GetExistingGlobalConfigPath(AgentTools.ClaudeCode);
-        var claude = new AgentStartupState(await IsCommandAvailableAsync("claude"), File.Exists(claudePath), claudePath);
+        var claude = new AgentStartupState(await IsCommandAvailableAsync("claude", logger), File.Exists(claudePath), claudePath);
         await Report(localization.T("Detecting Codex..."));
 
         var codexPath = GetExistingGlobalConfigPath(AgentTools.Codex);
-        var codex = new AgentStartupState(await IsCommandAvailableAsync("codex"), File.Exists(codexPath), codexPath);
+        var codex = new AgentStartupState(await IsCommandAvailableAsync("codex", logger), File.Exists(codexPath), codexPath);
         await Report(localization.T("Detecting Hermes..."));
 
         var hermesPath = GetExistingGlobalConfigPath(AgentTools.Hermes);
-        var hermes = new AgentStartupState(await IsCommandAvailableAsync("hermes"), File.Exists(hermesPath), hermesPath);
+        var hermes = new AgentStartupState(await IsCommandAvailableAsync("hermes", logger), File.Exists(hermesPath), hermesPath);
         await Report(localization.T("Checking global agent settings..."));
 
         var repositoryStates = new Dictionary<Guid, RepositoryStartupState>();
@@ -72,6 +76,10 @@ public sealed class StartupDetectionService(
         }
 
         Result = new StartupDetectionResult(openCode, claude, codex, hermes, repositoryStates);
+        logger.LogInformation(
+            "Startup checks finished in {ElapsedMilliseconds} ms. Agents available: OpenCode={OpenCodeAvailable}, ClaudeCode={ClaudeAvailable}, Codex={CodexAvailable}, Hermes={HermesAvailable}; Git repositories detected: {GitRepositoryCount}/{RepositoryCount}.",
+            Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds, openCode.Installed, claude.Installed, codex.Installed, hermes.Installed,
+            repositoryStates.Values.Count(state => state.IsGitRepository), repositories.Count);
         await reportProgress(localization.T("Startup checks complete."), 100);
         return Result;
     }
@@ -144,7 +152,7 @@ public sealed class StartupDetectionService(
         return configPath;
     }
 
-    private static async Task<bool> IsCommandAvailableAsync(string command)
+    private static async Task<bool> IsCommandAvailableAsync(string command, ILogger logger)
     {
         if (OperatingSystem.IsIOS())
             return false;
@@ -164,10 +172,13 @@ public sealed class StartupDetectionService(
             if (process is null)
                 return false;
             await process.WaitForExitAsync();
-            return process.ExitCode == 0;
+            var available = process.ExitCode == 0;
+            logger.LogDebug("Agent executable probe for {CommandName}: {Availability}.", command, available ? "available" : "not found");
+            return available;
         }
-        catch
+        catch (Exception exception)
         {
+            logger.LogDebug("Agent executable probe for {CommandName} failed ({ExceptionType}).", command, exception.GetType().Name);
             return false;
         }
     }

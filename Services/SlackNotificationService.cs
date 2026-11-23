@@ -137,7 +137,9 @@ public sealed class SlackNotificationService : IAsyncDisposable
             if (id is not null && name is not null)
                 channels.Add(new DiscordChannel(id, name, type == 0 ? "Text" : "Announcement"));
         }
-        return channels.OrderBy(channel => channel.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+        var result = channels.OrderBy(channel => channel.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+        _logger.LogDebug("Loaded {ChannelCount} Discord channels for guild {GuildId}.", result.Length, guildId);
+        return result;
     }
 
     public async Task TestDiscordConnectionAsync(string botToken, string channelId,
@@ -180,6 +182,8 @@ public sealed class SlackNotificationService : IAsyncDisposable
             _discordChannelId = discordChannelId;
             _discordAllowedUserId = discordAllowedUserId;
             _activePlatform = platform;
+            _logger.LogInformation("Configuring notification integration for platform {NotificationPlatform}; enabled={NotificationsEnabled}.",
+                platform, settings.SlackNotificationsEnabled);
             _pendingNewSessions.Clear();
             _pendingCommitMessages.Clear();
             _pendingInteractionThreads.Clear();
@@ -231,8 +235,10 @@ public sealed class SlackNotificationService : IAsyncDisposable
             title = string.IsNullOrWhiteSpace(existingThread.Title) ? title : existingThread.Title;
         try
         {
+            _logger.LogDebug("Publishing completion notification for session {SessionId} through {NotificationPlatform}.", session.Id, _activePlatform);
             var thread = await EnsureSessionThreadLinkAsync(session, title, cancellationToken);
             await PostLongThreadMessageAsync(thread, "✅ *OpenCode klaar*", answer, cancellationToken);
+            _logger.LogInformation("Published completion notification for session {SessionId} through {NotificationPlatform}.", session.Id, _activePlatform);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -830,6 +836,8 @@ public sealed class SlackNotificationService : IAsyncDisposable
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
             catch (Exception exception)
             {
+                _logger.LogWarning("Slack Socket Mode connection failed ({ExceptionType}); retrying after {RetryDelaySeconds} seconds.",
+                    exception.GetType().Name, delay.TotalSeconds);
                 SetConnectionState(false, "Slack connection unavailable: " + exception.Message);
             }
             try { await Task.Delay(delay, cancellationToken); }
@@ -1517,6 +1525,8 @@ public sealed class SlackNotificationService : IAsyncDisposable
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
             catch (Exception exception)
             {
+                _logger.LogWarning("Discord Gateway connection failed ({ExceptionType}); retrying after {RetryDelaySeconds} seconds.",
+                    exception.GetType().Name, delay.TotalSeconds);
                 SetConnectionState(false, "Discord connection unavailable: " + exception.Message);
             }
             try { await Task.Delay(delay, cancellationToken); }

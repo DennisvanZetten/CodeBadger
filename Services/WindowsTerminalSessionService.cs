@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Extensions.Logging;
 using Microsoft.Win32.SafeHandles;
 
 namespace CodeBadger.Services;
@@ -13,9 +14,14 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, SemaphoreSlim> _startGates = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, List<string>> _recentOutput = new();
     private readonly LocalizationService _localization;
+    private readonly ILogger<WindowsTerminalSessionService> _logger;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, SemaphoreSlim> _terminalWriteGates = new();
 
-    public WindowsTerminalSessionService(LocalizationService localization) => _localization = localization;
+    public WindowsTerminalSessionService(LocalizationService localization, ILogger<WindowsTerminalSessionService> logger)
+    {
+        _localization = localization;
+        _logger = logger;
+    }
 
     public event Action<Guid, string>? OutputReceived;
     public event Action<Guid, int>? SessionExited;
@@ -48,6 +54,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         {
             if (IsRunning(id))
                 return;
+            _logger.LogInformation("Starting agent terminal for repository {RepositoryId} in {WorkingDirectory}.", id, workingDirectory);
             if (!OperatingSystem.IsWindows())
                 throw new PlatformNotSupportedException(_localization.T("The built-in terminal is only available on Windows."));
             if (!Directory.Exists(workingDirectory))
@@ -71,6 +78,12 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
                 _sessions[id] = session;
             _ = Task.Run(() => ReadOutputAsync(id, session));
             _ = WatchProcessAsync(id, session);
+            _logger.LogInformation("Agent terminal started for repository {RepositoryId}; process ID {ProcessId}.", id, session.Process.Id);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "Could not start agent terminal for repository {RepositoryId}.", id);
+            throw;
         }
         finally { gate.Release(); }
     }
@@ -89,6 +102,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
             var bytes = Encoding.UTF8.GetBytes(input);
             await session.Input.WriteAsync(bytes);
             await session.Input.FlushAsync();
+            _logger.LogDebug("Forwarded {InputByteCount} bytes to agent terminal for repository {RepositoryId}; content omitted.", bytes.Length, id);
             }
             finally { gate.Release(); }
         }
@@ -116,6 +130,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         lock (_sessionsLock)
             _sessions.TryGetValue(id, out session);
         if (session is null) return;
+        _logger.LogInformation("Stopping agent terminal for repository {RepositoryId}.", id);
         try
         {
             if (!session.Process.HasExited)
@@ -130,6 +145,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
             _sessions.Remove(id);
         _recentOutput.TryRemove(id, out _);
         session.Dispose();
+        _logger.LogInformation("Agent terminal stopped for repository {RepositoryId}.", id);
     }
 
     public async ValueTask DisposeAsync()
@@ -167,7 +183,10 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
                 PublishOutput(id, new string(characterBuffer, 0, remainingCharacters));
         }
         catch (ObjectDisposedException) { }
-        catch (IOException) { }
+        catch (IOException exception)
+        {
+            _logger.LogDebug(exception, "Agent terminal output stream closed for session {SessionId}.", id);
+        }
     }
 
     private void PublishOutput(Guid id, string text)
@@ -188,9 +207,16 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         {
             await session.Process.WaitForExitAsync();
             if (IsActiveSession(id, session))
+            {
+                _logger.LogInformation("Agent terminal process for repository {RepositoryId} exited with code {ExitCode}.", id, session.Process.ExitCode);
                 SessionExited?.Invoke(id, session.Process.ExitCode);
+            }
         }
         catch (InvalidOperationException) { }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Could not observe agent terminal exit for repository {RepositoryId}.", id);
+        }
     }
 
     private bool IsActiveSession(Guid id, TerminalSession session)

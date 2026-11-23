@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text;
+using Microsoft.Extensions.Logging;
 
 namespace CodeBadger.Services;
 
@@ -9,6 +10,10 @@ namespace CodeBadger.Services;
 /// </summary>
 public sealed partial class WindowsSandboxSessionService : IAsyncDisposable
 {
+    private readonly ILogger<WindowsSandboxSessionService> _logger;
+
+    public WindowsSandboxSessionService(ILogger<WindowsSandboxSessionService> logger) => _logger = logger;
+
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly ConcurrentDictionary<Guid, Session> _sessions = new();
     private readonly ConcurrentDictionary<Guid, Review> _reviews = new();
@@ -62,7 +67,11 @@ public sealed partial class WindowsSandboxSessionService : IAsyncDisposable
         IReadOnlyList<string> selectedFiles, Uri endpoint, string model, string hostApiKey,
         SandboxNetworkBroker broker, SandboxApprovalService approvals, SandboxWorkspace.Limits? limits = null)
     {
+        _logger.LogInformation("Starting sandbox session for repository {RepositoryId}; selected file count {SelectedFileCount}.",
+            repositoryId, selectedFiles.Count);
         var assessment = await Task.Run(() => SandboxWorkspace.Assess(repositoryPath, selectedFiles, limits));
+        _logger.LogInformation("Sandbox access mode selected for repository {RepositoryId}: {AccessMode}; assessed file count {FileCount}.",
+            repositoryId, assessment.Mode, assessment.Files.Count);
         if (assessment.Mode == SandboxWorkspace.AccessMode.Direct)
         {
             await StartSdkOpenCodeAsync(repositoryId, repositoryPath, assessment.Files, endpoint, model, hostApiKey, broker, approvals);
@@ -143,6 +152,7 @@ public sealed partial class WindowsSandboxSessionService : IAsyncDisposable
             session.Reader = Task.Run(() => ReadOutput(repositoryId, session));
             if (bridge is not null) _ = MonitorBridgeAsync(repositoryId, session);
             if (terminal.Process.RepositoryGuardianCompletion is not null) _ = MonitorGuardianAsync(repositoryId, session);
+            _logger.LogInformation("Sandbox session started for repository {RepositoryId} in {AccessMode} mode.", repositoryId, terminal.Process.Mode);
         }
         finally { _gate.Release(); }
         StateChanged?.Invoke(repositoryId);
@@ -174,6 +184,7 @@ public sealed partial class WindowsSandboxSessionService : IAsyncDisposable
         try
         {
             if (!_sessions.TryGetValue(repositoryId, out var session)) return;
+            _logger.LogInformation("Stopping sandbox session for repository {RepositoryId} in {AccessMode} mode.", repositoryId, session.Terminal.Process.Mode);
             _recentOutput.TryRemove(repositoryId, out _);
             // Never report successful revocation while descendants are running.
             session.Stopping = true;
@@ -184,6 +195,7 @@ public sealed partial class WindowsSandboxSessionService : IAsyncDisposable
             {
                 var changes = await Task.Run(() => session.Terminal.Process.StopAndCaptureChanges());
                 _reviews[repositoryId] = new Review(session.RepositoryPath, changes);
+                _logger.LogInformation("Captured {ChangeCount} sandbox review changes for repository {RepositoryId}.", changes.Count, repositoryId);
             }
             // Reader remains active while ConPTY emits final output on close.
             await Task.Run(session.Terminal.CloseConsole);
@@ -193,6 +205,7 @@ public sealed partial class WindowsSandboxSessionService : IAsyncDisposable
         }
         finally { _gate.Release(); }
         StateChanged?.Invoke(repositoryId);
+        _logger.LogInformation("Sandbox session stopped for repository {RepositoryId}.", repositoryId);
     }
 
     public async Task DiscardReviewAsync(Guid repositoryId)
@@ -236,6 +249,8 @@ public sealed partial class WindowsSandboxSessionService : IAsyncDisposable
             if (error is OperationCanceledException or ObjectDisposedException) return;
             string message = "Sandbox provider pipe failed (" + error.GetType().Name + ", HRESULT 0x" +
                 error.HResult.ToString("X8") + "). Restart the sandbox and report this code.";
+            _logger.LogError("Sandbox provider bridge failed for repository {RepositoryId} ({ExceptionType}, HRESULT 0x{HResult:X8}).",
+                repositoryId, error.GetType().Name, error.HResult);
             foreach (Action<Guid, string> listener in ProviderFailed?.GetInvocationList() ?? [])
             {
                 try { listener(repositoryId, message); } catch { }
@@ -250,6 +265,7 @@ public sealed partial class WindowsSandboxSessionService : IAsyncDisposable
         try
         {
             if (!_sessions.TryGetValue(repositoryId, out var active) || !ReferenceEquals(active, session)) return;
+            _logger.LogCritical("Repository access guardian exited unexpectedly for repository {RepositoryId}; stopping sandbox processes.", repositoryId);
             await Task.Run(session.Terminal.Process.Stop);
             session.Bridge?.Dispose();
             session.Chat?.Dispose();

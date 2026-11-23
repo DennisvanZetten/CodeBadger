@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using CodeBadger.Models;
+using Microsoft.Extensions.Logging;
 
 namespace CodeBadger.Services;
 
@@ -15,12 +16,20 @@ public sealed class TicketMcpService
         Timeout = TimeSpan.FromSeconds(30)
     };
     private readonly AgentConfigService _agentConfig;
+    private readonly ILogger<TicketMcpService> _logger;
 
-    public TicketMcpService(AgentConfigService agentConfig) => _agentConfig = agentConfig;
+    public TicketMcpService(AgentConfigService agentConfig, ILogger<TicketMcpService> logger)
+    {
+        _agentConfig = agentConfig;
+        _logger = logger;
+    }
 
     public async Task<string> CreateTicketAsync(RepositoryEntry repository, IdeaType itemType, string title, string description,
         CancellationToken cancellationToken = default)
     {
+        var startedAt = Stopwatch.GetTimestamp();
+        _logger.LogInformation("Creating {TicketType} through MCP server {McpServer} for repository {RepositoryName}; ticket text omitted.",
+            itemType, repository.TicketMcpServerName, repository.Name);
         if (TicketSystems.Normalize(repository.TicketSystem) == TicketSystems.None ||
             string.IsNullOrWhiteSpace(repository.TicketMcpServerName))
             throw new InvalidOperationException("Configure a ticket system and MCP server for this repository first.");
@@ -35,6 +44,8 @@ public sealed class TicketMcpService
         }
         catch (Exception exception)
         {
+            _logger.LogWarning("Could not load ticket MCP configuration for repository {RepositoryName} ({ExceptionType}).",
+                repository.Name, exception.GetType().Name);
             throw new InvalidOperationException($"Could not load the effective MCP configuration for {AgentTools.GetDisplayName(agentTool)}.", exception);
         }
         if (server is null)
@@ -68,6 +79,8 @@ public sealed class TicketMcpService
         }
         catch (Exception exception)
         {
+            _logger.LogWarning("Could not connect to ticket MCP server {McpServer} ({ExceptionType}).",
+                repository.TicketMcpServerName, exception.GetType().Name);
             throw new InvalidOperationException($"Could not connect to MCP server '{repository.TicketMcpServerName}' or list its tools: {exception.Message}", exception);
         }
         var tools = toolResult?[("tools")] as JsonArray ??
@@ -106,6 +119,8 @@ public sealed class TicketMcpService
         }
         catch (Exception exception)
         {
+            _logger.LogWarning("MCP ticket-creation tool {ToolName} failed on server {McpServer} ({ExceptionType}).",
+                createTool.Name, repository.TicketMcpServerName, exception.GetType().Name);
             throw new InvalidOperationException($"MCP server '{repository.TicketMcpServerName}' failed while calling tool '{createTool.Name}': {exception.Message}", exception);
         }
         if (callResult?["isError"]?.GetValue<bool>() == true)
@@ -123,6 +138,8 @@ public sealed class TicketMcpService
             : string.Empty;
         if (string.IsNullOrWhiteSpace(ticketNumber))
             throw new InvalidOperationException("The ticket tool returned, but no ticket number could be identified. Response: " + text);
+        _logger.LogInformation("Created ticket {TicketNumber} through MCP server {McpServer} in {ElapsedMilliseconds} ms.",
+            ticketNumber, repository.TicketMcpServerName, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
         return ticketNumber;
     }
 

@@ -998,12 +998,12 @@ public sealed class GitBranchService
             .Select(line => line.TrimEnd('\r').Split('\t'))
             .Where(parts => parts.Length == 5 && parts[0].StartsWith("origin/", StringComparison.Ordinal) &&
                 !parts[0].Equals("origin/HEAD", StringComparison.Ordinal) && long.TryParse(parts[1], out _))
-            .Select(parts => (Name: parts[0]["origin/".Length..], CommitTime: long.Parse(parts[1]), Author: $"{parts[2]} {parts[3].Trim('<', '>')}", TipHash: parts[4]))
+            .Select(parts => (Name: parts[0]["origin/".Length..], CommitTime: long.Parse(parts[1]), Author: $"{parts[2]} {parts[3].Trim('<', '>')}", AuthorEmail: parts[3].Trim().Trim('<', '>'), TipHash: parts[4]))
             .Where(branch => merged.Contains($"origin/{branch.Name}") &&
                 !IsProtectedBranchName(branch.Name, mergeTarget.BranchName) &&
                 now - branch.CommitTime >= oldBranchDays * 24L * 60 * 60)
             .Select(branch => new GitRemoteMaintenanceBranch(branch.Name,
-                (int)((now - branch.CommitTime) / (24L * 60 * 60)), branch.Author, branch.TipHash))
+                (int)((now - branch.CommitTime) / (24L * 60 * 60)), branch.Author, branch.AuthorEmail, branch.TipHash))
             .OrderByDescending(branch => branch.AgeDays)
             .ToList();
     }
@@ -1778,7 +1778,7 @@ public sealed record GitMaintenanceSnapshot(
 public sealed record GitCliUpdateCheck(string LatestVersion, bool IsUpdateAvailable);
 public sealed record GitMaintenanceBranch(string Name, int AgeDays);
 public sealed record GitRemoteMaintenanceSnapshot(bool Success, string Message, string? DefaultBranchName, IReadOnlyList<GitRemoteMaintenanceBranch> OldMergedBranches);
-public sealed record GitRemoteMaintenanceBranch(string Name, int AgeDays, string Author, string TipHash);
+public sealed record GitRemoteMaintenanceBranch(string Name, int AgeDays, string Author, string AuthorEmail, string TipHash);
 public sealed record GitConflictVersions(string Ours, string Theirs, string WorkingContent, string Fingerprint, string LineEnding, bool HasUtf8Bom);
 public sealed record GitCommitBranchCheck(bool? IsOnCurrentBranch, string? Error);
 public sealed record GitSubmoduleSnapshot(IReadOnlyList<GitSubmoduleEntry> Entries)

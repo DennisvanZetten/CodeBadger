@@ -370,11 +370,11 @@
                                                    Disabled="@(_isOperating || _isLoadingRemoteMaintenance)" Class="git-remote-maintenance-author-filter">
                                             @foreach (var author in RemoteMaintenanceAuthors)
                                             {
-                                                <MudSelectItem T="string" Value="@author">@(string.IsNullOrWhiteSpace(author) ? L.T("Unknown") : author)</MudSelectItem>
+                                                <MudSelectItem T="string" Value="@author.Key">@author.Label</MudSelectItem>
                                             }
                                         </MudSelect>
-                                        <MudNumericField T="int" Value="@_remoteMaintenanceMinimumAgeDays" ValueChanged="SetRemoteMaintenanceMinimumAgeDays"
-                                                         Label="@L.T("Minimum age (days)")" Min="90" Step="30" Variant="Variant.Outlined"
+                                        <MudNumericField T="int?" Value="@_remoteMaintenanceMinimumAgeDays" ValueChanged="SetRemoteMaintenanceMinimumAgeDays"
+                                                         Label="@L.T("Minimum age (days)")" Min="90" Max="36500" Step="1" Variant="Variant.Outlined"
                                                          Disabled="@(_isOperating || _isLoadingRemoteMaintenance)" Class="git-remote-maintenance-age-filter" />
                                         <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Showing {0} of {1}", FilteredRemoteMaintenanceBranches.Count, _remoteMaintenanceSnapshot.OldMergedBranches.Count)</MudText>
                                     </MudStack>
@@ -1002,7 +1002,7 @@
     private GitRemoteMaintenanceSnapshot? _remoteMaintenanceSnapshot;
     private readonly HashSet<string> _selectedRemoteMaintenanceBranches = new(StringComparer.Ordinal);
     private string _remoteMaintenanceAuthorFilter = string.Empty;
-    private int _remoteMaintenanceMinimumAgeDays = 90;
+    private int? _remoteMaintenanceMinimumAgeDays = 90;
     private bool _isGeneratingMessage;
     private bool _isCheckingAiConnection = true;
     private bool _hasAiConnection;
@@ -1076,14 +1076,16 @@
         FilteredRemoteMaintenanceBranches.All(branch => _selectedRemoteMaintenanceBranches.Contains(branch.Name));
     private IReadOnlyList<GitRemoteMaintenanceBranch> FilteredRemoteMaintenanceBranches =>
         _remoteMaintenanceSnapshot?.OldMergedBranches
-            .Where(branch => branch.AgeDays >= _remoteMaintenanceMinimumAgeDays &&
-                (string.IsNullOrEmpty(_remoteMaintenanceAuthorFilter) || string.Equals(branch.Author, _remoteMaintenanceAuthorFilter, StringComparison.OrdinalIgnoreCase)))
+            .Where(branch => branch.AgeDays >= (_remoteMaintenanceMinimumAgeDays ?? 90) &&
+                (string.IsNullOrEmpty(_remoteMaintenanceAuthorFilter) || string.Equals(GetRemoteMaintenanceAuthorKey(branch), _remoteMaintenanceAuthorFilter, StringComparison.OrdinalIgnoreCase)))
             .ToList() ?? [];
-    private IReadOnlyList<string> RemoteMaintenanceAuthors => _remoteMaintenanceSnapshot?.OldMergedBranches
-        .Select(branch => branch.Author)
-        .Distinct(StringComparer.OrdinalIgnoreCase)
-        .OrderBy(author => author, StringComparer.OrdinalIgnoreCase)
+    private IReadOnlyList<(string Key, string Label)> RemoteMaintenanceAuthors => _remoteMaintenanceSnapshot?.OldMergedBranches
+        .GroupBy(GetRemoteMaintenanceAuthorKey, StringComparer.OrdinalIgnoreCase)
+        .Select(group => (Key: group.Key, Label: group.Select(branch => branch.Author.Trim()).FirstOrDefault(author => !string.IsNullOrWhiteSpace(author)) ?? L.T("Unknown")))
+        .OrderBy(author => author.Label, StringComparer.OrdinalIgnoreCase)
         .ToList() ?? [];
+    private static string GetRemoteMaintenanceAuthorKey(GitRemoteMaintenanceBranch branch) =>
+        string.IsNullOrWhiteSpace(branch.AuthorEmail) ? $"unknown:{branch.Author.Trim()}" : branch.AuthorEmail.Trim();
     private IReadOnlyList<BranchFolder> VisibleLocalBranchFolders => GroupBranchesIntoFolders(VisibleLocalBranches);
     private IReadOnlyList<BranchFolder> VisibleRemoteBranchFolders => GroupBranchesIntoFolders(VisibleRemoteBranches);
     private IReadOnlyList<GitFileChange> StagedFiles => _files.Where(file => file.IsStaged && !file.IsConflicted).ToList();
@@ -1468,7 +1470,7 @@
 
     private void SetRemoteMaintenanceAuthorFilter(string? author) => _remoteMaintenanceAuthorFilter = author ?? string.Empty;
 
-    private void SetRemoteMaintenanceMinimumAgeDays(int ageDays) => _remoteMaintenanceMinimumAgeDays = Math.Max(90, ageDays);
+    private void SetRemoteMaintenanceMinimumAgeDays(int? ageDays) => _remoteMaintenanceMinimumAgeDays = Math.Max(90, ageDays ?? 90);
 
     private async Task RunGitMaintenanceAsync()
     {

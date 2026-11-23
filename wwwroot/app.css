@@ -1367,11 +1367,15 @@ h1:focus {
 }
 
 .git-remote-maintenance-author-filter {
-    min-width: min(18rem, 100%);
+    flex: 0 1 18rem;
+    width: 18rem;
+    max-width: 100%;
 }
 
 .git-remote-maintenance-age-filter {
+    flex: 0 0 10rem;
     width: 10rem;
+    max-width: 100%;
 }
 
 .git-maintenance-stat {

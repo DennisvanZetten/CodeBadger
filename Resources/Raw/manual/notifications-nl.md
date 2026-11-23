@@ -82,7 +82,7 @@ De status in dit paneel geeft aan of CodeBadger via Socket Mode met Slack is ver
 1. Open de [Discord Developer Portal](https://discord.com/developers/applications) en kies **New Application**. Geef de applicatie bijvoorbeeld de naam **CodeBadger**.
 2. Open de sectie **Bot** en maak de bot aan als dat nog niet automatisch is gebeurd. Kopieer de bot-token via **Reset Token** of **View Token**. Behandel dit token als een wachtwoord; iedereen met dit token kan de bot besturen.
 3. Ga in **Bot → Privileged Gateway Intents** naar **Message Content Intent**, schakel deze in en sla de wijziging op. CodeBadger heeft deze privileged intent nodig om de tekst van serverberichten te ontvangen.
-4. Open **OAuth2 → URL Generator**. Selecteer bij **Scopes** de scope `bot`. Selecteer bij **Bot Permissions**:
+4. Open **OAuth2 → URL Generator**. Vink bij **Scopes** alleen `bot` aan om de bot uit te nodigen. Dit is iets anders dan de botrechten eronder. Vink bij **Bot Permissions** aan:
    - **View Channels** en **Read Message History** — om het gekozen kanaal te kunnen zien en eerdere context te lezen.
    - **Send Messages** — om meldingen te plaatsen.
    - **Create Public Threads** en **Send Messages in Threads** — om per sessie threads te maken en daarin te antwoorden.
@@ -91,16 +91,22 @@ De status in dit paneel geeft aan of CodeBadger via Socket Mode met Slack is ver
 
 ### Zoek je Discord-ID's op
 
-Schakel in de Discord-client **User Settings → Advanced → Developer Mode** in. Klik met rechts op de server waarin de bot is uitgenodigd en kies **Copy Server ID**. Kopieer ook je eigen gebruikers-ID via je profiel/contextmenu met **Copy User ID**. CodeBadger gebruikt jouw gebruikers-ID als veiligheidscontrole: alleen berichten van die gebruiker worden verwerkt.
+Schakel in Discord **Developer Mode** in via **Gebruikersinstellingen → Advanced → Developer Mode**. Op mobiel vind je dit via je profielfoto → tandwiel → **Advanced**.
+
+- **Server-ID:** klik met rechts op de servernaam of het servericoon en kies **Copy Server ID**. Op mobiel: houd de servernaam ingedrukt en kies **Copy Server ID**.
+- **Gebruikers-ID:** klik met rechts op je eigen naam of avatar, bijvoorbeeld bij een bericht van jezelf of in de ledenlijst, en kies **Copy User ID**. Op mobiel: houd je eigen naam of avatar ingedrukt en kies **Copy User ID**.
+- Een ID is een reeks van ongeveer 17–20 cijfers (bijvoorbeeld `123456789012345678`); dit is een voorbeeld, geen ID om te gebruiken. Gebruik geen servernaam, `#kanaalnaam` of uitnodigingslink.
+
+CodeBadger gebruikt je gebruikers-ID als veiligheidscontrole en verwerkt alleen berichten van die gebruiker. De bot-token is iets anders dan een ID: houd die geheim.
 
 ### Configureer CodeBadger voor Discord
 
 1. Open **Instellingen → Meldingen**.
 2. Kies **Discord** als **Notification channel**. Ook als Slack is ingesteld, wordt dan alleen Discord actief.
 3. Plak de bot-token in **Discord bot token**.
-4. Vul de gekopieerde server-ID in bij **Discord server (guild) ID**.
-5. Klik op **Load Discord channels** en kies een tekst- of aankondigingskanaal waar de bot toegang toe heeft.
-6. Vul je Discord-gebruikers-ID in bij **Your Discord user ID**.
-7. Klik op **Test Discord connection**. Schakel **Enable session notifications** in en sla de instellingen op.
+4. Vul de **server-ID** in bij **Discord server (guild) ID**. Dit is niet de kanaal-ID of gebruikers-ID.
+5. Klik op **Load Discord channels** en kies daarna een tekst- of aankondigingskanaal uit de lijst. De test gebruikt de **kanaal-ID** van dit gekozen kanaal; vul de server-ID dus niet als kanaal in. De bot moet in deze server zitten en toegang hebben tot het gekozen kanaal.
+6. Vul je eigen **gebruikers-ID** in bij **Your Discord user ID**; gebruik niet de ID van de bot.
+7. Zodra het bot-token, een geldig kanaal en je gebruikers-ID zijn ingevuld, kun je op **Test Discord connection** klikken. Schakel na een geslaagde test **Enable session notifications** in en sla de instellingen op.
 
-De status toont of CodeBadger met de Discord Gateway verbonden is. Als laden of testen mislukt, controleer dan de bot-token, server-ID, kanaaltoegang en de **Message Content Intent**. CodeBadger moet actief blijven om berichten en replies te verwerken. Bij de keuze tussen Slack en Discord is alleen de waarde van **Notification channel** bepalend voor welke integratie actief is.
+De status toont of CodeBadger met de Discord Gateway verbonden is. Als **Load Discord channels** of de test mislukt, controleer dan of de bot-token klopt, de server-ID bij de juiste server hoort, de bot aan die server is toegevoegd en toegang heeft tot het gekozen kanaal. Een `404: Not Found` tijdens het testen betekent meestal dat het gekozen kanaal niet gevonden kan worden voor die bot: laad de kanalen opnieuw en selecteer het kanaal opnieuw. Controleer ook de **Message Content Intent**. CodeBadger moet actief blijven om berichten en replies te verwerken. Bij de keuze tussen Slack en Discord is alleen de waarde van **Notification channel** bepalend voor welke integratie actief is.

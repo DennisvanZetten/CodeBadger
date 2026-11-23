@@ -289,7 +289,7 @@
                                 @(_isLoadingDiscordChannels ? L.T("Loading channels...") : L.T("Load Discord channels"))
                             </MudButton>
                             <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.WifiTethering"
-                                       OnClick="TestDiscordConnectionAsync" Disabled="@_isTestingDiscord">
+                                       OnClick="TestDiscordConnectionAsync" Disabled="@(!CanTestDiscordConnection)">
                                 @(_isTestingDiscord ? L.T("Testing Discord connection...") : L.T("Test Discord connection"))
                             </MudButton>
                         </MudStack>
@@ -391,6 +391,11 @@
     private bool _isTestingSlack;
     private bool _isTestingDiscord;
     private bool _isLoadingDiscordChannels;
+    private bool CanTestDiscordConnection => !_isTestingDiscord && !_isLoadingDiscordChannels &&
+        !string.IsNullOrWhiteSpace(Settings.DiscordBotToken) &&
+        IsDiscordSnowflake(Settings.DiscordGuildId) &&
+        IsDiscordSnowflake(Settings.DiscordChannelId) &&
+        IsDiscordSnowflake(Settings.DiscordAllowedUserId);
     private bool _slackConnected;
     private string _slackConnectionStatus = "Slack notifications are not connected.";
     private IReadOnlyList<SlackNotificationService.SlackChannel> _slackChannels = [];
@@ -664,6 +669,9 @@
         }
         finally { _isTestingDiscord = false; }
     }
+
+    private static bool IsDiscordSnowflake(string? value) => !string.IsNullOrWhiteSpace(value) &&
+        value.Length is >= 17 and <= 20 && value.All(char.IsAsciiDigit);
 
     private void HandleSlackConnectionChanged(bool connected, string status) => _ = InvokeAsync(() =>
     {

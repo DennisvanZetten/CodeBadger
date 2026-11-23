@@ -36,71 +36,37 @@
                 <MudStack Spacing="1" Class="idea-list-items">
                     @foreach (var item in _items.OrderBy(item => item.Status).ThenByDescending(item => item.CreatedAt))
                     {
-                        <MudPaper Outlined="true" Class="pa-3">
-                            <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="2">
-                                <MudStack Spacing="1" Style="flex: 1; min-width: 0;">
+                        <MudPaper Outlined="true" Class="pa-2">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                <MudStack Spacing="0" Style="flex: 1; min-width: 0;">
                                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                        <MudText Typo="Typo.subtitle1">@item.Title</MudText>
+                                        <MudText Typo="Typo.subtitle1" Class="text-truncate">@item.Title</MudText>
                                         <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@TypeLabel(item.Type)</MudChip>
+                                        <MudChip T="string" Size="Size.Small" Color="StatusColor(item.Status)" Variant="Variant.Filled">@StatusLabel(item.Status)</MudChip>
                                     </MudStack>
-                                    @if (!string.IsNullOrWhiteSpace(item.Description))
-                                    {
-                                        <MudText Typo="Typo.body2" Color="Color.Secondary">@item.Description</MudText>
-                                    }
-                                    @if (!string.IsNullOrWhiteSpace(item.TicketNumber))
-                                    {
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Ticket: {0}", item.TicketNumber)</MudText>
-                                    }
-                                    @if (!string.IsNullOrWhiteSpace(item.BranchName))
-                                    {
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Branch: {0}", item.BranchName)</MudText>
-                                    }
                                     @if (!string.IsNullOrWhiteSpace(item.SessionId))
                                     {
-                                        <MudStack Spacing="0" Class="mt-1">
-                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Repository: {0}", item.RepositoryName)</MudText>
-                                            <MudLink Href="@SessionHref(item)" Color="Color.Primary" Underline="Underline.Hover" Target="_self">
-                                                @L.T("Open session: {0}", string.IsNullOrWhiteSpace(item.SessionTitle) ? item.Title : item.SessionTitle)
-                                            </MudLink>
-                                        </MudStack>
+                                        <MudLink Href="@SessionHref(item)" Color="Color.Primary" Typo="Typo.caption" Underline="Underline.Hover" Target="_self">
+                                            @L.T("Open session: {0}", string.IsNullOrWhiteSpace(item.SessionTitle) ? item.Title : item.SessionTitle)
+                                        </MudLink>
                                     }
-                                    else
+                                    else if (!string.IsNullOrWhiteSpace(item.RepositoryName))
                                     {
-                                        @if (_repositories.Count > 0)
-                                        {
-                                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-1">
-                                                <MudSelect T="string" Value="GetSelectedRepositoryId(item)"
-                                                           ValueChanged="@(id => SelectRepository(item, id))"
-                                                           Label="@L.T("Repository")" Dense="true" Margin="Margin.Dense"
-                                                           Placeholder="@L.T("Select a repository")"
-                                                           Disabled="@(_startingTasks.Contains(item.Id) || !string.IsNullOrWhiteSpace(item.SessionId))"
-                                                           Class="idea-repository-select">
-                                                    @foreach (var repository in _repositories)
-                                                    {
-                                                        <MudSelectItem Value="repository.Id.ToString()">@RepositoryName(repository)</MudSelectItem>
-                                                    }
-                                                </MudSelect>
-                                                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-                                                           StartIcon="@Icons.Material.Filled.PlayArrow"
-                                                           Disabled="@(!CanStartTask(item))"
-                                                           OnClick="@(() => StartTaskAsync(item))">
-                                                    @(_startingTasks.Contains(item.Id) ? L.T("Starting...") : L.T("Start in new session"))
-                                                </MudButton>
-                                            </MudStack>
-                                        }
-                                        else
-                                        {
-                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("No eligible OpenCode repositories are available.")</MudText>
-                                        }
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@item.RepositoryName</MudText>
                                     }
-                                    <MudSelect T="IdeaStatus" Value="item.Status" ValueChanged="@(status => UpdateStatusAsync(item, status))" Dense="true" Margin="Margin.Dense" Class="idea-status-select">
-                                        <MudSelectItem Value="IdeaStatus.Open">@L.T("Open")</MudSelectItem>
-                                        <MudSelectItem Value="IdeaStatus.InProgress">@L.T("In progress")</MudSelectItem>
-                                        <MudSelectItem Value="IdeaStatus.Done">@L.T("Done")</MudSelectItem>
-                                    </MudSelect>
                                 </MudStack>
-                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Default" Size="Size.Small"
-                                               aria-label="@L.T("Delete")" OnClick="@(() => DeleteItemAsync(item))" />
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="0">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Default" Size="Size.Small"
+                                                   aria-label="@L.T("Edit")" OnClick="@(() => EditItemAsync(item))" />
+                                    @if (string.IsNullOrWhiteSpace(item.SessionId))
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Color="Color.Primary" Size="Size.Small"
+                                                       aria-label="@L.T("Start in new session")" Disabled="@(!CanStartTask(item))"
+                                                       OnClick="@(() => StartTaskAsync(item))" />
+                                    }
+                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Default" Size="Size.Small"
+                                                   aria-label="@L.T("Delete")" OnClick="@(() => DeleteItemAsync(item))" />
+                                </MudStack>
                             </MudStack>
                         </MudPaper>
                     }
@@ -117,7 +83,6 @@
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
     private List<IdeaItem> _items = [];
     private List<RepositoryEntry> _repositories = [];
-    private readonly Dictionary<Guid, string?> _selectedRepositories = [];
     private readonly HashSet<Guid> _startingTasks = [];
     private bool _loading = true;
 
@@ -130,11 +95,6 @@
                 AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && Directory.Exists(repository.Path))
             .OrderBy(RepositoryName, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        foreach (var item in _items)
-        {
-            var repositoryExists = item.RepositoryId is { } savedId && _repositories.Any(repository => repository.Id == savedId);
-            _selectedRepositories[item.Id] = repositoryExists ? item.RepositoryId!.Value.ToString() : null;
-        }
         _loading = false;
     }
 
@@ -146,18 +106,20 @@
         if (result is { Canceled: false, Data: IdeaItem item })
         {
             _items.Add(item);
-            _selectedRepositories[item.Id] = null;
         }
     }
 
-    private string? GetSelectedRepositoryId(IdeaItem item) => _selectedRepositories.GetValueOrDefault(item.Id);
-
-    private void SelectRepository(IdeaItem item, string? repositoryId) => _selectedRepositories[item.Id] = repositoryId;
+    private async Task EditItemAsync(IdeaItem item)
+    {
+        var parameters = new DialogParameters<EditIdeaDialog> { { dialog => dialog.Item, item } };
+        var dialog = await Dialogs.ShowAsync<EditIdeaDialog>(L.T("Edit item"), parameters,
+            new DialogOptions { CloseButton = true, CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true });
+        await dialog.Result;
+    }
 
     private bool CanStartTask(IdeaItem item) => !_startingTasks.Contains(item.Id) &&
         string.IsNullOrWhiteSpace(item.SessionId) &&
-        _selectedRepositories.TryGetValue(item.Id, out var repositoryId) &&
-        Guid.TryParse(repositoryId, out var id) && _repositories.Any(repository => repository.Id == id);
+        item.RepositoryId is { } id && _repositories.Any(repository => repository.Id == id);
 
     private async Task StartTaskAsync(IdeaItem item)
     {
@@ -167,7 +129,7 @@
         var stage = "preparing the task start";
         try
         {
-            var repositoryId = Guid.Parse(_selectedRepositories[item.Id]!);
+            var repositoryId = item.RepositoryId!.Value;
             var repository = _repositories.First(candidate => candidate.Id == repositoryId);
             var settings = await SettingsService.LoadAsync();
             var parameters = new DialogParameters<StartTaskDialog>
@@ -243,7 +205,6 @@
                 item.RepositoryPath = repository.Path;
                 item.SessionId = session.Id;
                 item.SessionTitle = session.Title;
-                _selectedRepositories[item.Id] = repository.Id.ToString();
             }
             await InvokeAsync(StateHasChanged);
             MudDialog.Close();
@@ -252,8 +213,7 @@
         }
         catch (Exception exception)
         {
-            var repository = _repositories.FirstOrDefault(candidate => candidate.Id ==
-                (Guid.TryParse(_selectedRepositories.GetValueOrDefault(item.Id), out var id) ? id : Guid.Empty));
+            var repository = _repositories.FirstOrDefault(candidate => candidate.Id == item.RepositoryId);
             var summary = L.T("Task start failed.");
             var errorDetails = string.Join(Environment.NewLine,
                 "Task start failed",
@@ -318,12 +278,6 @@
         return $"/?repository={Uri.EscapeDataString(repository.Id.ToString())}&session={Uri.EscapeDataString(item.SessionId)}";
     }
 
-    private async Task UpdateStatusAsync(IdeaItem item, IdeaStatus status)
-    {
-        if (await Ideas.UpdateStatusAsync(item.Id, status))
-            item.Status = status;
-    }
-
     private async Task DeleteItemAsync(IdeaItem item)
     {
         if (await Ideas.DeleteAsync(item.Id))
@@ -338,6 +292,20 @@
         IdeaType.Story => "Story",
         _ => "Task"
     });
+
+    private string StatusLabel(IdeaStatus status) => L.T(status switch
+    {
+        IdeaStatus.InProgress => "In progress",
+        IdeaStatus.Done => "Done",
+        _ => "Open"
+    });
+
+    private static Color StatusColor(IdeaStatus status) => status switch
+    {
+        IdeaStatus.InProgress => Color.Info,
+        IdeaStatus.Done => Color.Success,
+        _ => Color.Default
+    };
 
     private void Close() => MudDialog.Cancel();
 }

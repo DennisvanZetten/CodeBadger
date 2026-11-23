@@ -72,6 +72,40 @@ public sealed class IdeaListService
         }
     }
 
+    public async Task<bool> UpdateEditableFieldsAsync(Guid id, string title, string description, IdeaType type,
+        IdeaStatus status, RepositoryEntry? repository, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var items = await ReadAllCoreAsync(cancellationToken);
+            var item = items.FirstOrDefault(candidate => candidate.Id == id);
+            if (item is null)
+                return false;
+
+            item.Title = title.Trim();
+            item.Description = description.Trim();
+            item.Type = type;
+            item.Status = status;
+
+            // A linked session owns its repository association; editing its description or status
+            // must not detach it from the repository/session that was used to start it.
+            if (string.IsNullOrWhiteSpace(item.SessionId))
+            {
+                item.RepositoryId = repository?.Id;
+                item.RepositoryName = repository is null ? string.Empty : GetRepositoryName(repository);
+                item.RepositoryPath = repository?.Path ?? string.Empty;
+            }
+
+            await SaveCoreAsync(items, cancellationToken);
+            return true;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<bool> SaveTicketAsync(Guid id, string ticketNumber, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
@@ -152,4 +186,8 @@ public sealed class IdeaListService
             await JsonSerializer.SerializeAsync(stream, items, JsonOptions, cancellationToken);
         File.Move(temporaryPath, _path, overwrite: true);
     }
+
+    private static string GetRepositoryName(RepositoryEntry repository) => string.IsNullOrWhiteSpace(repository.Name)
+        ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path))
+        : repository.Name;
 }

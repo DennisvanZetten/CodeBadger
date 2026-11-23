@@ -101,6 +101,7 @@ public sealed class LocalizationService
         ["A local list of things to remember."] = ["A local list of things to remember.", "Een lokale lijst met dingen om niet te vergeten.", "Eine lokale Liste mit Dingen, die nicht vergessen werden sollen.", "Une liste locale de choses à ne pas oublier."],
         ["No ideas or tasks yet."] = ["No ideas or tasks yet.", "Er zijn nog geen ideeën of taken.", "Noch keine Ideen oder Aufgaben.", "Aucune idée ni tâche pour le moment."],
         ["New item"] = ["New item", "Nieuw item", "Neuer Eintrag", "Nouvel élément"],
+        ["Edit item"] = ["Edit item", "Item bewerken", "Eintrag bearbeiten", "Modifier l’élément"],
         ["New"] = ["New", "Nieuw", "Neu", "Nouveau"],
         ["Title"] = ["Title", "Titel", "Titel", "Titre"],
         ["Type"] = ["Type", "Type", "Typ", "Type"],

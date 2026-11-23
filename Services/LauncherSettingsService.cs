@@ -45,6 +45,7 @@ public sealed class LauncherSettingsService
             settings.CompletionSound = CompletionSounds.Normalize(settings.CompletionSound);
             settings.QuestionSound = CompletionSounds.Normalize(settings.QuestionSound);
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
+            settings.GitOverviewStartSize = NormalizeGitOverviewStartSize(settings.GitOverviewStartSize);
             settings.AiConflictModel = string.IsNullOrWhiteSpace(settings.AiConflictModel) ? settings.AiModel : settings.AiConflictModel;
             settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
             settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);
@@ -82,6 +83,7 @@ public sealed class LauncherSettingsService
             settings.CompletionSound = CompletionSounds.Normalize(settings.CompletionSound);
             settings.QuestionSound = CompletionSounds.Normalize(settings.QuestionSound);
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
+            settings.GitOverviewStartSize = NormalizeGitOverviewStartSize(settings.GitOverviewStartSize);
             settings.AiConflictModel = string.IsNullOrWhiteSpace(settings.AiConflictModel) ? settings.AiModel : settings.AiConflictModel;
             settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
             settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);
@@ -173,4 +175,11 @@ public sealed class LauncherSettingsService
         var prefix = (value ?? string.Empty).Trim().Trim('/');
         return string.IsNullOrWhiteSpace(prefix) ? "feature" : prefix;
     }
+
+    private static string NormalizeGitOverviewStartSize(string? value) => value?.Trim().ToLowerInvariant() switch
+    {
+        "small" => "Small",
+        "medium" => "Medium",
+        _ => "Large"
+    };
 }

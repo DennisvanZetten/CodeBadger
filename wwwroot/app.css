@@ -1103,23 +1103,29 @@ h1:focus {
 .mud-dialog.git-overview-dialog {
     box-sizing: border-box;
     width: 98vw;
-    min-width: min(900px, 94vw);
+    min-width: 0;
     max-width: 98vw;
     height: min(92vh, 1200px);
-    min-height: min(560px, 90vh);
+    min-height: 0;
     max-height: 96vh;
     resize: both;
     overflow: hidden;
 }
 
+.mud-menu-item.git-overview-size-selected {
+    background-color: color-mix(in srgb, var(--mud-palette-primary) 22%, var(--mud-palette-surface));
+    color: var(--mud-palette-primary);
+    font-weight: 700;
+}
+
 @media (max-width: 760px) {
     .mud-dialog.git-overview-dialog {
         width: 96vw !important;
-        min-width: 0;
+        min-width: 0 !important;
         max-width: 96vw !important;
-        height: 92vh;
-        min-height: 0;
-        max-height: 92vh;
+        height: 92vh !important;
+        min-height: 0 !important;
+        max-height: 92vh !important;
         resize: none;
     }
 }

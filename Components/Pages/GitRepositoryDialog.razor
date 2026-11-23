@@ -18,7 +18,10 @@
                 <MudStack Spacing="3" Class="git-overview-main git-overview-initial-loading">
                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
                         <MudText Typo="Typo.subtitle1">@RepositoryName</MudText>
-                        <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="@L.T("Close")" OnClick="Close" />
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                            @GitOverviewSizeMenu()
+                            <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="@L.T("Close")" OnClick="Close" />
+                        </MudStack>
                     </MudStack>
                     <div class="git-overview-progress git-overview-progress-active" aria-live="polite">
                         <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
@@ -54,9 +57,10 @@
                                    Disabled="@(_isOperating || _files.Count == 0)" OnClick="StashChangesAsync">@L.T("Stash")</MudButton>
                         <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Unarchive"
                                    Disabled="@(_isOperating || _stashes.Count == 0)" OnClick="PopLatestStashAsync">@L.T("Pop")</MudButton>
-                        <MudIconButton Icon="@Icons.Material.Filled.Refresh" aria-label="@L.T("Refresh Git status")"
-                                       Disabled="@_isOperating" OnClick="@(() => RefreshAsync(fetch: true))" />
-                                    <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="@L.T("Close")" OnClick="Close" />
+                         <MudIconButton Icon="@Icons.Material.Filled.Refresh" aria-label="@L.T("Refresh Git status")"
+                                        Disabled="@_isOperating" OnClick="@(() => RefreshAsync(fetch: true))" />
+                                     @GitOverviewSizeMenu()
+                                     <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="@L.T("Close")" OnClick="Close" />
                     </MudStack>
                 </MudStack>
                 <div class="git-overview-progress @(_isLoading || _isOperating ? "git-overview-progress-active" : "")" aria-live="polite">
@@ -632,6 +636,9 @@
     private bool _showCommitSha = true;
     private bool _isLoadingCommitFiles;
     private bool _isLoadingCommitFileDiff;
+    private string _gitOverviewStartSize = "Large";
+    private bool _gitOverviewSizeNeedsApply = true;
+    private bool _gitOverviewSizeLoaded;
     private GitCommitEntry? _selectedCommit;
     private IReadOnlyList<GitCommitFile> _commitFiles = [];
     private GitCommitFile? _selectedCommitFile;
@@ -679,6 +686,40 @@
     private int HiddenStashCount => _stashes.Count(stash => _hiddenStashCommitHashes.Contains(stash.CommitHash));
     private IReadOnlyList<GitStashEntry> VisibleStashes => _stashes.Where(stash => _showHiddenStashes || !_hiddenStashCommitHashes.Contains(stash.CommitHash)).ToList();
     private bool HasVisibleCommitMetadata => _showCommitSha || _showCommitAuthor || _showCommitDate;
+    private RenderFragment GitOverviewSizeMenu() => @<MudTooltip Text="@L.T("Git overview start size")">
+        <MudMenu Icon="@Icons.Material.Filled.AspectRatio" Size="Size.Small" Dense="true" Disabled="@(!_gitOverviewSizeLoaded)"
+                 AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight"
+                 aria-label="@L.T("Git overview start size")">
+            <MudMenuItem Class="@GitOverviewSizeMenuClass("Small")" role="menuitemradio" aria-checked="@(_gitOverviewStartSize == "Small" ? "true" : "false")" OnClick="@(() => SetGitOverviewStartSizeAsync("Small"))">
+                @L.T("Small")
+            </MudMenuItem>
+            <MudMenuItem Class="@GitOverviewSizeMenuClass("Medium")" role="menuitemradio" aria-checked="@(_gitOverviewStartSize == "Medium" ? "true" : "false")" OnClick="@(() => SetGitOverviewStartSizeAsync("Medium"))">
+                @L.T("Medium")
+            </MudMenuItem>
+            <MudMenuItem Class="@GitOverviewSizeMenuClass("Large")" role="menuitemradio" aria-checked="@(_gitOverviewStartSize == "Large" ? "true" : "false")" OnClick="@(() => SetGitOverviewStartSizeAsync("Large"))">
+                @L.T("Large")
+            </MudMenuItem>
+        </MudMenu>
+    </MudTooltip>;
+
+    private string GitOverviewSizeMenuClass(string size) => _gitOverviewStartSize == size ? "git-overview-size-selected" : string.Empty;
+
+    private async Task SetGitOverviewStartSizeAsync(string size)
+    {
+        _gitOverviewStartSize = size;
+        _gitOverviewSizeNeedsApply = true;
+        AiSettings.GitOverviewStartSize = size;
+
+        if (_gitHistoryModule is not null)
+        {
+            await _gitHistoryModule.InvokeVoidAsync("setOverviewSize", MudDialog.ElementId, size);
+            _gitOverviewSizeNeedsApply = false;
+        }
+
+        var settings = await LauncherSettingsService.LoadAsync();
+        settings.GitOverviewStartSize = size;
+        await LauncherSettingsService.SaveAsync(settings);
+    }
 
     private string CommitMetadata(GitCommitEntry commit) => string.Join(" · ", new[]
     {
@@ -763,7 +804,13 @@
         _showCommitSha = RepositorySettings?.ShowCommitSha ?? true;
     }
 
-    protected override Task OnInitializedAsync() => Task.CompletedTask;
+    protected override async Task OnInitializedAsync()
+    {
+        var settings = await LauncherSettingsService.LoadAsync();
+        _gitOverviewStartSize = settings.GitOverviewStartSize;
+        _gitOverviewSizeNeedsApply = true;
+        _gitOverviewSizeLoaded = true;
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -771,6 +818,12 @@
         {
             _ = CheckAiConnectionAsync();
             _gitHistoryModule = await JS.InvokeAsync<IJSObjectReference>("import", "./git-history.js");
+        }
+
+        if (_gitOverviewSizeNeedsApply && _gitOverviewSizeLoaded && _gitHistoryModule is not null)
+        {
+            await _gitHistoryModule.InvokeVoidAsync("setOverviewSize", MudDialog.ElementId, _gitOverviewStartSize);
+            _gitOverviewSizeNeedsApply = false;
         }
 
         if (_snapshot?.IsValid == true && _gitHistoryModule is not null)

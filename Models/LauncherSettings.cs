@@ -9,6 +9,7 @@ public sealed class LauncherSettings
     public bool QuestionSoundEnabled { get; set; } = true;
     public string QuestionSound { get; set; } = "chime";
     public int ToastDurationSeconds { get; set; } = 1;
+    public string GitOverviewStartSize { get; set; } = "Large";
     public string DismissedUpdateVersion { get; set; } = string.Empty;
     public string AiProvider { get; set; } = "OpenAI";
     public string AiCustomUrl { get; set; } = string.Empty;

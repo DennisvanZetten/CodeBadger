@@ -1,6 +1,20 @@
 const attachedSplitters = new WeakMap();
 const activeSplitters = new Set();
 
+export function setOverviewSize(dialogId, size) {
+    const dialog = document.getElementById(dialogId)?.querySelector(".mud-dialog");
+    if (!dialog)
+        return;
+
+    const sizes = {
+        Small: ["min(72vw, 1280px)", "min(640px, 88vw)", "min(76vh, 900px)", "min(480px, 72vh)"],
+        Medium: ["min(88vw, 1600px)", "min(800px, 92vw)", "min(86vh, 1100px)", "min(520px, 82vh)"],
+        Large: ["98vw", "min(900px, 94vw)", "min(92vh, 1200px)", "min(560px, 90vh)"]
+    };
+    const [width, minWidth, height, minHeight] = sizes[size] ?? sizes.Large;
+    Object.assign(dialog.style, { width, minWidth, height, minHeight });
+}
+
 export function positionCommitContextMenu(clientX, clientY) {
     positionContextMenu(".git-commit-context-menu", clientX, clientY);
 }

@@ -686,10 +686,9 @@
     private int HiddenStashCount => _stashes.Count(stash => _hiddenStashCommitHashes.Contains(stash.CommitHash));
     private IReadOnlyList<GitStashEntry> VisibleStashes => _stashes.Where(stash => _showHiddenStashes || !_hiddenStashCommitHashes.Contains(stash.CommitHash)).ToList();
     private bool HasVisibleCommitMetadata => _showCommitSha || _showCommitAuthor || _showCommitDate;
-    private RenderFragment GitOverviewSizeMenu() => @<MudTooltip Text="@L.T("Git overview start size")">
-        <MudMenu Icon="@Icons.Material.Filled.AspectRatio" Size="Size.Small" Dense="true" Disabled="@(!_gitOverviewSizeLoaded)"
+    private RenderFragment GitOverviewSizeMenu() => @<MudMenu Icon="@Icons.Material.Filled.AspectRatio" Size="Size.Small" Dense="true" Disabled="@(!_gitOverviewSizeLoaded)"
                  AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight"
-                 aria-label="@L.T("Git overview start size")">
+                 AriaLabel="@L.T("Git overview start size")" title="@L.T("Git overview start size")">
             <MudMenuItem Class="@GitOverviewSizeMenuClass("Small")" role="menuitemradio" aria-checked="@(_gitOverviewStartSize == "Small" ? "true" : "false")" OnClick="@(() => SetGitOverviewStartSizeAsync("Small"))">
                 @L.T("Small")
             </MudMenuItem>
@@ -699,8 +698,7 @@
             <MudMenuItem Class="@GitOverviewSizeMenuClass("Large")" role="menuitemradio" aria-checked="@(_gitOverviewStartSize == "Large" ? "true" : "false")" OnClick="@(() => SetGitOverviewStartSizeAsync("Large"))">
                 @L.T("Large")
             </MudMenuItem>
-        </MudMenu>
-    </MudTooltip>;
+        </MudMenu>;
 
     private string GitOverviewSizeMenuClass(string size) => _gitOverviewStartSize == size ? "git-overview-size-selected" : string.Empty;
 

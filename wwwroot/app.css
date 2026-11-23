@@ -1350,6 +1350,18 @@ h1:focus {
     padding: 0.25rem;
 }
 
+.git-maintenance-workspace > .git-dialog-panel {
+    height: auto;
+    flex: 0 0 auto;
+}
+
+.git-maintenance-destructive .mud-list {
+    max-height: min(45vh, 28rem);
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
 .git-maintenance-stat {
     min-height: 5.5rem;
 }

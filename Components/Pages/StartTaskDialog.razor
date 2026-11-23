@@ -102,6 +102,7 @@
     private string _ticketMode = "new-branch-existing-ticket";
     private string _optionalTicketChoice = string.Empty;
     private string _ticketNumber = string.Empty;
+    private string _ticketUrl = string.Empty;
     private string _branchBase = "current";
     private string _branchMode = "new";
     private string? _currentBranch;
@@ -152,7 +153,9 @@
             if (createTicket)
             {
                 stage = "creating the ticket";
-                _ticketNumber = await Tickets.CreateTicketAsync(Repository, Task.Type, Task.Title, Task.Description);
+                var ticket = await Tickets.CreateTicketAsync(Repository, Task.Type, Task.Title, Task.Description);
+                _ticketNumber = ticket.Number;
+                _ticketUrl = ticket.Url;
             }
 
             stage = "preparing the branch";
@@ -166,7 +169,7 @@
             if (existingBranch is null && string.IsNullOrWhiteSpace(startPoint))
                 throw new InvalidOperationException(L.T("The selected branch starting point is unavailable."));
 
-            MudDialog.Close(DialogResult.Ok(new TaskStartPlan(_ticketNumber.Trim(), existingBranch, startPoint, useCurrentBranch)));
+            MudDialog.Close(DialogResult.Ok(new TaskStartPlan(_ticketNumber.Trim(), _ticketUrl, existingBranch, startPoint, useCurrentBranch)));
         }
         catch (Exception exception)
         {
@@ -219,5 +222,5 @@
 
     private void Cancel() => MudDialog.Cancel();
 
-    public sealed record TaskStartPlan(string TicketNumber, string? ExistingBranch, string? StartPoint, bool UseCurrentBranch);
+    public sealed record TaskStartPlan(string TicketNumber, string TicketUrl, string? ExistingBranch, string? StartPoint, bool UseCurrentBranch);
 }

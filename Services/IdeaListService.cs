@@ -73,7 +73,8 @@ public sealed class IdeaListService
     }
 
     public async Task<bool> UpdateEditableFieldsAsync(Guid id, string title, string description, IdeaType type,
-        IdeaStatus status, RepositoryEntry? repository, CancellationToken cancellationToken = default)
+        IdeaStatus status, string ticketNumber, string ticketUrl, RepositoryEntry? repository,
+        CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -87,6 +88,8 @@ public sealed class IdeaListService
             item.Description = description.Trim();
             item.Type = type;
             item.Status = status;
+            item.TicketNumber = ticketNumber.Trim();
+            item.TicketUrl = ticketUrl.Trim();
 
             // A linked session owns its repository association; editing its description or status
             // must not detach it from the repository/session that was used to start it.
@@ -106,7 +109,7 @@ public sealed class IdeaListService
         }
     }
 
-    public async Task<bool> SaveTicketAsync(Guid id, string ticketNumber, CancellationToken cancellationToken = default)
+    public async Task<bool> SaveTicketAsync(Guid id, string ticketNumber, string ticketUrl = "", CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -116,6 +119,7 @@ public sealed class IdeaListService
             if (item is null)
                 return false;
             item.TicketNumber = ticketNumber.Trim();
+            item.TicketUrl = ticketUrl.Trim();
             await SaveCoreAsync(items, cancellationToken);
             return true;
         }
@@ -123,7 +127,7 @@ public sealed class IdeaListService
     }
 
     public async Task<bool> LinkSessionAsync(Guid id, RepositoryEntry repository, string sessionId, string sessionTitle,
-        string ticketNumber, string branchName,
+        string ticketNumber, string ticketUrl, string branchName,
         CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
@@ -142,6 +146,7 @@ public sealed class IdeaListService
             item.SessionId = sessionId;
             item.SessionTitle = sessionTitle;
             item.TicketNumber = ticketNumber;
+            item.TicketUrl = ticketUrl;
             item.BranchName = branchName;
             item.Status = IdeaStatus.InProgress;
             await SaveCoreAsync(items, cancellationToken);

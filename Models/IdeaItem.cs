@@ -30,5 +30,6 @@ public sealed class IdeaItem
     public string SessionId { get; set; } = string.Empty;
     public string SessionTitle { get; set; } = string.Empty;
     public string TicketNumber { get; set; } = string.Empty;
+    public string TicketUrl { get; set; } = string.Empty;
     public string BranchName { get; set; } = string.Empty;
 }

@@ -24,7 +24,7 @@ public sealed class TicketMcpService
         _logger = logger;
     }
 
-    public async Task<string> CreateTicketAsync(RepositoryEntry repository, IdeaType itemType, string title, string description,
+    public async Task<TicketReference> CreateTicketAsync(RepositoryEntry repository, IdeaType itemType, string title, string description,
         CancellationToken cancellationToken = default)
     {
         var startedAt = Stopwatch.GetTimestamp();
@@ -140,8 +140,16 @@ public sealed class TicketMcpService
             throw new InvalidOperationException("The ticket tool returned, but no ticket number could be identified. Response: " + text);
         _logger.LogInformation("Created ticket {TicketNumber} through MCP server {McpServer} in {ElapsedMilliseconds} ms.",
             ticketNumber, repository.TicketMcpServerName, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
-        return ticketNumber;
+        var urlMatch = Regex.Match(text, @"https?://[^\s\""'<>\\]+", RegexOptions.IgnoreCase);
+        var ticketUrl = urlMatch.Success && urlMatch.Value.Contains(ticketNumber.TrimStart('#'), StringComparison.OrdinalIgnoreCase)
+            ? urlMatch.Value.TrimEnd('.', ',', ';', ')', ']')
+            : string.Empty;
+        if (isGitHub && string.IsNullOrWhiteSpace(ticketUrl))
+            ticketUrl = $"https://github.com/{githubRepository.Owner}/{githubRepository.Name}/issues/{ticketNumber.TrimStart('#')}";
+        return new TicketReference(ticketNumber, ticketUrl);
     }
+
+    public sealed record TicketReference(string Number, string Url);
 
     private static string GetJiraIssueType(IdeaType itemType) => itemType switch
     {

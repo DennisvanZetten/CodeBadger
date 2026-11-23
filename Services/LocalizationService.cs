@@ -153,6 +153,7 @@ public sealed class LocalizationService
         ["Create a ticket and create a branch"] = ["Create a ticket and create a branch", "Ticket aanmaken en een branch maken", "Ticket erstellen und einen Branch erstellen", "Créer un ticket et une branche"],
         ["Use an existing ticket and branch"] = ["Use an existing ticket and branch", "Bestaand ticket en bestaande branch gebruiken", "Bestehendes Ticket und bestehenden Branch verwenden", "Utiliser un ticket et une branche existants"],
         ["Ticket number"] = ["Ticket number", "Ticketnummer", "Ticketnummer", "Numéro de ticket"],
+        ["Ticket URL (optional)"] = ["Ticket URL (optional)", "Ticket-URL (optioneel)", "Ticket-URL (optional)", "URL du ticket (facultative)"],
         ["A ticket will be created from the task title and description using the configured MCP server."] = ["A ticket will be created from the task title and description using the configured MCP server.", "Via de ingestelde MCP-server wordt een ticket gemaakt op basis van de taaknaam en -beschrijving.", "Über den konfigurierten MCP-Server wird anhand von Titel und Beschreibung ein Ticket erstellt.", "Un ticket sera créé à partir du titre et de la description via le serveur MCP configuré."],
         ["Existing branch"] = ["Existing branch", "Bestaande branch", "Bestehender Branch", "Branche existante"],
         ["Branch choice"] = ["Branch choice", "Branchkeuze", "Branch-Auswahl", "Choix de branche"],

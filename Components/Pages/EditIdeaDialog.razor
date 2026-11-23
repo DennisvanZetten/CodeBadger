@@ -15,6 +15,10 @@
                 <MudSelectItem Value="IdeaType.Story">@L.T("Story")</MudSelectItem>
             </MudSelect>
             <MudTextField @bind-Value="_description" Label="@L.T("Description (optional)")" Lines="12" MaxLength="2000" />
+            <MudStack Row="true" Spacing="2">
+                <MudTextField @bind-Value="_ticketNumber" Label="@L.T("Ticket number")" MaxLength="100" />
+                <MudTextField @bind-Value="_ticketUrl" Label="@L.T("Ticket URL (optional)")" InputType="InputType.Url" />
+            </MudStack>
             <MudSelect T="IdeaStatus" @bind-Value="_status" Label="@L.T("Status")">
                 <MudSelectItem Value="IdeaStatus.Open">@L.T("Open")</MudSelectItem>
                 <MudSelectItem Value="IdeaStatus.InProgress">@L.T("In progress")</MudSelectItem>
@@ -47,6 +51,8 @@
     private List<RepositoryEntry> _repositories = [];
     private string _title = string.Empty;
     private string _description = string.Empty;
+    private string _ticketNumber = string.Empty;
+    private string _ticketUrl = string.Empty;
     private string? _repositoryId;
     private IdeaType _type;
     private IdeaStatus _status;
@@ -56,6 +62,8 @@
     {
         _title = Item.Title;
         _description = Item.Description;
+        _ticketNumber = Item.TicketNumber;
+        _ticketUrl = Item.TicketUrl;
         _type = Item.Type;
         _status = Item.Status;
         _repositoryId = Item.RepositoryId?.ToString();
@@ -83,12 +91,15 @@
         var repository = Guid.TryParse(_repositoryId, out var id)
             ? _repositories.FirstOrDefault(candidate => candidate.Id == id)
             : null;
-        if (await Ideas.UpdateEditableFieldsAsync(Item.Id, _title, _description, _type, _status, repository))
+        if (await Ideas.UpdateEditableFieldsAsync(Item.Id, _title, _description, _type, _status,
+                _ticketNumber, _ticketUrl, repository))
         {
             Item.Title = _title.Trim();
             Item.Description = _description.Trim();
             Item.Type = _type;
             Item.Status = _status;
+            Item.TicketNumber = _ticketNumber.Trim();
+            Item.TicketUrl = _ticketUrl.Trim();
             if (string.IsNullOrWhiteSpace(Item.SessionId))
             {
                 Item.RepositoryId = repository?.Id;

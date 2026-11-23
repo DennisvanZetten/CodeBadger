@@ -54,6 +54,19 @@
                                     {
                                         <MudText Typo="Typo.caption" Color="Color.Secondary">@item.RepositoryName</MudText>
                                     }
+                                    @if (!string.IsNullOrWhiteSpace(item.TicketNumber))
+                                    {
+                                        @if (Uri.TryCreate(item.TicketUrl, UriKind.Absolute, out var ticketUri) && ticketUri.Scheme is "http" or "https")
+                                        {
+                                            <MudLink Href="@ticketUri.ToString()" Color="Color.Secondary" Typo="Typo.caption" Underline="Underline.Hover" Target="_blank">
+                                                @L.T("Ticket: {0}", item.TicketNumber)
+                                            </MudLink>
+                                        }
+                                        else
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Ticket: {0}", item.TicketNumber)</MudText>
+                                        }
+                                    }
                                 </MudStack>
                                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="0">
                                     <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Default" Size="Size.Small"
@@ -158,7 +171,8 @@
                 }
             }
             item.TicketNumber = plan.TicketNumber;
-            await Ideas.SaveTicketAsync(item.Id, plan.TicketNumber);
+            item.TicketUrl = plan.TicketUrl;
+            await Ideas.SaveTicketAsync(item.Id, plan.TicketNumber, plan.TicketUrl);
 
             string branchName;
             stage = "creating or checking out the branch";
@@ -197,7 +211,7 @@
             await OpenCodeActivity.SendPromptAsync(session.Id, session.Directory, prompt, CancellationToken.None, "plan");
             if (await Ideas.LinkSessionAsync(item.Id, repository, session.Id,
                     string.IsNullOrWhiteSpace(session.Title) ? item.Title : session.Title,
-                    plan.TicketNumber, branchName))
+                    plan.TicketNumber, plan.TicketUrl, branchName))
             {
                 item.Status = IdeaStatus.InProgress;
                 item.RepositoryId = repository.Id;

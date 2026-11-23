@@ -82,7 +82,8 @@ else
     {
         L.LanguageChanged += HandleLanguageChanged;
         SettingsService.SettingsSaved += HandleSettingsSaved;
-        WindowTitleBar.SetSettingsState(false, L.T("Open settings"));
+        if (IsMainWindowRoute())
+            WindowTitleBar.SetSettingsState(false, L.T("Open settings"));
     }
 
     private void HandleSettingsRequested() => _ = InvokeAsync(OpenSettingsAsync);
@@ -102,7 +103,7 @@ else
         WindowTitleBar.IdeasRequested -= HandleIdeasRequested;
         WindowTitleBar.SetHelpDescription(L.T("Help menu"));
         WindowTitleBar.SetIdeasDescription(L.T("Ideas and tasks"));
-        if (!IsDetachedRepositoryRoute())
+        if (IsMainWindowRoute())
         {
             WindowTitleBar.SettingsRequested += HandleSettingsRequested;
             WindowTitleBar.HelpRequested += HandleHelpRequested;
@@ -110,12 +111,15 @@ else
         }
     }
 
+    private bool IsMainWindowRoute() => !IsDetachedRepositoryRoute() && !IsDocumentationWindowRoute();
+
     private bool IsDetachedRepositoryRoute() =>
         Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("repository/", StringComparison.OrdinalIgnoreCase);
 
     private void HandleLanguageChanged() => _ = InvokeAsync(() =>
     {
-        WindowTitleBar.SetSettingsState(!_isStarting, L.T("Open settings"));
+        if (IsMainWindowRoute())
+            WindowTitleBar.SetSettingsState(!_isStarting, L.T("Open settings"));
         WindowTitleBar.SetHelpDescription(L.T("Help menu"));
         WindowTitleBar.SetIdeasDescription(L.T("Ideas and tasks"));
         StateHasChanged();
@@ -132,7 +136,7 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender && !IsDetachedRepositoryRoute())
+        if (firstRender && IsMainWindowRoute())
             WindowTitleBar.SetSettingsState(true, L.T("Open settings"));
         if (firstRender && IsDocumentationWindowRoute())
             await InitializeDocumentationWindowAsync();

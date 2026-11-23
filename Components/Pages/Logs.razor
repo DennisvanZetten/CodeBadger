@@ -30,7 +30,7 @@
                             <MudTextField T="string" @bind-Value="_search" Immediate="true" Placeholder="@L.T("Search logs")"
                                           Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
                                           Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="log-search" />
-                            <MudSelect T="string" @bind-Value="_levelFilter" Label="@L.T("Minimum level")" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width: 160px">
+                            <MudSelect T="string" @bind-Value="_levelFilter" Label="@L.T("Minimum level")" Variant="Variant.Outlined" Margin="Margin.Dense" Class="log-level-filter">
                                 <MudSelectItem T="string" Value="@("All")">@L.T("All levels")</MudSelectItem>
                                 @foreach (var level in VisibleLevels)
                                 {
@@ -74,6 +74,8 @@
 <style>
     .log-filter-row { display: grid !important; grid-template-columns: minmax(0, 1fr) minmax(220px, 32%); align-items: center; width: 100%; }
     .log-filter-row ::deep .log-search, .log-filter-row ::deep .mud-input-control { min-width: 0; margin-top: 0; }
+    .log-filter-row ::deep .log-level-filter .mud-input-control { margin-top: 0; }
+    .log-filter-row ::deep .log-level-filter .mud-input-label { transform: translateY(-50%) scale(.75); transform-origin: top left; }
     .log-entries { max-height: calc(100vh - 270px); min-height: 280px; overflow: auto; border: 1px solid var(--mud-palette-lines-default); border-radius: 8px; }
     .log-entry { display: grid; grid-template-columns: 190px 100px 180px minmax(0, 1fr); gap: 8px; align-items: start; padding: 8px 12px; border-bottom: 1px solid var(--mud-palette-divider); font-family: Consolas, monospace; font-size: .82rem; }
     .log-time { color: var(--mud-palette-text-secondary); white-space: nowrap; }

@@ -884,8 +884,12 @@ public sealed class SlackNotificationService : IAsyncDisposable
     {
         var eventChannel = slackEvent.TryGetProperty("channel", out var channel) && channel.ValueKind == JsonValueKind.String
             ? channel.GetString() : null;
-        var repositoryPath = eventChannel is null ? null : _sessionThreads.Values
-            .FirstOrDefault(link => link.ChannelId == eventChannel)?.Directory;
+        var eventThread = slackEvent.TryGetProperty("thread_ts", out var eventThreadValue) && eventThreadValue.ValueKind == JsonValueKind.String
+            ? eventThreadValue.GetString()
+            : slackEvent.TryGetProperty("root_ts", out var rootValue) && rootValue.ValueKind == JsonValueKind.String
+                ? rootValue.GetString() : null;
+        var repositoryPath = eventChannel is null || eventThread is null ? null : _sessionThreads.Values
+            .FirstOrDefault(link => link.ChannelId == eventChannel && link.ThreadTs == eventThread)?.Directory;
         using var repositoryScope = !string.IsNullOrWhiteSpace(repositoryPath)
             ? _logger.BeginScope(new Dictionary<string, object?> { ["RepositoryPath"] = repositoryPath })
             : null;
@@ -932,6 +936,23 @@ public sealed class SlackNotificationService : IAsyncDisposable
         if (_activePlatform == "Discord" && string.IsNullOrWhiteSpace(threadTs) &&
             slackEvent.TryGetProperty("root_ts", out var rootValue))
             threadTs = rootValue.GetString();
+
+        var commandName = GetIncomingCommandName(text);
+        if (commandName is not null)
+        {
+            var commandSession = threadTs is null ? default : _sessionThreads.FirstOrDefault(pair =>
+                pair.Value.ThreadTs == threadTs && pair.Value.Platform == _activePlatform &&
+                pair.Value.ChannelId == (_activePlatform == "Discord" ? _discordChannelId : _channelId));
+            var repository = commandSession.Value is null ? null : commandSession.Value.Directory;
+            using var repositoryScope = !string.IsNullOrWhiteSpace(repository)
+                ? _logger.BeginScope(new Dictionary<string, object?> { ["RepositoryPath"] = repository })
+                : null;
+            _logger.LogInformation("Received {NotificationPlatform} command {CommandName}; command arguments omitted. Repository: {RepositoryName}; session: {SessionId}.",
+                _activePlatform, commandName,
+                string.IsNullOrWhiteSpace(repository) ? "unknown" : Path.GetFileName(Path.TrimEndingDirectorySeparator(repository)),
+                string.IsNullOrWhiteSpace(commandSession.Key) ? "none" : commandSession.Key);
+        }
+
         if (string.IsNullOrWhiteSpace(threadTs))
         {
             if (text.Equals("!help", StringComparison.OrdinalIgnoreCase))
@@ -1037,6 +1058,21 @@ public sealed class SlackNotificationService : IAsyncDisposable
             }
         }
         await Task.CompletedTask;
+    }
+
+    private static string? GetIncomingCommandName(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || !text.StartsWith('!'))
+            return null;
+
+        var token = text.Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries)[0];
+        var command = token.TrimStart('!').ToLowerInvariant();
+        return command switch
+        {
+            "help" or "new" or "todos" or "todo" or "status" or "build" or "plan" or
+            "allow" or "always" or "deny" or "answer" or "commit" or "push" => "!" + command,
+            _ => "!unknown"
+        };
     }
 
     private async Task AddIdeaFromSlackAsync(string command, string? threadTs, CancellationToken cancellationToken)

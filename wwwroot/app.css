@@ -1283,6 +1283,23 @@ h1:focus {
     align-self: flex-start;
 }
 
+.git-powershell-panel {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.git-powershell-panel > .mud-stack {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.git-powershell-panel .repository-terminal {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
 .git-view-switch .git-view-active {
     background-color: var(--mud-palette-primary) !important;
     color: var(--mud-palette-primary-text) !important;

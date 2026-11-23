@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using CodeBadger.Models;
 using Microsoft.Extensions.Logging;
 
@@ -9,6 +10,8 @@ namespace CodeBadger.Services;
 
 public sealed class GitBranchService
 {
+    private const string LatestGitForWindowsReleaseUrl = "https://api.github.com/repos/git-for-windows/git/releases/latest";
+    private static readonly HttpClient GitReleaseHttp = CreateGitReleaseHttpClient();
     private readonly LocalizationService _localization;
     private readonly ILogger<GitBranchService> _logger;
 
@@ -817,6 +820,56 @@ public sealed class GitBranchService
             untrackedCacheResult.Success && untrackedCacheResult.Output.Trim().Equals("true", StringComparison.OrdinalIgnoreCase),
             mergeTarget?.BranchName,
             branchResult);
+    }
+
+    public async Task<GitCliUpdateCheck?> CheckForGitCliUpdateAsync(string installedVersionText, CancellationToken cancellationToken = default)
+    {
+        if (!OperatingSystem.IsWindows())
+            return null;
+
+        try
+        {
+            using var response = await GitReleaseHttp.GetAsync(LatestGitForWindowsReleaseUrl, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var release = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+            if (!release.RootElement.TryGetProperty("tag_name", out var tagElement))
+                return null;
+
+            var latestTag = tagElement.GetString();
+            var latestVersion = ExtractGitVersion(latestTag);
+            var installedVersion = ExtractGitVersion(installedVersionText);
+            if (latestVersion is null || installedVersion is null)
+                return null;
+
+            return new GitCliUpdateCheck(latestVersion.ToString(), latestVersion > installedVersion);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogDebug(exception, "Could not check for a Git for Windows update.");
+            return null;
+        }
+    }
+
+    private static HttpClient CreateGitReleaseHttpClient()
+    {
+        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("CodeBadger-GitUpdateChecker/1.0");
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+        return client;
+    }
+
+    private static Version? ExtractGitVersion(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var match = System.Text.RegularExpressions.Regex.Match(value, @"(?<!\d)(\d+\.\d+\.\d+)(?!\d)");
+        return match.Success && Version.TryParse(match.Groups[1].Value, out var version) ? version : null;
     }
 
     public async Task<GitRemoteMaintenanceSnapshot> GetRemoteMaintenanceSnapshotAsync(string path)
@@ -1716,6 +1769,7 @@ public sealed record GitMaintenanceSnapshot(
     bool IsUntrackedCacheEnabled,
     string? DefaultBranchName,
     IReadOnlyList<GitMaintenanceBranch> OldMergedBranches);
+public sealed record GitCliUpdateCheck(string LatestVersion, bool IsUpdateAvailable);
 public sealed record GitMaintenanceBranch(string Name, int AgeDays);
 public sealed record GitRemoteMaintenanceSnapshot(bool Success, string Message, string? DefaultBranchName, IReadOnlyList<GitRemoteMaintenanceBranch> OldMergedBranches);
 public sealed record GitRemoteMaintenanceBranch(string Name, int AgeDays, string Author, string TipHash);

@@ -60,8 +60,6 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
                 throw new PlatformNotSupportedException(_localization.T("The built-in terminal is only available on Windows."));
             if (!Directory.Exists(workingDirectory))
                 throw new DirectoryNotFoundException(_localization.T("Repository folder does not exist: {0}", workingDirectory));
-            if (string.IsNullOrWhiteSpace(commandLine))
-                throw new InvalidOperationException(_localization.T("Configure an application or command in Settings first."));
             if (openCodeSandboxEnabled)
                 throw new InvalidOperationException(_localization.T("OpenCode sandbox is enabled, but isolated execution is not available yet. OpenCode was not started."));
 
@@ -74,7 +72,12 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
                 sessionArguments = $"--session {openCodeSessionId}";
             }
 
-            var session = CreateSession(workingDirectory, commandLine, Math.Max(columns, 1), Math.Max(rows, 1), sessionArguments);
+            var hasEncodedPowerShellCommand = commandLine.StartsWith("powershell-encoded ", StringComparison.Ordinal);
+            var encodedPowerShellCommand = hasEncodedPowerShellCommand ? commandLine["powershell-encoded ".Length..] : null;
+            var isPowerShell = string.IsNullOrWhiteSpace(commandLine) || hasEncodedPowerShellCommand;
+            var session = isPowerShell
+                ? CreatePowerShellSession(workingDirectory, Math.Max(columns, 1), Math.Max(rows, 1), encodedPowerShellCommand)
+                : CreateSession(workingDirectory, commandLine, Math.Max(columns, 1), Math.Max(rows, 1), sessionArguments);
             lock (_sessionsLock)
                 _sessions[id] = session;
             _ = Task.Run(() => ReadOutputAsync(id, session));
@@ -84,6 +87,41 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         catch (Exception exception)
         {
             _logger.LogError(exception, "Could not start agent terminal for repository {RepositoryId}.", id);
+            throw;
+        }
+        finally { gate.Release(); }
+    }
+
+    public Task StartPowerShellAsync(Guid id, string workingDirectory, int columns = 120, int rows = 30) =>
+        StartAsync(id, workingDirectory, string.Empty, columns, rows);
+
+    public async Task StartPowerShellWithCommandAsync(Guid id, string workingDirectory, string command, int columns = 120, int rows = 30)
+    {
+        if (string.IsNullOrWhiteSpace(command) || command.Contains('\0'))
+            throw new ArgumentException("A valid initial PowerShell command is required.", nameof(command));
+
+        if (!OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException(_localization.T("The built-in terminal is only available on Windows."));
+        if (!Directory.Exists(workingDirectory))
+            throw new DirectoryNotFoundException(_localization.T("Repository folder does not exist: {0}", workingDirectory));
+
+        var encodedCommand = Convert.ToBase64String(Encoding.Unicode.GetBytes(command));
+        var gate = _startGates.GetOrAdd(id, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
+        {
+            if (IsRunning(id))
+                return;
+            var session = CreatePowerShellSession(workingDirectory, Math.Max(columns, 1), Math.Max(rows, 1), encodedCommand);
+            lock (_sessionsLock)
+                _sessions[id] = session;
+            _ = Task.Run(() => ReadOutputAsync(id, session));
+            _ = WatchProcessAsync(id, session);
+            _logger.LogInformation("Started PowerShell update command for repository {RepositoryId}; process ID {ProcessId}.", id, session.Process.Id);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "Could not start PowerShell update command for repository {RepositoryId}.", id);
             throw;
         }
         finally { gate.Release(); }
@@ -324,6 +362,16 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
                 Marshal.FreeHGlobal(attributeList);
             }
         }
+    }
+
+    private TerminalSession CreatePowerShellSession(string workingDirectory, int columns, int rows, string? encodedCommand = null)
+    {
+        var powershell = TryFindExecutable("pwsh.exe") ?? TryFindExecutable("powershell.exe")
+            ?? throw new FileNotFoundException(_localization.T("PowerShell could not be found in PATH."));
+        var arguments = string.IsNullOrWhiteSpace(encodedCommand)
+            ? "-NoLogo -NoExit"
+            : $"-NoLogo -NoExit -EncodedCommand {encodedCommand}";
+        return CreateSession(workingDirectory, $"\"{powershell}\" {arguments}", columns, rows);
     }
 
     private (string Executable, string CommandLine) ResolveCommand(string configuredCommand, string additionalArguments = "")

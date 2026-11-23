@@ -9,6 +9,7 @@
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
 @inject ILogger<GitRepositoryDialog> Logger
+@inject WindowsTerminalSessionService TerminalService
 @implements IAsyncDisposable
 
 <MudDialog Class="git-overview-dialog">
@@ -87,9 +88,12 @@
                     <MudButton Class="@(_view == GitView.Submodules ? "git-view-active" : "git-view-inactive")"
                                StartIcon="@Icons.Material.Filled.AccountTree" Color="@(_view == GitView.Submodules ? Color.Primary : Color.Default)" Variant="@(_view == GitView.Submodules ? Variant.Filled : Variant.Outlined)"
                                  OnClick="@(() => SwitchToSubmodulesViewAsync())">@L.T("Submodules")@(!_isLoadingSubmodules ? $" ({_submodules.Entries.Count})" : "")</MudButton>
-                    <MudButton Class="@(_view == GitView.Maintenance ? "git-view-active" : "git-view-inactive")"
-                               StartIcon="@Icons.Material.Filled.Build" Color="@(_view == GitView.Maintenance ? Color.Primary : Color.Default)" Variant="@(_view == GitView.Maintenance ? Variant.Filled : Variant.Outlined)"
-                               OnClick="@SwitchToMaintenanceViewAsync">@L.T("Maintenance")</MudButton>
+                     <MudButton Class="@(_view == GitView.Maintenance ? "git-view-active" : "git-view-inactive")"
+                                StartIcon="@Icons.Material.Filled.Build" Color="@(_view == GitView.Maintenance ? Color.Primary : Color.Default)" Variant="@(_view == GitView.Maintenance ? Variant.Filled : Variant.Outlined)"
+                                OnClick="@SwitchToMaintenanceViewAsync">@L.T("Maintenance")</MudButton>
+                    <MudButton Class="@(_view == GitView.Terminal ? "git-view-active" : "git-view-inactive")"
+                               StartIcon="@Icons.Material.Filled.Terminal" Color="@(_view == GitView.Terminal ? Color.Primary : Color.Default)" Variant="@(_view == GitView.Terminal ? Variant.Filled : Variant.Outlined)"
+                               OnClick="SwitchToTerminalViewAsync">@L.T("PowerShell")</MudButton>
                 </MudButtonGroup>
 
                 @if (_snapshot.Conflicts.Count > 0)
@@ -170,12 +174,31 @@
                                         <MudText Typo="Typo.caption">@FormatGitSize(_maintenanceSnapshot.PackedObjectSizeKb)</MudText>
                                     </MudPaper>
                                 </MudItem>
-                                <MudItem xs="12" sm="6" md="3">
-                                    <MudPaper Class="pa-3 git-maintenance-stat" Outlined="true" Elevation="0">
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Git version")</MudText>
-                                        <MudText Typo="Typo.body1">@_maintenanceSnapshot.GitVersion</MudText>
-                                    </MudPaper>
-                                </MudItem>
+                                        <MudItem xs="12" sm="6" md="3">
+                                            <MudPaper Class="pa-3 git-maintenance-stat" Outlined="true" Elevation="0">
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Git version")</MudText>
+                                                <MudText Typo="Typo.body1">@_maintenanceSnapshot.GitVersion</MudText>
+                                                @if (_gitCliUpdateCheck is { IsUpdateAvailable: true })
+                                                {
+                                                    <MudText Typo="Typo.caption" Color="Color.Warning">@L.T("Git {0} is available.", _gitCliUpdateCheck.LatestVersion)</MudText>
+                                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary"
+                                                               StartIcon="@Icons.Material.Filled.SystemUpdate" Disabled="@_isOperating"
+                                                               OnClick="UpdateGitCliAsync">@L.T("Update Git in PowerShell")</MudButton>
+                                                }
+                                                else if (_gitCliUpdateCheck is { IsUpdateAvailable: false })
+                                                {
+                                                    <MudText Typo="Typo.caption" Color="Color.Success">@L.T("Git is up to date.")</MudText>
+                                                }
+                                                else if (_isCheckingGitCliUpdate)
+                                                {
+                                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Checking for Git updates...")</MudText>
+                                                }
+                                                else if (_gitCliUpdateCheckFailed)
+                                                {
+                                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Could not check for Git updates.")</MudText>
+                                                }
+                                            </MudPaper>
+                                        </MudItem>
                             </MudGrid>
                         }
                         else
@@ -774,6 +797,19 @@
                         </MudPaper>
                     </div>
                 }
+                else if (_view == GitView.Terminal)
+                {
+                    <MudPaper Class="pa-3 git-dialog-panel git-powershell-panel" Outlined="true" Elevation="0">
+                        <MudStack Spacing="1">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("PowerShell is running in the repository folder. Commands run with your current Windows user permissions.")</MudText>
+                            @if (_terminalSessionStarted)
+                            {
+                                <RepositoryTerminal SessionId="@_terminalSessionId" RepositoryPath="@RepositoryPath"
+                                                    Command="" IsVisible="true" UsePowerShell="true" PreserveSession="true" />
+                            }
+                        </MudStack>
+                    </MudPaper>
+                }
                 else
                 {
                     <div class="git-commit-workspace">
@@ -914,6 +950,9 @@
     private bool _isLoadingDiff;
     private bool _isOperating;
     private bool _isLoadingMaintenance;
+    private bool _isCheckingGitCliUpdate;
+    private bool _gitCliUpdateCheckFailed;
+    private GitCliUpdateCheck? _gitCliUpdateCheck;
     private bool _maintenanceSucceeded;
     private string? _maintenanceMessage;
     private GitMaintenanceSnapshot? _maintenanceSnapshot;
@@ -924,6 +963,8 @@
     private bool _isCheckingAiConnection = true;
     private bool _hasAiConnection;
     private GitView _view = GitView.History;
+    private readonly Guid _terminalSessionId = Guid.NewGuid();
+    private bool _terminalSessionStarted;
     private bool _isBranchPanelCollapsed;
     private bool _isCommitFilesPanelCollapsed;
     private bool _showCommitBranchLabels = true;
@@ -1221,6 +1262,13 @@
             await LoadRemoteMaintenanceSnapshotAsync();
     }
 
+    private Task SwitchToTerminalViewAsync()
+    {
+        _terminalSessionStarted = true;
+        _view = GitView.Terminal;
+        return Task.CompletedTask;
+    }
+
     private async Task LoadMaintenanceSnapshotAsync()
     {
         _isLoadingMaintenance = true;
@@ -1228,10 +1276,60 @@
         {
             _maintenanceSnapshot = await GitBranchService.GetMaintenanceSnapshotAsync(RepositoryPath);
             _selectedMaintenanceBranches.IntersectWith(_maintenanceSnapshot?.OldMergedBranches.Select(branch => branch.Name) ?? []);
+            if (_maintenanceSnapshot is not null && _gitCliUpdateCheck is null)
+                _ = CheckGitCliUpdateAsync();
         }
         finally
         {
             _isLoadingMaintenance = false;
+        }
+    }
+
+    private async Task CheckGitCliUpdateAsync()
+    {
+        if (_maintenanceSnapshot is null || _isCheckingGitCliUpdate)
+            return;
+
+        _isCheckingGitCliUpdate = true;
+        _gitCliUpdateCheckFailed = false;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            _gitCliUpdateCheck = await GitBranchService.CheckForGitCliUpdateAsync(_maintenanceSnapshot.GitVersion);
+            _gitCliUpdateCheckFailed = _gitCliUpdateCheck is null;
+        }
+        finally
+        {
+            _isCheckingGitCliUpdate = false;
+        }
+    }
+
+    private async Task UpdateGitCliAsync()
+    {
+        if (_gitCliUpdateCheck is not { IsUpdateAvailable: true } update)
+            return;
+
+        var command = $"winget upgrade --id Git.Git --exact; if ($LASTEXITCODE -ne 0) {{ Write-Host 'winget did not update Git. You can download the official installer at https://git-scm.com/download/win' -ForegroundColor Yellow }}";
+        try
+        {
+            if (!_terminalSessionStarted)
+            {
+                await TerminalService.StartPowerShellWithCommandAsync(_terminalSessionId, RepositoryPath, command);
+                _terminalSessionStarted = true;
+            }
+            else
+            {
+                if (!TerminalService.IsRunning(_terminalSessionId))
+                    await TerminalService.StartPowerShellAsync(_terminalSessionId, RepositoryPath);
+                await TerminalService.WriteInputAsync(_terminalSessionId, command + "\r\n");
+            }
+
+            _view = GitView.Terminal;
+            Snackbar.Add(L.T("Started Git update check for version {0} in PowerShell.", update.LatestVersion), Severity.Info);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not start the Git update in PowerShell: {0}", exception.Message), Severity.Error);
         }
     }
 
@@ -2829,7 +2927,7 @@
 
     private sealed record BranchFolder(string? Name, IReadOnlyList<GitBranchEntry> Branches);
     private sealed record GitCommitFile(string Path, string Status);
-    private enum GitView { History, Commit, Submodules, Maintenance }
+    private enum GitView { History, Commit, Submodules, Maintenance, Terminal }
     private enum CommitDisplayOption { BranchLabels, Graph, Author, Date, Sha }
 
     private async Task PullAsync()
@@ -2980,6 +3078,11 @@
     public async ValueTask DisposeAsync()
     {
         _isDisposed = true;
+        if (_terminalSessionStarted)
+        {
+            await TerminalService.StopAsync(_terminalSessionId);
+            TerminalService.ClearRecentOutput(_terminalSessionId);
+        }
         if (_gitHistoryModule is not null)
         {
             try

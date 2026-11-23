@@ -41,6 +41,7 @@ public sealed class LocalizationService
         ["Application logs"] = ["Application logs", "Applicatielogboeken", "Anwendungsprotokolle", "Journaux de l’application"],
         ["Logging"] = ["Logging", "Logging", "Protokollierung", "Journalisation"],
         ["General"] = ["General", "Algemeen", "Allgemein", "Général"],
+        ["General settings"] = ["General settings", "Algemene instellingen", "Allgemeine Einstellungen", "Paramètres généraux"],
         ["Git"] = ["Git", "Git", "Git", "Git"],
         ["Notifications"] = ["Notifications", "Notificaties", "Benachrichtigungen", "Notifications"],
         ["AI"] = ["AI", "AI", "KI", "IA"],

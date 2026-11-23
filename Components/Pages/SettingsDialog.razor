@@ -20,6 +20,44 @@
     <DialogContent>
         <MudTabs Position="Position.Left" Rounded="true" Border="true" ApplyEffectsToContainer="true"
                  TabPanelsClass="settings-tab-panel" Class="settings-tabs">
+            <MudTabPanel Text="@L.T("General")" Icon="@Icons.Material.Filled.Tune">
+                <MudStack Spacing="3" Class="settings-content-stack">
+                    <MudText Typo="Typo.h6">@L.T("General settings")</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Settings are stored locally. API keys are stored securely.")</MudText>
+                    <MudTextField @bind-Value="Settings.TaskBranchPrefix" Label="@L.T("Task branch prefix")"
+                                  HelperText="@L.T("New task branches use this prefix, for example feature/PROJ-123-task-title.")"
+                                  Margin="Margin.Dense" Variant="Variant.Outlined" />
+                    <MudSelect T="string" Label="@L.T("Language")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.Language">
+                        <MudSelectItem T="string" Value="@("en")">@L.T("English")</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("nl")">@L.T("Dutch")</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("de")">@L.T("German")</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("fr")">@L.T("French")</MudSelectItem>
+                    </MudSelect>
+                    <MudSelect T="string" Label="@L.T("Theme")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.Theme">
+                        @foreach (var theme in LauncherThemes.All)
+                        {
+                            <MudSelectItem T="string" Value="@theme.Id">@theme.Name (@L.T(theme.IsDark ? "Dark" : "Light"))</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudNumericField T="int" @bind-Value="Settings.ToastDurationSeconds" Label="@L.T("Toast duration (seconds)")"
+                                     Min="1" Max="10" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                    <MudDivider Class="my-2" />
+                    <MudSelect T="string" Label="@L.T("Completion sound")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.CompletionSound" @bind-Value:after="PreviewSoundAsync" Disabled="@(!Settings.CompletionSoundEnabled)">
+                        @foreach (var sound in CompletionSounds.All)
+                        {
+                            <MudSelectItem T="string" Value="@sound">@L.T($"Sound: {sound}")</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudSwitch @bind-Value="Settings.CompletionSoundEnabled" Color="Color.Primary" Label="@L.T("Play a sound when a session finishes")" />
+                    <MudSelect T="string" Label="@L.T("Question sound")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.QuestionSound" @bind-Value:after="PreviewQuestionSoundAsync" Disabled="@(!Settings.QuestionSoundEnabled)">
+                        @foreach (var sound in CompletionSounds.All)
+                        {
+                            <MudSelectItem T="string" Value="@sound">@L.T($"Sound: {sound}")</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudSwitch @bind-Value="Settings.QuestionSoundEnabled" Color="Color.Primary" Label="@L.T("Play a sound when the agent asks a question")" />
+                </MudStack>
+            </MudTabPanel>
             <MudTabPanel Text="@L.T("Repositories")" Icon="@Icons.Material.Filled.Folder">
                 <MudStack Spacing="3" Class="settings-content-stack">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
@@ -280,44 +318,6 @@
                     <MudNumericField T="int" @bind-Value="Settings.SandboxMaxTotalMb" Label="@L.T("Maximum total selection (MB)")" Min="1" Max="2048" Variant="Variant.Outlined" />
                     <MudText Typo="Typo.caption">@L.T("Applies to new sandbox sessions. Larger limits increase disk and memory use.")</MudText>
                     <MudAlert Severity="Severity.Info">@L.T("Automatic mode: selections within both limits use copy and review. Exceeding either limit uses direct SDK chat with immediate changes to existing selected files.")</MudAlert>
-                </MudStack>
-            </MudTabPanel>
-            <MudTabPanel Text="@L.T("Other")" Icon="@Icons.Material.Filled.Tune">
-                <MudStack Spacing="3" Class="settings-content-stack">
-                    <MudText Typo="Typo.h6">@L.T("Other settings")</MudText>
-                    <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Settings are stored locally. API keys are stored securely.")</MudText>
-                    <MudTextField @bind-Value="Settings.TaskBranchPrefix" Label="@L.T("Task branch prefix")"
-                                  HelperText="@L.T("New task branches use this prefix, for example feature/PROJ-123-task-title.")"
-                                  Margin="Margin.Dense" Variant="Variant.Outlined" />
-                    <MudSelect T="string" Label="@L.T("Language")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.Language">
-                        <MudSelectItem T="string" Value="@("en")">@L.T("English")</MudSelectItem>
-                        <MudSelectItem T="string" Value="@("nl")">@L.T("Dutch")</MudSelectItem>
-                        <MudSelectItem T="string" Value="@("de")">@L.T("German")</MudSelectItem>
-                        <MudSelectItem T="string" Value="@("fr")">@L.T("French")</MudSelectItem>
-                    </MudSelect>
-                    <MudSelect T="string" Label="@L.T("Theme")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.Theme">
-                        @foreach (var theme in LauncherThemes.All)
-                        {
-                            <MudSelectItem T="string" Value="@theme.Id">@theme.Name (@L.T(theme.IsDark ? "Dark" : "Light"))</MudSelectItem>
-                        }
-                    </MudSelect>
-                    <MudNumericField T="int" @bind-Value="Settings.ToastDurationSeconds" Label="@L.T("Toast duration (seconds)")"
-                                     Min="1" Max="10" Margin="Margin.Dense" Variant="Variant.Outlined" />
-                    <MudDivider Class="my-2" />
-                    <MudSelect T="string" Label="@L.T("Completion sound")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.CompletionSound" @bind-Value:after="PreviewSoundAsync" Disabled="@(!Settings.CompletionSoundEnabled)">
-                        @foreach (var sound in CompletionSounds.All)
-                        {
-                            <MudSelectItem T="string" Value="@sound">@L.T($"Sound: {sound}")</MudSelectItem>
-                        }
-                    </MudSelect>
-                    <MudSwitch @bind-Value="Settings.CompletionSoundEnabled" Color="Color.Primary" Label="@L.T("Play a sound when a session finishes")" />
-                    <MudSelect T="string" Label="@L.T("Question sound")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.QuestionSound" @bind-Value:after="PreviewQuestionSoundAsync" Disabled="@(!Settings.QuestionSoundEnabled)">
-                        @foreach (var sound in CompletionSounds.All)
-                        {
-                            <MudSelectItem T="string" Value="@sound">@L.T($"Sound: {sound}")</MudSelectItem>
-                        }
-                    </MudSelect>
-                    <MudSwitch @bind-Value="Settings.QuestionSoundEnabled" Color="Color.Primary" Label="@L.T("Play a sound when the agent asks a question")" />
                 </MudStack>
             </MudTabPanel>
             <MudTabPanel Text="@L.T("Logging")" Icon="@Icons.Material.Filled.Article">

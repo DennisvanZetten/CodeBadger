@@ -415,6 +415,9 @@ public sealed class OpenCodeActivityService
     private async Task<JsonDocument?> RequestAsync(string path, CancellationToken cancellationToken,
         HttpMethod? method = null, string? body = null, string? workingDirectory = null)
     {
+        using var repositoryScope = !string.IsNullOrWhiteSpace(workingDirectory)
+            ? _logger.BeginScope(new Dictionary<string, object?> { ["RepositoryPath"] = workingDirectory })
+            : null;
         if (!OperatingSystem.IsWindows())
             return null;
 

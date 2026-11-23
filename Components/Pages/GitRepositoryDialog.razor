@@ -1579,7 +1579,7 @@
 
             var branch = await GitBranchService.GetCurrentBranchAsync(RepositoryPath);
             var result = await AiCommitMessageService.GenerateAsync(AiSettings, diff.Output, branch.Branch,
-                RepositorySettings?.AiCustomInstruction);
+                RepositorySettings?.AiCustomInstruction, RepositoryPath);
             if (result.Success)
             {
                 _commitTitle = result.Title;

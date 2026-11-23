@@ -404,7 +404,7 @@
         try
         {
             var settings = await LauncherSettingsService.LoadAsync();
-            var result = await AiCommitMessageService.ResolveConflictAsync(settings, _workingContent);
+            var result = await AiCommitMessageService.ResolveConflictAsync(settings, _workingContent, RepositoryPath);
             if (!result.Success)
             {
                 Snackbar.Add(result.Error, Severity.Error);

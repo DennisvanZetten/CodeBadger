@@ -19,11 +19,15 @@ public sealed class AiCommitMessageService
     }
 
     public async Task<AiCommitMessageResult> GenerateAsync(LauncherSettings settings, string diff, string? branchName = null,
-        string? customInstruction = null)
-        => await GenerateAsync(settings, diff, branchName, settings.AiModel, commitMessage: true, customInstruction);
-
-    public async Task<AiCommitMessageResult> ResolveConflictAsync(LauncherSettings settings, string conflictContent)
+        string? customInstruction = null, string? repositoryPath = null)
     {
+        using var repositoryScope = CreateRepositoryScope(repositoryPath);
+        return await GenerateAsync(settings, diff, branchName, settings.AiModel, commitMessage: true, customInstruction);
+    }
+
+    public async Task<AiCommitMessageResult> ResolveConflictAsync(LauncherSettings settings, string conflictContent, string? repositoryPath = null)
+    {
+        using var repositoryScope = CreateRepositoryScope(repositoryPath);
         if (string.IsNullOrWhiteSpace(conflictContent))
             return new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("The conflict has no content to resolve."));
 
@@ -107,6 +111,11 @@ public sealed class AiCommitMessageService
             return new AiCommitMessageResult(false, string.Empty, string.Empty, _localization.T("Invalid AI provider response: {0}", exception.Message));
         }
     }
+
+    private IDisposable? CreateRepositoryScope(string? repositoryPath) =>
+        string.IsNullOrWhiteSpace(repositoryPath)
+            ? null
+            : _logger.BeginScope(new Dictionary<string, object?> { ["RepositoryPath"] = repositoryPath });
 
     private void LogAiResult(bool success, string provider, string model, bool commitMessage, long startedAt, int outputCharacters)
     {

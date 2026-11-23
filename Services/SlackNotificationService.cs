@@ -226,6 +226,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
     public async Task PublishCompletionAsync(OpenCodeActivityService.ActiveSession session, string answer,
         CancellationToken cancellationToken = default)
     {
+        using var repositoryScope = _logger.BeginScope(new Dictionary<string, object?> { ["RepositoryPath"] = session.Directory });
         if (!CanSendNotifications || IsSessionMuted(session.Id))
             return;
         var title = string.IsNullOrWhiteSpace(session.Title) || session.Title.Equals("New session", StringComparison.OrdinalIgnoreCase)
@@ -881,6 +882,13 @@ public sealed class SlackNotificationService : IAsyncDisposable
     private async Task HandleMessageEventSafelyAsync(JsonElement payload, JsonElement slackEvent,
         CancellationToken cancellationToken)
     {
+        var eventChannel = slackEvent.TryGetProperty("channel", out var channel) && channel.ValueKind == JsonValueKind.String
+            ? channel.GetString() : null;
+        var repositoryPath = eventChannel is null ? null : _sessionThreads.Values
+            .FirstOrDefault(link => link.ChannelId == eventChannel)?.Directory;
+        using var repositoryScope = !string.IsNullOrWhiteSpace(repositoryPath)
+            ? _logger.BeginScope(new Dictionary<string, object?> { ["RepositoryPath"] = repositoryPath })
+            : null;
         try
         {
             await HandleMessageEventAsync(payload, slackEvent, cancellationToken);

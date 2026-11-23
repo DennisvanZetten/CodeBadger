@@ -39,6 +39,7 @@ public sealed class LocalizationService
         ["Configured but disconnected"] = ["Configured but disconnected", "Ingesteld maar niet verbonden", "Konfiguriert, aber nicht verbunden", "Configuré mais non connecté"],
         ["Settings"] = ["Settings", "Instellingen", "Einstellungen", "Paramètres"],
         ["Application logs"] = ["Application logs", "Applicatielogboeken", "Anwendungsprotokolle", "Journaux de l’application"],
+        ["Unknown repository"] = ["Unknown repository", "Onbekende repository", "Unbekanntes Repository", "Dépôt inconnu"],
         ["Logging"] = ["Logging", "Logging", "Protokollierung", "Journalisation"],
         ["General"] = ["General", "Algemeen", "Allgemein", "Général"],
         ["General settings"] = ["General settings", "Algemene instellingen", "Allgemeine Einstellungen", "Paramètres généraux"],

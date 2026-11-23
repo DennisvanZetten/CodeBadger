@@ -37,7 +37,8 @@ public sealed record ApplicationLogEntry(
     string Category,
     LogLevel Level,
     string Message,
-    string? Exception);
+    string? Exception,
+    string? Repository = null);
 
 /// <summary>Persists categorized application logs and publishes new entries to live viewers.</summary>
 public sealed class ApplicationLogService : ILoggerProvider
@@ -49,6 +50,7 @@ public sealed class ApplicationLogService : ILoggerProvider
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly SemaphoreSlim _settingsGate = new(1, 1);
     private readonly LauncherSettingsService _settingsService;
+    private static readonly AsyncLocal<LogScope?> CurrentScope = new();
     private LauncherSettings? _cachedSettings;
     private string? _loadedPath;
 
@@ -73,7 +75,7 @@ public sealed class ApplicationLogService : ILoggerProvider
             .ToArray();
     }
 
-    public async Task WriteAsync(string loggerCategory, LogLevel level, string message, Exception? exception = null)
+    public async Task WriteAsync(string loggerCategory, LogLevel level, string message, Exception? exception = null, string? repository = null)
     {
         var category = ApplicationLogCategories.FromLoggerCategory(loggerCategory);
         LauncherSettings settings;
@@ -92,7 +94,7 @@ public sealed class ApplicationLogService : ILoggerProvider
                 @"(?i)(token|authorization|password|api[_-]?key)(\s*[:=]\s*)[^\s,;]+", "$1$2[redacted]");
         }
         var entry = new ApplicationLogEntry(DateTimeOffset.Now, category, level, message,
-            exception?.ToString());
+            exception?.ToString(), repository);
         _entries.Enqueue(entry);
         while (_entries.Count > MaximumVisibleEntries)
             _entries.TryDequeue(out _);
@@ -177,6 +179,42 @@ public sealed class ApplicationLogService : ILoggerProvider
 
     private void InvalidateSettings() => _cachedSettings = null;
 
+    private static string? GetRepository<TState>(TState? state)
+    {
+        for (var scope = CurrentScope.Value; scope is not null; scope = scope.Parent)
+        {
+            if (GetRepositoryFromState(scope.State) is { } scopedRepository)
+                return scopedRepository;
+        }
+        return GetRepositoryFromState(state);
+    }
+
+    private static string? GetRepositoryFromState<TState>(TState? state)
+    {
+        if (state is not IEnumerable<KeyValuePair<string, object?>> properties)
+            return null;
+        foreach (var (key, value) in properties)
+        {
+            if (value is not string text || string.IsNullOrWhiteSpace(text)) continue;
+            if (key.Equals("Repository", StringComparison.OrdinalIgnoreCase) || key.Equals("RepositoryName", StringComparison.OrdinalIgnoreCase))
+                return text;
+            if (key.Equals("RepositoryPath", StringComparison.OrdinalIgnoreCase) || key.Equals("WorkingDirectory", StringComparison.OrdinalIgnoreCase))
+                return Path.GetFileName(Path.TrimEndingDirectorySeparator(text));
+        }
+        return null;
+    }
+
+    private sealed record LogScope(object State, LogScope? Parent);
+
+    private sealed class ScopeHandle(LogScope scope) : IDisposable
+    {
+        public void Dispose()
+        {
+            if (ReferenceEquals(CurrentScope.Value, scope))
+                CurrentScope.Value = scope.Parent;
+        }
+    }
+
     private void EnsureLoaded(int retentionDays = 30)
     {
         var path = GetLogPath();
@@ -214,14 +252,20 @@ public sealed class ApplicationLogService : ILoggerProvider
 
     private sealed class CategoryLogger(ApplicationLogService owner, string categoryName) : ILogger
     {
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull
+        {
+            var scope = new LogScope(state, CurrentScope.Value);
+            CurrentScope.Value = scope;
+            return new ScopeHandle(scope);
+        }
         public bool IsEnabled(LogLevel logLevel) => logLevel != LogLevel.None;
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
             if (IsEnabled(logLevel))
-                _ = owner.WriteAsync(categoryName, logLevel, formatter(state, exception), exception);
+                _ = owner.WriteAsync(categoryName, logLevel, formatter(state, exception), exception,
+                    GetRepository(state));
         }
     }
 }

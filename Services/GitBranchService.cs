@@ -1453,6 +1453,7 @@ public sealed class GitBranchService
     private async Task<GitOperationResult> RunGitCoreAsync(string path, bool allowExitCodeOne, params string[] arguments)
     {
         var command = FormatArguments(arguments);
+        using var repositoryScope = _logger.BeginScope(new Dictionary<string, object?> { ["RepositoryPath"] = path });
         if (OperatingSystem.IsIOS())
             return new GitOperationResult(false, _localization.T("Git is not available in PATH."), string.Empty);
 

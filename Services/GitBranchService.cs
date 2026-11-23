@@ -855,6 +855,12 @@ public sealed class GitBranchService
         }
     }
 
+    public async Task<string?> GetGitVersionAsync(string path)
+    {
+        var result = await RunGitAsync(path, "--version");
+        return result.Success ? result.Output.Trim() : null;
+    }
+
     private static HttpClient CreateGitReleaseHttpClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };

@@ -1,4 +1,5 @@
 @using System.Globalization
+@using System.Text
 @using CodeBadger.Models
 @using CodeBadger.Components.Shared
 @inject LocalizationService L
@@ -815,7 +816,7 @@
                             <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("PowerShell is running in the repository folder. Commands run with your current Windows user permissions.")</MudText>
                             @if (_terminalSessionStarted)
                             {
-                                <RepositoryTerminal SessionId="@_terminalSessionId" RepositoryPath="@RepositoryPath"
+                                <RepositoryTerminal @key="_terminalGeneration" SessionId="@_terminalSessionId" RepositoryPath="@RepositoryPath"
                                                     Command="" IsVisible="true" UsePowerShell="true" PreserveSession="true" />
                             }
                         </MudStack>
@@ -976,6 +977,10 @@
     private GitView _view = GitView.History;
     private readonly Guid _terminalSessionId = Guid.NewGuid();
     private bool _terminalSessionStarted;
+    private int _terminalGeneration;
+    private bool _isRefreshingGitVersionAfterUpdate;
+    private readonly StringBuilder _gitUpdateOutputBuffer = new();
+    private readonly object _gitUpdateOutputLock = new();
     private bool _isBranchPanelCollapsed;
     private bool _isCommitFilesPanelCollapsed;
     private bool _showCommitBranchLabels = true;
@@ -1252,6 +1257,60 @@
         }
     }
 
+    protected override void OnInitialized()
+    {
+        TerminalService.OutputReceived += HandleGitUpdateTerminalOutput;
+    }
+
+    private void HandleGitUpdateTerminalOutput(Guid sessionId, string output)
+    {
+        if (sessionId != _terminalSessionId || _isDisposed || _isRefreshingGitVersionAfterUpdate)
+            return;
+
+        lock (_gitUpdateOutputLock)
+        {
+            _gitUpdateOutputBuffer.Append(output);
+            if (_gitUpdateOutputBuffer.Length > 4096)
+                _gitUpdateOutputBuffer.Remove(0, _gitUpdateOutputBuffer.Length - 4096);
+            if (!_gitUpdateOutputBuffer.ToString().Contains("CODEBADGER_GIT_UPDATE_COMPLETE", StringComparison.Ordinal))
+                return;
+        }
+
+        _isRefreshingGitVersionAfterUpdate = true;
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                // winget can return before its installer has updated PATH and Git's files.
+                await Task.Delay(TimeSpan.FromSeconds(3));
+                var refreshedVersion = await GitBranchService.GetGitVersionAsync(RepositoryPath);
+                if (refreshedVersion is not null && _maintenanceSnapshot is not null)
+                {
+                    _maintenanceSnapshot = _maintenanceSnapshot with { GitVersion = refreshedVersion };
+                    _gitCliUpdateCheck = await GitBranchService.CheckForGitCliUpdateAsync(refreshedVersion);
+                    _gitCliUpdateCheckFailed = _gitCliUpdateCheck is null;
+                    await InvokeAsync(StateHasChanged);
+                }
+
+                // Restart the shell so command discovery uses the updated PATH.
+                await TerminalService.StopAsync(_terminalSessionId);
+                TerminalService.ClearRecentOutput(_terminalSessionId);
+                _terminalGeneration++;
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (Exception exception)
+            {
+                Logger.LogWarning(exception, "Could not refresh Git version after the update.");
+            }
+            finally
+            {
+                _isRefreshingGitVersionAfterUpdate = false;
+                lock (_gitUpdateOutputLock)
+                    _gitUpdateOutputBuffer.Clear();
+            }
+        });
+    }
+
     private async Task LoadSubmodulesInBackgroundAsync()
     {
         try
@@ -1321,9 +1380,11 @@
         if (_gitCliUpdateCheck is not { IsUpdateAvailable: true } update)
             return;
 
-        var command = $"winget upgrade --id Git.Git --exact; if ($LASTEXITCODE -ne 0) {{ Write-Host 'winget did not update Git. You can download the official installer at https://git-scm.com/download/win' -ForegroundColor Yellow }}";
+        var command = "$ProgressPreference = 'SilentlyContinue'; winget upgrade --id Git.Git --exact; if ($LASTEXITCODE -eq 0) { Write-Output 'CODEBADGER_GIT_UPDATE_COMPLETE' } else { Write-Host 'winget did not update Git. You can download the official installer at https://git-scm.com/download/win' -ForegroundColor Yellow }";
         try
         {
+            lock (_gitUpdateOutputLock)
+                _gitUpdateOutputBuffer.Clear();
             if (!_terminalSessionStarted)
             {
                 await TerminalService.StartPowerShellWithCommandAsync(_terminalSessionId, RepositoryPath, command);
@@ -3090,6 +3151,7 @@
     public async ValueTask DisposeAsync()
     {
         _isDisposed = true;
+        TerminalService.OutputReceived -= HandleGitUpdateTerminalOutput;
         if (_terminalSessionStarted)
         {
             await TerminalService.StopAsync(_terminalSessionId);

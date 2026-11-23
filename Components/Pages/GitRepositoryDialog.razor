@@ -346,28 +346,49 @@
                                         }
                                     </div>
                                     <MudStack Row="true" Spacing="1" Class="flex-wrap">
-                                        <MudButton Variant="Variant.Outlined" Disabled="@(_isOperating || _isLoadingMaintenance)" OnClick="LoadRemoteMaintenanceSnapshotAsync">@L.T("Refresh candidates")</MudButton>
-                                        <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="@(_isOperating || _isLoadingMaintenance || _selectedRemoteMaintenanceBranches.Count == 0 || _remoteMaintenanceSnapshot?.Success != true)"
+                                        <MudButton Variant="Variant.Outlined" Disabled="@(_isOperating || _isLoadingRemoteMaintenance)" OnClick="LoadRemoteMaintenanceSnapshotAsync">@L.T("Refresh candidates")</MudButton>
+                                        <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="@(_isOperating || _isLoadingRemoteMaintenance || _selectedRemoteMaintenanceBranches.Count == 0 || _remoteMaintenanceSnapshot?.Success != true)"
                                                    OnClick="RemoveRemoteMaintenanceBranchesAsync">@L.T("Remove selected from origin ({0})", _selectedRemoteMaintenanceBranches.Count)</MudButton>
                                     </MudStack>
                                 </MudStack>
+                                @if (_isLoadingRemoteMaintenance)
+                                {
+                                    <div class="git-overview-progress git-overview-progress-active" aria-live="polite">
+                                        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                                        <span>@L.T("Loading remote branch candidates...")</span>
+                                    </div>
+                                }
                                 @if (_remoteMaintenanceSnapshot is { Success: false })
                                 {
                                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("Could not load remote branch candidates: {0}", _remoteMaintenanceSnapshot.Message)</MudAlert>
                                 }
                                 else if (_remoteMaintenanceSnapshot?.DefaultBranchName is not null && _remoteMaintenanceSnapshot.OldMergedBranches.Count > 0)
                                 {
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Class="git-remote-maintenance-filters flex-wrap">
+                                        <MudSelect T="string" Value="@_remoteMaintenanceAuthorFilter" ValueChanged="SetRemoteMaintenanceAuthorFilter"
+                                                   Label="@L.T("Last commit author")" Dense="true" Variant="Variant.Outlined" Clearable="true"
+                                                   Disabled="@(_isOperating || _isLoadingRemoteMaintenance)" Class="git-remote-maintenance-author-filter">
+                                            @foreach (var author in RemoteMaintenanceAuthors)
+                                            {
+                                                <MudSelectItem T="string" Value="@author">@(string.IsNullOrWhiteSpace(author) ? L.T("Unknown") : author)</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                        <MudNumericField T="int" Value="@_remoteMaintenanceMinimumAgeDays" ValueChanged="SetRemoteMaintenanceMinimumAgeDays"
+                                                         Label="@L.T("Minimum age (days)")" Min="90" Step="30" Variant="Variant.Outlined"
+                                                         Disabled="@(_isOperating || _isLoadingRemoteMaintenance)" Class="git-remote-maintenance-age-filter" />
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Showing {0} of {1}", FilteredRemoteMaintenanceBranches.Count, _remoteMaintenanceSnapshot.OldMergedBranches.Count)</MudText>
+                                    </MudStack>
                                     <MudCheckBox T="bool" Value="@AreAllRemoteMaintenanceBranchesSelected" ValueChanged="SetAllRemoteMaintenanceBranchesSelected"
-                                                 Label="@L.T("Select all branches")" Disabled="@_isOperating" Size="Size.Small" />
+                                                 Label="@L.T("Select all branches")" Disabled="@(_isOperating || _isLoadingRemoteMaintenance || FilteredRemoteMaintenanceBranches.Count == 0)" Size="Size.Small" />
                                     <MudList T="string" Dense="true">
-                                        @foreach (var branch in _remoteMaintenanceSnapshot.OldMergedBranches)
+                                        @foreach (var branch in FilteredRemoteMaintenanceBranches)
                                         {
                                             <MudListItem T="string" Value="@branch.Name">
                                                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100 flex-wrap">
                                                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                                        <MudCheckBox T="bool" Value="@_selectedRemoteMaintenanceBranches.Contains(branch.Name)"
-                                                                     ValueChanged="@(selected => SetRemoteMaintenanceBranchSelected(branch.Name, selected))"
-                                                                     Disabled="@_isOperating" Size="Size.Small" />
+                                                         <MudCheckBox T="bool" Value="@_selectedRemoteMaintenanceBranches.Contains(branch.Name)"
+                                                                      ValueChanged="@(selected => SetRemoteMaintenanceBranchSelected(branch.Name, selected))"
+                                                                      Disabled="@(_isOperating || _isLoadingRemoteMaintenance)" Size="Size.Small" />
                                                         <MudStack Spacing="0">
                                                             <MudText>@branch.Name <MudText Inline="true" Typo="Typo.caption" Color="Color.Secondary">@L.T("Inactive for {0} days", branch.AgeDays)</MudText></MudText>
                                                             <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Last commit author: {0}", string.IsNullOrWhiteSpace(branch.Author) ? L.T("Unknown") : branch.Author)</MudText>
@@ -377,10 +398,18 @@
                                             </MudListItem>
                                         }
                                     </MudList>
+                                    @if (FilteredRemoteMaintenanceBranches.Count == 0)
+                                    {
+                                        <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("No branches match these filters.")</MudText>
+                                    }
                                 }
                                 else if (_remoteMaintenanceSnapshot is { Success: true, DefaultBranchName: not null })
                                 {
                                     <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("No old merged remote branches found.")</MudText>
+                                }
+                                else if (!_isLoadingRemoteMaintenance && _remoteMaintenanceSnapshot is not null)
+                                {
+                                    <MudText Typo="Typo.body2" Color="Color.Warning">@L.T("Could not detect the origin default branch. Remote branch candidates cannot be safely determined.")</MudText>
                                 }
                             </MudStack>
                         </MudPaper>
@@ -962,6 +991,7 @@
     private bool _isLoadingDiff;
     private bool _isOperating;
     private bool _isLoadingMaintenance;
+    private bool _isLoadingRemoteMaintenance;
     private bool _isCheckingGitCliUpdate;
     private bool _gitCliUpdateCheckFailed;
     private GitCliUpdateCheck? _gitCliUpdateCheck;
@@ -971,6 +1001,8 @@
     private readonly HashSet<string> _selectedMaintenanceBranches = new(StringComparer.Ordinal);
     private GitRemoteMaintenanceSnapshot? _remoteMaintenanceSnapshot;
     private readonly HashSet<string> _selectedRemoteMaintenanceBranches = new(StringComparer.Ordinal);
+    private string _remoteMaintenanceAuthorFilter = string.Empty;
+    private int _remoteMaintenanceMinimumAgeDays = 90;
     private bool _isGeneratingMessage;
     private bool _isCheckingAiConnection = true;
     private bool _hasAiConnection;
@@ -1040,7 +1072,18 @@
     private bool AreAllMaintenanceBranchesSelected => _maintenanceSnapshot?.OldMergedBranches.Count > 0 &&
         _maintenanceSnapshot.OldMergedBranches.All(branch => _selectedMaintenanceBranches.Contains(branch.Name));
     private bool AreAllRemoteMaintenanceBranchesSelected => _remoteMaintenanceSnapshot?.OldMergedBranches.Count > 0 &&
-        _remoteMaintenanceSnapshot.OldMergedBranches.All(branch => _selectedRemoteMaintenanceBranches.Contains(branch.Name));
+        FilteredRemoteMaintenanceBranches.Count > 0 &&
+        FilteredRemoteMaintenanceBranches.All(branch => _selectedRemoteMaintenanceBranches.Contains(branch.Name));
+    private IReadOnlyList<GitRemoteMaintenanceBranch> FilteredRemoteMaintenanceBranches =>
+        _remoteMaintenanceSnapshot?.OldMergedBranches
+            .Where(branch => branch.AgeDays >= _remoteMaintenanceMinimumAgeDays &&
+                (string.IsNullOrEmpty(_remoteMaintenanceAuthorFilter) || string.Equals(branch.Author, _remoteMaintenanceAuthorFilter, StringComparison.OrdinalIgnoreCase)))
+            .ToList() ?? [];
+    private IReadOnlyList<string> RemoteMaintenanceAuthors => _remoteMaintenanceSnapshot?.OldMergedBranches
+        .Select(branch => branch.Author)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(author => author, StringComparer.OrdinalIgnoreCase)
+        .ToList() ?? [];
     private IReadOnlyList<BranchFolder> VisibleLocalBranchFolders => GroupBranchesIntoFolders(VisibleLocalBranches);
     private IReadOnlyList<BranchFolder> VisibleRemoteBranchFolders => GroupBranchesIntoFolders(VisibleRemoteBranches);
     private IReadOnlyList<GitFileChange> StagedFiles => _files.Where(file => file.IsStaged && !file.IsConflicted).ToList();
@@ -1408,7 +1451,9 @@
 
     private async Task LoadRemoteMaintenanceSnapshotAsync()
     {
-        _isLoadingMaintenance = true;
+        _isLoadingRemoteMaintenance = true;
+        await InvokeAsync(StateHasChanged);
+        await Task.Yield();
         try
         {
             _remoteMaintenanceSnapshot = await GitBranchService.GetRemoteMaintenanceSnapshotAsync(RepositoryPath);
@@ -1417,9 +1462,13 @@
         }
         finally
         {
-            _isLoadingMaintenance = false;
+            _isLoadingRemoteMaintenance = false;
         }
     }
+
+    private void SetRemoteMaintenanceAuthorFilter(string? author) => _remoteMaintenanceAuthorFilter = author ?? string.Empty;
+
+    private void SetRemoteMaintenanceMinimumAgeDays(int ageDays) => _remoteMaintenanceMinimumAgeDays = Math.Max(90, ageDays);
 
     private async Task RunGitMaintenanceAsync()
     {
@@ -1584,9 +1633,13 @@
 
     private void SetAllRemoteMaintenanceBranchesSelected(bool selected)
     {
-        _selectedRemoteMaintenanceBranches.Clear();
-        if (selected && _remoteMaintenanceSnapshot is not null)
-            _selectedRemoteMaintenanceBranches.UnionWith(_remoteMaintenanceSnapshot.OldMergedBranches.Select(branch => branch.Name));
+        foreach (var branch in FilteredRemoteMaintenanceBranches)
+        {
+            if (selected)
+                _selectedRemoteMaintenanceBranches.Add(branch.Name);
+            else
+                _selectedRemoteMaintenanceBranches.Remove(branch.Name);
+        }
     }
 
     private void SetRemoteMaintenanceBranchSelected(string branchName, bool selected)

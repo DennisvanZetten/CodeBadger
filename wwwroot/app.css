@@ -1362,6 +1362,18 @@ h1:focus {
     overflow-y: auto;
 }
 
+.git-remote-maintenance-filters {
+    gap: 0.75rem;
+}
+
+.git-remote-maintenance-author-filter {
+    min-width: min(18rem, 100%);
+}
+
+.git-remote-maintenance-age-filter {
+    width: 10rem;
+}
+
 .git-maintenance-stat {
     min-height: 5.5rem;
 }

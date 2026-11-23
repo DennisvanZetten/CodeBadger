@@ -137,6 +137,31 @@ body {
     line-height: 1.35 !important;
 }
 
+/* Give the item editor room for longer descriptions and allow resizing on desktop. */
+.mud-dialog.idea-edit-dialog {
+    display: flex;
+    flex-direction: column;
+    width: min(1100px, 92vw);
+    height: min(850px, 90vh);
+    min-width: min(600px, 92vw);
+    min-height: min(500px, 60vh);
+    max-width: 92vw;
+    max-height: 90vh;
+    overflow: auto;
+    resize: both;
+}
+
+.mud-dialog.idea-edit-dialog .mud-dialog-title,
+.mud-dialog.idea-edit-dialog .mud-dialog-actions {
+    flex: 0 0 auto;
+}
+
+.mud-dialog.idea-edit-dialog .mud-dialog-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+}
+
 .mud-input-slot.mud-input-root-outlined.mud-input-root-margin-dense .mud-icon-button {
     width: 26px;
     height: 26px;

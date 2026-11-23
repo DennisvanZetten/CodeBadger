@@ -2,7 +2,7 @@
 @inject LocalizationService L
 @inject LauncherSettingsService SettingsService
 
-<MudDialog>
+<MudDialog Class="idea-edit-dialog">
     <TitleContent><MudText Typo="Typo.h6">@L.T("Edit item")</MudText></TitleContent>
     <DialogContent>
         <MudStack Spacing="3">
@@ -14,7 +14,7 @@
                 <MudSelectItem Value="IdeaType.Bug">@L.T("Bug")</MudSelectItem>
                 <MudSelectItem Value="IdeaType.Story">@L.T("Story")</MudSelectItem>
             </MudSelect>
-            <MudTextField @bind-Value="_description" Label="@L.T("Description (optional)")" Lines="4" MaxLength="2000" />
+            <MudTextField @bind-Value="_description" Label="@L.T("Description (optional)")" Lines="12" MaxLength="2000" />
             <MudSelect T="IdeaStatus" @bind-Value="_status" Label="@L.T("Status")">
                 <MudSelectItem Value="IdeaStatus.Open">@L.T("Open")</MudSelectItem>
                 <MudSelectItem Value="IdeaStatus.InProgress">@L.T("In progress")</MudSelectItem>

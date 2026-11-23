@@ -113,7 +113,7 @@
     {
         var parameters = new DialogParameters<EditIdeaDialog> { { dialog => dialog.Item, item } };
         var dialog = await Dialogs.ShowAsync<EditIdeaDialog>(L.T("Edit item"), parameters,
-            new DialogOptions { CloseButton = true, CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true });
+            new DialogOptions { CloseButton = true, CloseOnEscapeKey = true, MaxWidth = MaxWidth.False });
         await dialog.Result;
     }
 

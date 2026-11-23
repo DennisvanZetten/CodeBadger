@@ -229,7 +229,26 @@
                         </MudPaper>
                         <div class="git-history-splitter git-history-branch-splitter" role="separator" aria-orientation="vertical" aria-label="Resize branch panel" tabindex="0"></div>
                         <MudPaper Class="pa-3 git-dialog-panel git-commit-history-panel" Outlined="true" Elevation="0">
-                                <MudText Typo="Typo.subtitle1" Class="mb-2">@L.T("Recent commits")</MudText>
+                                <div class="git-commit-history-header">
+                                    <MudText Typo="Typo.subtitle1">@L.T("Recent commits")</MudText>
+                                    <MudMenu Icon="@Icons.Material.Filled.Settings" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" Class="git-commit-column-menu" aria-label="@L.T("Commit display settings")">
+                                        <MudMenuItem OnClick="@(() => ToggleCommitDisplayOptionAsync(CommitDisplayOption.BranchLabels))">
+                                            <MudIcon Icon="@CommitDisplayIcon(CommitDisplayOption.BranchLabels)" Size="Size.Small" /> @L.T("Branch labels")
+                                        </MudMenuItem>
+                                        <MudMenuItem OnClick="@(() => ToggleCommitDisplayOptionAsync(CommitDisplayOption.Graph))">
+                                            <MudIcon Icon="@CommitDisplayIcon(CommitDisplayOption.Graph)" Size="Size.Small" /> @L.T("Commit graph")
+                                        </MudMenuItem>
+                                        <MudMenuItem OnClick="@(() => ToggleCommitDisplayOptionAsync(CommitDisplayOption.Author))">
+                                            <MudIcon Icon="@CommitDisplayIcon(CommitDisplayOption.Author)" Size="Size.Small" /> @L.T("Author")
+                                        </MudMenuItem>
+                                        <MudMenuItem OnClick="@(() => ToggleCommitDisplayOptionAsync(CommitDisplayOption.Date))">
+                                            <MudIcon Icon="@CommitDisplayIcon(CommitDisplayOption.Date)" Size="Size.Small" /> @L.T("Date / time")
+                                        </MudMenuItem>
+                                        <MudMenuItem OnClick="@(() => ToggleCommitDisplayOptionAsync(CommitDisplayOption.Sha))">
+                                            <MudIcon Icon="@CommitDisplayIcon(CommitDisplayOption.Sha)" Size="Size.Small" /> @L.T("Short SHA")
+                                        </MudMenuItem>
+                                    </MudMenu>
+                                </div>
                                  <MudStack Spacing="0" Class="git-dialog-list git-commit-list">
                                     @foreach (var commit in _snapshot.Commits)
                                     {
@@ -240,8 +259,10 @@
                                              @oncontextmenu:preventDefault="true"
                                              @oncontextmenu="@(args => OpenCommitContextMenuAsync(commit, args))"
                                              @onkeydown="@(args => HandleCommitRowKeyDown(args, commit))">
-                                            <div class="git-commit-branch-labels">
-                                                @if (commit.BranchLabels is { Count: > 0 })
+                                             @if (_showCommitBranchLabels)
+                                             {
+                                             <div class="git-commit-branch-labels">
+                                                 @if (commit.BranchLabels is { Count: > 0 })
                                                 {
                                                     @foreach (var label in commit.BranchLabels)
                                                     {
@@ -275,8 +296,11 @@
                                                         <span class="git-commit-branch-name">@pathLabel.Name</span>
                                                     </span>
                                                 }
-                                            </div>
-                                             <svg class="git-commit-graph" width="@GraphPixelWidth" height="52"
+                                             </div>
+                                             }
+                                             @if (_showCommitGraph)
+                                             {
+                                              <svg class="git-commit-graph" width="@GraphPixelWidth" height="52"
                                                   viewBox="0 0 @GraphPixelWidth 52" preserveAspectRatio="xMinYMid meet" aria-hidden="true">
                                                 @if (commit.GraphEdges is not null)
                                                 {
@@ -286,11 +310,15 @@
                                                     }
                                                 }
                                                 <circle class="@(IsSoloDimmedCommit(commit) ? "git-solo-dimmed" : "")" cx="@GraphX(commit.GraphColumn)" cy="26" r="5.5" fill="var(--mud-palette-surface)" stroke="@GraphColor(commit.GraphColor)" style="@GraphStrokeStyle(commit.GraphColor)" stroke-width="3" />
-                                            </svg>
-                                            <div class="git-commit-content">
-                                                <MudText Typo="Typo.body2" Class="git-commit-subject" title="@commit.Subject">@commit.Subject</MudText>
-                                                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="git-commit-metadata" title="@($"{commit.ShortHash} · {commit.Author} · {FormatDate(commit.Date)}")">@commit.ShortHash · @commit.Author · @FormatDate(commit.Date)</MudText>
-                                            </div>
+                                              </svg>
+                                             }
+                                             <div class="git-commit-content">
+                                                 <MudText Typo="Typo.body2" Class="git-commit-subject" title="@commit.Subject">@commit.Subject</MudText>
+                                                 @if (HasVisibleCommitMetadata)
+                                                 {
+                                                     <MudText Typo="Typo.caption" Color="Color.Secondary" Class="git-commit-metadata" title="@CommitMetadataTitle(commit)">@CommitMetadata(commit)</MudText>
+                                                 }
+                                             </div>
                                         </div>
                                     }
                                     @if (_snapshot.Commits.Count == 0)
@@ -597,6 +625,11 @@
     private GitView _view = GitView.History;
     private bool _isBranchPanelCollapsed;
     private bool _isCommitFilesPanelCollapsed;
+    private bool _showCommitBranchLabels = true;
+    private bool _showCommitGraph = true;
+    private bool _showCommitAuthor = true;
+    private bool _showCommitDate = true;
+    private bool _showCommitSha = true;
     private bool _isLoadingCommitFiles;
     private bool _isLoadingCommitFileDiff;
     private GitCommitEntry? _selectedCommit;
@@ -645,12 +678,89 @@
     private bool AreAllUnstagedFilesSelected => UnstagedFiles.Count > 0 && UnstagedFiles.All(file => _selectedUnstagedFilePaths.Contains(file.Path));
     private int HiddenStashCount => _stashes.Count(stash => _hiddenStashCommitHashes.Contains(stash.CommitHash));
     private IReadOnlyList<GitStashEntry> VisibleStashes => _stashes.Where(stash => _showHiddenStashes || !_hiddenStashCommitHashes.Contains(stash.CommitHash)).ToList();
+    private bool HasVisibleCommitMetadata => _showCommitSha || _showCommitAuthor || _showCommitDate;
+
+    private string CommitMetadata(GitCommitEntry commit) => string.Join(" · ", new[]
+    {
+        _showCommitSha ? commit.ShortHash : null,
+        _showCommitAuthor ? commit.Author : null,
+        _showCommitDate ? FormatDate(commit.Date) : null
+    }.Where(value => !string.IsNullOrWhiteSpace(value)));
+
+    private string CommitMetadataTitle(GitCommitEntry commit) => CommitMetadata(commit);
+
+    private string CommitDisplayIcon(CommitDisplayOption option) => IsCommitDisplayOptionEnabled(option)
+        ? Icons.Material.Filled.CheckBox
+        : Icons.Material.Filled.CheckBoxOutlineBlank;
+
+    private bool IsCommitDisplayOptionEnabled(CommitDisplayOption option) => option switch
+    {
+        CommitDisplayOption.BranchLabels => _showCommitBranchLabels,
+        CommitDisplayOption.Graph => _showCommitGraph,
+        CommitDisplayOption.Author => _showCommitAuthor,
+        CommitDisplayOption.Date => _showCommitDate,
+        CommitDisplayOption.Sha => _showCommitSha,
+        _ => false
+    };
+
+    private async Task ToggleCommitDisplayOptionAsync(CommitDisplayOption option)
+    {
+        switch (option)
+        {
+            case CommitDisplayOption.BranchLabels:
+                _showCommitBranchLabels = !_showCommitBranchLabels;
+                break;
+            case CommitDisplayOption.Graph:
+                _showCommitGraph = !_showCommitGraph;
+                break;
+            case CommitDisplayOption.Author:
+                _showCommitAuthor = !_showCommitAuthor;
+                break;
+            case CommitDisplayOption.Date:
+                _showCommitDate = !_showCommitDate;
+                break;
+            case CommitDisplayOption.Sha:
+                _showCommitSha = !_showCommitSha;
+                break;
+        }
+
+        await SaveCommitDisplayOptionsAsync();
+    }
+
+    private async Task SaveCommitDisplayOptionsAsync()
+    {
+        if (RepositorySettings is null)
+            return;
+
+        RepositorySettings.ShowCommitBranchLabels = _showCommitBranchLabels;
+        RepositorySettings.ShowCommitGraph = _showCommitGraph;
+        RepositorySettings.ShowCommitAuthor = _showCommitAuthor;
+        RepositorySettings.ShowCommitDate = _showCommitDate;
+        RepositorySettings.ShowCommitSha = _showCommitSha;
+
+        var settings = await LauncherSettingsService.LoadAsync();
+        var repository = settings.Repositories.FirstOrDefault(entry => entry.Id == RepositorySettings.Id);
+        if (repository is null)
+            return;
+
+        repository.ShowCommitBranchLabels = _showCommitBranchLabels;
+        repository.ShowCommitGraph = _showCommitGraph;
+        repository.ShowCommitAuthor = _showCommitAuthor;
+        repository.ShowCommitDate = _showCommitDate;
+        repository.ShowCommitSha = _showCommitSha;
+        await LauncherSettingsService.SaveAsync(settings);
+    }
 
     protected override void OnParametersSet()
     {
         _hiddenStashCommitHashes.Clear();
         if (RepositorySettings?.HiddenStashCommitHashes is { } hiddenHashes)
             _hiddenStashCommitHashes.UnionWith(hiddenHashes);
+        _showCommitBranchLabels = RepositorySettings?.ShowCommitBranchLabels ?? true;
+        _showCommitGraph = RepositorySettings?.ShowCommitGraph ?? true;
+        _showCommitAuthor = RepositorySettings?.ShowCommitAuthor ?? true;
+        _showCommitDate = RepositorySettings?.ShowCommitDate ?? true;
+        _showCommitSha = RepositorySettings?.ShowCommitSha ?? true;
     }
 
     protected override Task OnInitializedAsync() => Task.CompletedTask;
@@ -1855,6 +1965,7 @@
     private sealed record BranchFolder(string? Name, IReadOnlyList<GitBranchEntry> Branches);
     private sealed record GitCommitFile(string Path, string Status);
     private enum GitView { History, Commit }
+    private enum CommitDisplayOption { BranchLabels, Graph, Author, Date, Sha }
 
     private Task PullAsync() => RunGitOperationAsync(() => GitBranchService.PullAsync(RepositoryPath), "Pull");
     private Task PushAsync() => RunGitOperationAsync(() => GitBranchService.PushWhenUpToDateAsync(RepositoryPath), "Push");

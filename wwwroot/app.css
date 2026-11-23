@@ -2073,6 +2073,22 @@ h1:focus {
     position: relative;
 }
 
+.git-commit-history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.git-commit-history-header .mud-typography {
+    margin: 0;
+}
+
+.git-commit-column-menu {
+    margin: -0.25rem -0.5rem -0.25rem 0;
+}
+
 .git-commit-context-menu {
     position: absolute;
     min-width: 13rem;

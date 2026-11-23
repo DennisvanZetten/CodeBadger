@@ -51,6 +51,11 @@ public sealed class RepositoryEntry
     public string AiCustomInstruction { get; set; } = string.Empty;
     public bool SlackNotificationsMuted { get; set; }
     public List<string> HiddenStashCommitHashes { get; set; } = [];
+    public bool ShowCommitBranchLabels { get; set; } = true;
+    public bool ShowCommitGraph { get; set; } = true;
+    public bool ShowCommitAuthor { get; set; } = true;
+    public bool ShowCommitDate { get; set; } = true;
+    public bool ShowCommitSha { get; set; } = true;
 }
 
 public static class TicketSystems

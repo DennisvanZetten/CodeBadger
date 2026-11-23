@@ -194,8 +194,11 @@
                             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("Repository diagnostics could not be loaded.")</MudAlert>
                         }
 
-                        <MudPaper Class="pa-3 git-dialog-panel" Outlined="true" Elevation="0">
+                        <MudPaper Class="pa-3 git-dialog-panel git-maintenance-safe" Outlined="true" Elevation="0">
                             <MudStack Spacing="2">
+                                <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.VerifiedUser">
+                                    @L.T("Safe local optimization: this does not remove branches or rewrite commit history.")
+                                </MudAlert>
                                 <MudText Typo="Typo.subtitle1">@L.T("Safe maintenance")</MudText>
                                 <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Git maintenance optimizes local storage and commit indexes. It does not delete branches or rewrite commit history.")</MudText>
                                 <MudStack Row="true" Spacing="2" Class="flex-wrap">
@@ -215,7 +218,7 @@
                             </MudStack>
                         </MudPaper>
 
-                        <MudPaper Class="pa-3 git-dialog-panel" Outlined="true" Elevation="0">
+                        <MudPaper Class="pa-3 git-dialog-panel git-maintenance-safe" Outlined="true" Elevation="0">
                             <MudStack Spacing="1">
                                 <MudText Typo="Typo.subtitle1">@L.T("Faster Git status")</MudText>
                                 <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("These repository-local options can speed up status checks on supported file systems. Enable them only if they work correctly in your environment.")</MudText>
@@ -240,22 +243,37 @@
                             </MudStack>
                         </MudPaper>
 
-                        <MudPaper Class="pa-3 git-dialog-panel" Outlined="true" Elevation="0">
+                        <MudPaper Class="pa-3 git-dialog-panel git-maintenance-destructive" Outlined="true" Elevation="0">
                             <MudStack Spacing="2">
+                                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Warning">
+                                    <MudText Typo="Typo.subtitle2">@L.T("Branch cleanup changes local references")</MudText>
+                                    <MudText Typo="Typo.body2">@L.T("Removing a branch does not delete commits from shared history, but an unmerged branch may contain work you still need. Review candidates and keep a backup if unsure.")</MudText>
+                                </MudAlert>
                                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
                                     <div>
                                         <MudText Typo="Typo.subtitle1">@L.T("Old merged branches")</MudText>
-                                        <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Candidates are local branches merged into the current branch and inactive for at least 90 days. Protected branches are excluded.")</MudText>
+                                        @if (!string.IsNullOrWhiteSpace(_maintenanceSnapshot?.DefaultBranchName))
+                                        {
+                                            <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Candidates are checked against the detected default branch '{0}' and inactive for at least 90 days. Protected branches are excluded.", _maintenanceSnapshot.DefaultBranchName)</MudText>
+                                        }
+                                        else
+                                        {
+                                            <MudText Typo="Typo.body2" Color="Color.Warning">@L.T("Could not detect the default branch. Branch candidates cannot be safely determined.")</MudText>
+                                        }
                                     </div>
                                     <MudStack Row="true" Spacing="1" Class="flex-wrap">
                                         <MudButton Variant="Variant.Outlined" Disabled="@(_isOperating || _isLoadingMaintenance)" OnClick="LoadMaintenanceSnapshotAsync">@L.T("Refresh candidates")</MudButton>
-                                        <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="@(_isOperating || _isLoadingMaintenance || _selectedMaintenanceBranches.Count == 0)"
+                                        <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="@(_isOperating || _isLoadingMaintenance || _selectedMaintenanceBranches.Count == 0 || _maintenanceSnapshot?.DefaultBranchName is null)"
                                                    OnClick="@(() => RemoveMaintenanceBranchesAsync(false))">@L.T("Remove selected ({0})", _selectedMaintenanceBranches.Count)</MudButton>
-                                        <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="@(_isOperating || _isLoadingMaintenance || _maintenanceSnapshot?.OldMergedBranches.Count == 0)"
+                                        <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="@(_isOperating || _isLoadingMaintenance || _maintenanceSnapshot?.OldMergedBranches.Count == 0 || _maintenanceSnapshot?.DefaultBranchName is null)"
                                                    OnClick="@(() => RemoveMaintenanceBranchesAsync(true))">@L.T("Remove all")</MudButton>
                                     </MudStack>
                                 </MudStack>
-                                @if (_maintenanceSnapshot?.OldMergedBranches.Count > 0)
+                                @if (_maintenanceSnapshot?.DefaultBranchName is null)
+                                {
+                                    <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Set the remote default branch (origin/HEAD), or ensure a local main, master, develop, or development branch exists, then refresh candidates.")</MudText>
+                                }
+                                else if (_maintenanceSnapshot.OldMergedBranches.Count > 0)
                                 {
                                     <MudCheckBox T="bool" Value="@AreAllMaintenanceBranchesSelected" ValueChanged="SetAllMaintenanceBranchesSelected"
                                                  Label="@L.T("Select all branches")" Disabled="@_isOperating" Size="Size.Small" />

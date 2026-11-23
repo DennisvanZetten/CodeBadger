@@ -1261,6 +1261,14 @@ h1:focus {
     min-height: 5.5rem;
 }
 
+.git-maintenance-safe {
+    border-inline-start: 4px solid var(--mud-palette-success) !important;
+}
+
+.git-maintenance-destructive {
+    border-inline-start: 4px solid var(--mud-palette-warning) !important;
+}
+
 .git-submodule-summary { flex: 0 0 auto; }
 .git-submodules-panel { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .git-submodule-tree { overflow: auto; }

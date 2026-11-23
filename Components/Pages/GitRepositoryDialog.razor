@@ -85,7 +85,10 @@
                                  OnClick="@(() => SwitchToCommitViewAsync())">@L.T("Create commit")</MudButton>
                     <MudButton Class="@(_view == GitView.Submodules ? "git-view-active" : "git-view-inactive")"
                                StartIcon="@Icons.Material.Filled.AccountTree" Color="@(_view == GitView.Submodules ? Color.Primary : Color.Default)" Variant="@(_view == GitView.Submodules ? Variant.Filled : Variant.Outlined)"
-                               OnClick="@(() => SwitchToSubmodulesViewAsync())">@L.T("Submodules") (@_submodules.Entries.Count)</MudButton>
+                                OnClick="@(() => SwitchToSubmodulesViewAsync())">@L.T("Submodules") (@_submodules.Entries.Count)</MudButton>
+                    <MudButton Class="@(_view == GitView.Maintenance ? "git-view-active" : "git-view-inactive")"
+                               StartIcon="@Icons.Material.Filled.Build" Color="@(_view == GitView.Maintenance ? Color.Primary : Color.Default)" Variant="@(_view == GitView.Maintenance ? Variant.Filled : Variant.Outlined)"
+                               OnClick="@SwitchToMaintenanceViewAsync">@L.T("Maintenance")</MudButton>
                 </MudButtonGroup>
 
                 @if (_submodules.Entries.Count > 0)
@@ -150,6 +153,128 @@
                             }
                         </MudStack>
                     </MudPaper>
+                }
+                else if (_view == GitView.Maintenance)
+                {
+                    <div class="git-maintenance-workspace">
+                        <MudText Typo="Typo.h6">@L.T("Repository health")</MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Inspect local Git storage and run safe maintenance without rewriting history.")</MudText>
+
+                        @if (_isLoadingMaintenance)
+                        {
+                            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                        }
+                        else if (_maintenanceSnapshot is not null)
+                        {
+                            <MudGrid Spacing="2">
+                                <MudItem xs="12" sm="6" md="3">
+                                    <MudPaper Class="pa-3 git-maintenance-stat" Outlined="true" Elevation="0">
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Loose objects")</MudText>
+                                        <MudText Typo="Typo.h6">@_maintenanceSnapshot.LooseObjectCount.ToString("N0")</MudText>
+                                        <MudText Typo="Typo.caption">@FormatGitSize(_maintenanceSnapshot.LooseObjectSizeKb)</MudText>
+                                    </MudPaper>
+                                </MudItem>
+                                <MudItem xs="12" sm="6" md="3">
+                                    <MudPaper Class="pa-3 git-maintenance-stat" Outlined="true" Elevation="0">
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Pack files")</MudText>
+                                        <MudText Typo="Typo.h6">@_maintenanceSnapshot.PackCount.ToString("N0")</MudText>
+                                        <MudText Typo="Typo.caption">@FormatGitSize(_maintenanceSnapshot.PackedObjectSizeKb)</MudText>
+                                    </MudPaper>
+                                </MudItem>
+                                <MudItem xs="12" sm="6" md="3">
+                                    <MudPaper Class="pa-3 git-maintenance-stat" Outlined="true" Elevation="0">
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Git version")</MudText>
+                                        <MudText Typo="Typo.body1">@_maintenanceSnapshot.GitVersion</MudText>
+                                    </MudPaper>
+                                </MudItem>
+                            </MudGrid>
+                        }
+                        else
+                        {
+                            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("Repository diagnostics could not be loaded.")</MudAlert>
+                        }
+
+                        <MudPaper Class="pa-3 git-dialog-panel" Outlined="true" Elevation="0">
+                            <MudStack Spacing="2">
+                                <MudText Typo="Typo.subtitle1">@L.T("Safe maintenance")</MudText>
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Git maintenance optimizes local storage and commit indexes. It does not delete branches or rewrite commit history.")</MudText>
+                                <MudStack Row="true" Spacing="2" Class="flex-wrap">
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Build"
+                                               Disabled="@(_isOperating || _isLoadingMaintenance)" OnClick="RunGitMaintenanceAsync">
+                                        @(_isOperating ? L.T("Running maintenance...") : L.T("Run Git maintenance"))
+                                    </MudButton>
+                                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Sync"
+                                               Disabled="@(_isOperating || _isLoadingMaintenance)" OnClick="PruneRemoteReferencesAsync">
+                                        @L.T("Prune remote references")
+                                    </MudButton>
+                                </MudStack>
+                                @if (!string.IsNullOrWhiteSpace(_maintenanceMessage))
+                                {
+                                    <MudAlert Severity="@(_maintenanceSucceeded ? Severity.Success : Severity.Warning)" Variant="Variant.Outlined">@_maintenanceMessage</MudAlert>
+                                }
+                            </MudStack>
+                        </MudPaper>
+
+                        <MudPaper Class="pa-3 git-dialog-panel" Outlined="true" Elevation="0">
+                            <MudStack Spacing="1">
+                                <MudText Typo="Typo.subtitle1">@L.T("Faster Git status")</MudText>
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("These repository-local options can speed up status checks on supported file systems. Enable them only if they work correctly in your environment.")</MudText>
+                                @if (_maintenanceSnapshot is not null)
+                                {
+                                    @if (_maintenanceSnapshot.SupportsBuiltInFileSystemMonitor)
+                                    {
+                                        <MudSwitch T="bool" Value="@_maintenanceSnapshot.IsFileSystemMonitorEnabled"
+                                                   ValueChanged="@(enabled => SetStatusOptimizationAsync(true, enabled))"
+                                                   Disabled="@(_isOperating || _isLoadingMaintenance)" Color="Color.Primary"
+                                                   Label="@L.T("Use Git file system monitor")" />
+                                    }
+                                    else
+                                    {
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("The built-in file system monitor requires Git 2.37 or newer. External monitors can be configured separately.")</MudText>
+                                    }
+                                    <MudSwitch T="bool" Value="@_maintenanceSnapshot.IsUntrackedCacheEnabled"
+                                               ValueChanged="@(enabled => SetStatusOptimizationAsync(false, enabled))"
+                                               Disabled="@(_isOperating || _isLoadingMaintenance)" Color="Color.Primary"
+                                               Label="@L.T("Use Git untracked cache")" />
+                                }
+                            </MudStack>
+                        </MudPaper>
+
+                        <MudPaper Class="pa-3 git-dialog-panel" Outlined="true" Elevation="0">
+                            <MudStack Spacing="2">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
+                                    <div>
+                                        <MudText Typo="Typo.subtitle1">@L.T("Old merged branches")</MudText>
+                                        <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Candidates are local branches merged into the current branch and inactive for at least 90 days. Protected branches are excluded.")</MudText>
+                                    </div>
+                                    <MudButton Variant="Variant.Outlined" Disabled="@(_isOperating || _isLoadingMaintenance)" OnClick="LoadMaintenanceSnapshotAsync">@L.T("Refresh candidates")</MudButton>
+                                </MudStack>
+                                @if (_maintenanceSnapshot?.OldMergedBranches.Count > 0)
+                                {
+                                    <MudList T="string" Dense="true">
+                                        @foreach (var branch in _maintenanceSnapshot.OldMergedBranches)
+                                        {
+                                            <MudListItem T="string" Value="@branch.Name">
+                                                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100 flex-wrap">
+                                                    <MudText>@branch.Name <MudText Inline="true" Typo="Typo.caption" Color="Color.Secondary">@L.T("Inactive for {0} days", branch.AgeDays)</MudText></MudText>
+                                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning"
+                                                               Disabled="@_isOperating" OnClick="@(() => DeleteMergedBranchAsync(branch))">@L.T("Remove local branch")</MudButton>
+                                                </MudStack>
+                                            </MudListItem>
+                                        }
+                                    </MudList>
+                                }
+                                else if (!_isLoadingMaintenance && _maintenanceSnapshot is not null)
+                                {
+                                    <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("No old merged local branches found.")</MudText>
+                                }
+                            </MudStack>
+                        </MudPaper>
+
+                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Info">
+                            @L.T("Removing commits from shared history is not a routine speed optimization. For large historical files, consider a filtered clone or a carefully backed-up history rewrite instead.")
+                        </MudAlert>
+                    </div>
                 }
                 else if (_view == GitView.History)
                 {
@@ -674,6 +799,10 @@
     private int? _loadedBranchCount;
     private bool _isLoadingDiff;
     private bool _isOperating;
+    private bool _isLoadingMaintenance;
+    private bool _maintenanceSucceeded;
+    private string? _maintenanceMessage;
+    private GitMaintenanceSnapshot? _maintenanceSnapshot;
     private bool _isGeneratingMessage;
     private bool _isCheckingAiConnection = true;
     private bool _hasAiConnection;
@@ -935,6 +1064,125 @@
             _isLoading = false;
         }
     }
+
+    private async Task SwitchToMaintenanceViewAsync()
+    {
+        _view = GitView.Maintenance;
+        if (_maintenanceSnapshot is null)
+            await LoadMaintenanceSnapshotAsync();
+    }
+
+    private async Task LoadMaintenanceSnapshotAsync()
+    {
+        _isLoadingMaintenance = true;
+        try
+        {
+            _maintenanceSnapshot = await GitBranchService.GetMaintenanceSnapshotAsync(RepositoryPath);
+        }
+        finally
+        {
+            _isLoadingMaintenance = false;
+        }
+    }
+
+    private async Task RunGitMaintenanceAsync()
+    {
+        _isOperating = true;
+        _maintenanceMessage = null;
+        try
+        {
+            var result = await GitBranchService.RunMaintenanceAsync(RepositoryPath);
+            _maintenanceSucceeded = result.Success;
+            _maintenanceMessage = result.Success
+                ? L.T("Git maintenance completed successfully.")
+                : L.T("Git maintenance failed: {0}", result.Message);
+            await LoadMaintenanceSnapshotAsync();
+            if (!result.Success)
+                Snackbar.Add(_maintenanceMessage, Severity.Warning);
+        }
+        finally
+        {
+            _isOperating = false;
+        }
+    }
+
+    private async Task PruneRemoteReferencesAsync()
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            L.T("Prune remote references?"),
+            L.T("This fetches all remotes and removes local remote-tracking references for branches that no longer exist on their remotes. It does not delete remote branches."),
+            yesText: L.T("Prune references"), cancelText: L.T("Cancel"),
+            options: new DialogOptions { CloseOnEscapeKey = true });
+        if (confirmed != true)
+            return;
+
+        _isOperating = true;
+        _maintenanceMessage = null;
+        try
+        {
+            var result = await GitBranchService.PruneRemotesAsync(RepositoryPath);
+            _maintenanceSucceeded = result.Success;
+            _maintenanceMessage = result.Success
+                ? L.T("Remote references pruned successfully.")
+                : L.T("Could not prune remote references: {0}", result.Message);
+            _snapshot = await GitBranchService.GetRepositorySnapshotAsync(RepositoryPath);
+            await LoadMaintenanceSnapshotAsync();
+        }
+        finally
+        {
+            _isOperating = false;
+        }
+    }
+
+    private async Task SetStatusOptimizationAsync(bool fileSystemMonitor, bool enabled)
+    {
+        _isOperating = true;
+        _maintenanceMessage = null;
+        try
+        {
+            var result = await GitBranchService.SetStatusOptimizationAsync(RepositoryPath, fileSystemMonitor, enabled);
+            _maintenanceSucceeded = result.Success;
+            _maintenanceMessage = result.Success
+                ? L.T("Git status optimization setting updated.")
+                : L.T("Could not update Git status optimization: {0}", result.Message);
+            await LoadMaintenanceSnapshotAsync();
+        }
+        finally
+        {
+            _isOperating = false;
+        }
+    }
+
+    private async Task DeleteMergedBranchAsync(GitMaintenanceBranch branch)
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            L.T("Remove local branch?"),
+            L.T("Remove the local branch '{0}'? It is merged into the current branch. This does not remove any remote branch.", branch.Name),
+            yesText: L.T("Remove branch"), cancelText: L.T("Cancel"),
+            options: new DialogOptions { CloseOnEscapeKey = true });
+        if (confirmed != true)
+            return;
+
+        _isOperating = true;
+        _maintenanceMessage = null;
+        try
+        {
+            var result = await GitBranchService.DeleteMergedBranchAsync(RepositoryPath, branch.Name);
+            _maintenanceSucceeded = result.Success;
+            _maintenanceMessage = result.Success
+                ? L.T("Local branch '{0}' removed.", branch.Name)
+                : L.T("Could not remove local branch '{0}': {1}", branch.Name, result.Message);
+            await LoadMaintenanceSnapshotAsync();
+        }
+        finally
+        {
+            _isOperating = false;
+        }
+    }
+
+    private static string FormatGitSize(long sizeKb) => sizeKb >= 1024 * 1024
+        ? $"{sizeKb / (1024d * 1024):N1} GB"
+        : $"{sizeKb / 1024d:N1} MB";
 
     private async Task ReportSnapshotProgressAsync(GitSnapshotProgress progress)
     {
@@ -2196,7 +2444,7 @@
 
     private sealed record BranchFolder(string? Name, IReadOnlyList<GitBranchEntry> Branches);
     private sealed record GitCommitFile(string Path, string Status);
-    private enum GitView { History, Commit, Submodules }
+    private enum GitView { History, Commit, Submodules, Maintenance }
     private enum CommitDisplayOption { BranchLabels, Graph, Author, Date, Sha }
 
     private async Task PullAsync()

@@ -766,6 +766,135 @@ public sealed class GitBranchService
 
     public async Task<GitOperationResult> FetchAsync(string path) => await RunGitAsync(path, "fetch", "--all", "--prune");
 
+    public async Task<GitMaintenanceSnapshot?> GetMaintenanceSnapshotAsync(string path)
+    {
+        var versionResult = await RunGitAsync(path, "--version");
+        if (!versionResult.Success)
+            return null;
+
+        var countsResult = await RunGitAsync(path, "count-objects", "-v");
+        if (!countsResult.Success)
+            return null;
+
+        var fsMonitorResult = await RunGitAllowExitOneAsync(path, "config", "--bool", "--local", "--get", "core.fsmonitor");
+        var untrackedCacheResult = await RunGitAllowExitOneAsync(path, "config", "--bool", "--local", "--get", "core.untrackedCache");
+        var gitVersion = versionResult.Output.Trim();
+
+        var counts = countsResult.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r').Split(':', 2))
+            .Where(parts => parts.Length == 2)
+            .ToDictionary(parts => parts[0], parts => parts[1].Trim(), StringComparer.Ordinal);
+
+        static long ReadCount(IReadOnlyDictionary<string, string> values, string key) =>
+            values.TryGetValue(key, out var value) && long.TryParse(value, out var count) ? count : 0;
+
+        var branchResult = await GetOldMergedBranchesAsync(path);
+        return new GitMaintenanceSnapshot(
+            gitVersion,
+            ReadCount(counts, "count"),
+            ReadCount(counts, "size"),
+            ReadCount(counts, "packs"),
+            ReadCount(counts, "size-pack"),
+            SupportsBuiltInFileSystemMonitor(gitVersion),
+            fsMonitorResult.Success && fsMonitorResult.Output.Trim().Equals("true", StringComparison.OrdinalIgnoreCase),
+            untrackedCacheResult.Success && untrackedCacheResult.Output.Trim().Equals("true", StringComparison.OrdinalIgnoreCase),
+            branchResult);
+    }
+
+    public Task<GitOperationResult> RunMaintenanceAsync(string path) =>
+        RunGitAsync(path, "maintenance", "run");
+
+    public Task<GitOperationResult> PruneRemotesAsync(string path) =>
+        RunGitAsync(path, "fetch", "--all", "--prune");
+
+    public async Task<GitOperationResult> SetStatusOptimizationAsync(string path, bool fileSystemMonitor, bool enabled)
+    {
+        var configKey = fileSystemMonitor ? "core.fsmonitor" : "core.untrackedCache";
+        return await RunGitAsync(path, "config", "--local", configKey, enabled ? "true" : "false");
+    }
+
+    public async Task<GitOperationResult> DeleteMergedBranchAsync(string path, string branchName)
+    {
+        if (string.IsNullOrWhiteSpace(branchName) || branchName.StartsWith('-') ||
+            await IsProtectedOrCurrentBranchAsync(path, branchName))
+            return new GitOperationResult(false, _localization.T("This branch is protected and cannot be removed."), string.Empty);
+
+        var mergedBranches = await RunGitAsync(path, "branch", "--merged", "HEAD", "--format=%(refname:short)");
+        if (!mergedBranches.Success || !mergedBranches.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(branch => branch.TrimEnd('\r').TrimStart('*', ' '))
+                .Contains(branchName, StringComparer.Ordinal))
+            return new GitOperationResult(false, _localization.T("Branch is no longer merged into the current branch; it was not removed."), string.Empty);
+
+        return await RunGitAsync(path, "branch", "-d", "--", branchName);
+    }
+
+    private async Task<IReadOnlyList<GitMaintenanceBranch>> GetOldMergedBranchesAsync(string path)
+    {
+        const int oldBranchDays = 90;
+        var currentResult = await RunGitAsync(path, "symbolic-ref", "--quiet", "--short", "HEAD");
+        var currentBranch = currentResult.Success ? currentResult.Output.Trim() : null;
+        var defaultResult = await RunGitAsync(path, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD");
+        var defaultBranch = defaultResult.Success ? defaultResult.Output.Trim() : null;
+        if (string.IsNullOrWhiteSpace(defaultBranch))
+        {
+            var fallback = await RunGitAsync(path, "for-each-ref", "--format=%(refname:short)", "refs/heads/main", "refs/heads/master");
+            defaultBranch = fallback.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.TrimEnd('\r');
+        }
+
+        var branchesResult = await RunGitAsync(path, "for-each-ref", "--format=%(refname:short)%09%(committerdate:unix)", "refs/heads");
+        var mergedResult = await RunGitAsync(path, "branch", "--merged", "HEAD", "--format=%(refname:short)");
+        if (!branchesResult.Success || !mergedResult.Success)
+            return [];
+
+        var merged = mergedResult.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(branch => branch.TrimEnd('\r').TrimStart('*', ' '))
+            .ToHashSet(StringComparer.Ordinal);
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        return branchesResult.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r').Split('\t'))
+            .Where(parts => parts.Length == 2 && long.TryParse(parts[1], out _))
+            .Select(parts => (Name: parts[0], CommitTime: long.Parse(parts[1])))
+            .Where(branch => merged.Contains(branch.Name) &&
+                !string.Equals(branch.Name, currentBranch, StringComparison.Ordinal) &&
+                !IsProtectedBranchName(branch.Name, defaultBranch) &&
+                now - branch.CommitTime >= oldBranchDays * 24L * 60 * 60)
+            .Select(branch => new GitMaintenanceBranch(branch.Name,
+                (int)((now - branch.CommitTime) / (24L * 60 * 60))))
+            .OrderByDescending(branch => branch.AgeDays)
+            .ToList();
+    }
+
+    private async Task<bool> IsProtectedOrCurrentBranchAsync(string path, string branchName)
+    {
+        var currentResult = await RunGitAsync(path, "symbolic-ref", "--quiet", "--short", "HEAD");
+        var defaultResult = await RunGitAsync(path, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD");
+        var defaultBranch = defaultResult.Success ? defaultResult.Output.Trim() : null;
+        if (string.IsNullOrWhiteSpace(defaultBranch))
+        {
+            var fallback = await RunGitAsync(path, "for-each-ref", "--format=%(refname:short)", "refs/heads/main", "refs/heads/master");
+            defaultBranch = fallback.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.TrimEnd('\r');
+        }
+
+        return string.Equals(branchName, currentResult.Output.Trim(), StringComparison.Ordinal) ||
+               IsProtectedBranchName(branchName, defaultBranch);
+    }
+
+    private static bool IsProtectedBranchName(string branchName, string? defaultBranch) =>
+        string.Equals(branchName, GetLocalBranchName(defaultBranch ?? string.Empty), StringComparison.OrdinalIgnoreCase) ||
+        branchName.Equals("main", StringComparison.OrdinalIgnoreCase) ||
+        branchName.Equals("master", StringComparison.OrdinalIgnoreCase) ||
+        branchName.Equals("develop", StringComparison.OrdinalIgnoreCase) ||
+        branchName.StartsWith("release/", StringComparison.OrdinalIgnoreCase);
+
+    private static bool SupportsBuiltInFileSystemMonitor(string gitVersion)
+    {
+        var versionText = gitVersion.Split(' ', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty;
+        var versionParts = versionText.Split('-', 2)[0].Split('.');
+        return versionParts.Length >= 2 && int.TryParse(versionParts[0], out var major) &&
+               int.TryParse(versionParts[1], out var minor) && (major > 2 || major == 2 && minor >= 37);
+    }
+
     public async Task<GitOperationResult> PullAsync(string path, bool autoSyncSubmodules = false)
     {
         if (autoSyncSubmodules)
@@ -1346,6 +1475,17 @@ public sealed record GitFileChange(string Path, bool IsStaged, bool IsUnstaged, 
 }
 public sealed record GitStashEntry(string Reference, string Message, string Date, string CommitHash);
 public sealed record GitOperationResult(bool Success, string Message, string Output, int ExitCode = 0);
+public sealed record GitMaintenanceSnapshot(
+    string GitVersion,
+    long LooseObjectCount,
+    long LooseObjectSizeKb,
+    long PackCount,
+    long PackedObjectSizeKb,
+    bool SupportsBuiltInFileSystemMonitor,
+    bool IsFileSystemMonitorEnabled,
+    bool IsUntrackedCacheEnabled,
+    IReadOnlyList<GitMaintenanceBranch> OldMergedBranches);
+public sealed record GitMaintenanceBranch(string Name, int AgeDays);
 public sealed record GitConflictVersions(string Ours, string Theirs, string WorkingContent, string Fingerprint, string LineEnding, bool HasUtf8Bom);
 public sealed record GitCommitBranchCheck(bool? IsOnCurrentBranch, string? Error);
 public sealed record GitSubmoduleSnapshot(IReadOnlyList<GitSubmoduleEntry> Entries)

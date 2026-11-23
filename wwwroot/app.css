@@ -1247,6 +1247,20 @@ h1:focus {
     background-color: transparent;
 }
 
+.git-maintenance-workspace {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    flex-direction: column;
+    gap: 1rem;
+    overflow: auto;
+    padding: 0.25rem;
+}
+
+.git-maintenance-stat {
+    min-height: 5.5rem;
+}
+
 .git-submodule-summary { flex: 0 0 auto; }
 .git-submodules-panel { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .git-submodule-tree { overflow: auto; }

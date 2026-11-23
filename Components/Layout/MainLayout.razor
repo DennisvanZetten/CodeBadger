@@ -150,8 +150,6 @@ else
     {
         if (firstRender && IsMainWindowRoute())
             WindowTitleBar.SetSettingsState(true, L.T("Open settings"));
-        if (firstRender && IsMainWindowRoute())
-            _ = CheckForAgentUpdatesAsync();
         if (firstRender && IsDocumentationWindowRoute())
             await InitializeDocumentationWindowAsync();
         else if (firstRender && _isStarting)
@@ -162,7 +160,7 @@ else
                 await RunStartupDetectionAsync();
 #if WINDOWS
             if (!IsDetachedRepositoryRoute())
-                _ = CheckForUpdatesAsync();
+                _ = RunUpdateChecksAsync();
 #endif
         }
 
@@ -197,6 +195,12 @@ else
         {
             Logger.LogDebug(exception, "Could not check coding agent updates.");
         }
+    }
+
+    private async Task RunUpdateChecksAsync()
+    {
+        await CheckForAgentUpdatesAsync();
+        await CheckForUpdatesAsync();
     }
 
     private async Task InitializeDetachedWindowAsync()

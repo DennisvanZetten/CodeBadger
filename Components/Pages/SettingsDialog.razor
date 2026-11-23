@@ -107,15 +107,13 @@
                          BadgeDot="@AgentUpdates.HasUpdates" BadgeColor="Color.Warning">
                  <MudStack Spacing="3" Class="settings-content-stack">
                      <MudText Typo="Typo.h6">@L.T("Agent management")</MudText>
-                     @foreach (var pendingUpdate in AgentUpdates.Statuses.Where(status => status.IsUpdateAvailable && status.Agent != _selectedAgent))
-                     {
-                         <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
-                             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
-                                  <span>@L.T("Update {0} from {1} to {2} is available.", pendingUpdate.Agent, pendingUpdate.InstalledVersion ?? "?", pendingUpdate.LatestVersion ?? "?")</span>
-                                 <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="@(() => UpdateAgentAsync(pendingUpdate.Agent))">@L.T("Review and update")</MudButton>
-                             </MudStack>
-                         </MudAlert>
-                     }
+                      @foreach (var pendingUpdate in AgentUpdates.Statuses.Where(status => status.IsUpdateAvailable && status.Agent != _selectedAgent))
+                      {
+                          <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
+                              <MudText>@L.T("Update {0} from {1} to {2} is available.", pendingUpdate.Agent, pendingUpdate.InstalledVersion ?? "?", pendingUpdate.LatestVersion ?? "?")</MudText>
+                              <MudText Typo="Typo.body2">@L.T("Select {0} in the Agent tool dropdown below to review configuration warnings and update safely.", pendingUpdate.Agent)</MudText>
+                          </MudAlert>
+                      }
                      <MudSelect T="string" Value="_selectedAgent" ValueChanged="LoadAgentConfigAsync" Label="@L.T("Agent tool")" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(_isLoadingAgentConfig || _isSavingAgentConfig)">
                          <MudSelectItem T="string" Value="@AgentTools.OpenCode">OpenCode</MudSelectItem>
                          <MudSelectItem T="string" Value="@AgentTools.ClaudeCode">Claude Code</MudSelectItem>

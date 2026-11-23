@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
@@ -7,6 +8,7 @@ namespace CodeBadger.Services;
 public sealed class OpenCodeActivityService
 {
     private readonly ILogger<OpenCodeActivityService> _logger;
+    private readonly ConcurrentDictionary<string, byte> _shareShapeWarnings = new(StringComparer.Ordinal);
 
     public OpenCodeActivityService(ILogger<OpenCodeActivityService> logger) => _logger = logger;
 
@@ -302,22 +304,50 @@ public sealed class OpenCodeActivityService
             return [];
 
         var result = new List<SessionTextMessage>();
+        var roleCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var userContentKinds = new HashSet<string>(StringComparer.Ordinal);
+        var observedMessageTypes = new HashSet<string>(StringComparer.Ordinal);
+        var observedKeys = new HashSet<string>(StringComparer.Ordinal);
         foreach (var message in messages.EnumerateArray())
         {
+            CollectShape(message, observedKeys, observedMessageTypes);
             var info = message.TryGetProperty("info", out var infoValue) && infoValue.ValueKind == JsonValueKind.Object
-                ? infoValue : message;
-            var role = info.TryGetProperty("role", out var roleValue) ? roleValue :
-                info.TryGetProperty("type", out var typeValue) ? typeValue : default;
-            if (role.ValueKind != JsonValueKind.String || role.GetString() is not ("user" or "assistant"))
+                ? infoValue
+                : message.TryGetProperty("message", out var messageValue) && messageValue.ValueKind == JsonValueKind.Object
+                    ? messageValue : message;
+            var roleName = ReadRole(info, message);
+            if (roleName is not ("user" or "assistant"))
                 continue;
+            roleCounts[roleName] = roleCounts.GetValueOrDefault(roleName) + 1;
 
             var id = info.TryGetProperty("id", out var idValue) && idValue.ValueKind == JsonValueKind.String
-                ? idValue.GetString() : null;
+                ? idValue.GetString()
+                : message.TryGetProperty("id", out var outerId) && outerId.ValueKind == JsonValueKind.String
+                    ? outerId.GetString() : null;
+            var content = TryGetPropertyIgnoreCase(info, "content", out var contentValue) ? contentValue :
+                TryGetPropertyIgnoreCase(message, "content", out var messageContent) ? messageContent : default;
+            if (roleName == "user")
+                userContentKinds.Add(content.ValueKind.ToString());
+            // OpenCode user messages store the submitted prompt in info.content as a string.
+            // Assistant messages use a parts array. Handle both forms, plus array content in
+            // case an API version returns normalized message parts for user messages too.
+            if (roleName == "user")
+            {
+                var userText = ExtractUserMessageText(message, info).Trim();
+                if (!string.IsNullOrWhiteSpace(id) && userText.Length > 0)
+                {
+                    result.Add(new SessionTextMessage(id!, "user",
+                        userText.Length > 20000 ? userText[..20000] + "\n…" : userText));
+                    continue;
+                }
+            }
+
             var parts = message.TryGetProperty("parts", out var partsValue) && partsValue.ValueKind == JsonValueKind.Array
                 ? partsValue
-                : info.TryGetProperty("content", out var contentValue) && contentValue.ValueKind == JsonValueKind.Array
-                    ? contentValue : default;
-            if (string.IsNullOrWhiteSpace(id) || parts.ValueKind != JsonValueKind.Array)
+                : content.ValueKind == JsonValueKind.Array ? content : default;
+            if (string.IsNullOrWhiteSpace(id))
+                continue;
+            if (parts.ValueKind != JsonValueKind.Array)
                 continue;
 
             var text = string.Join("\n", parts.EnumerateArray()
@@ -327,9 +357,140 @@ public sealed class OpenCodeActivityService
                     ? partText.GetString() : null)
                 .Where(partText => !string.IsNullOrWhiteSpace(partText))).Trim();
             if (text.Length > 0)
-                result.Add(new SessionTextMessage(id!, role.GetString()!, text.Length > 20000 ? text[..20000] + "\n…" : text));
+                result.Add(new SessionTextMessage(id!, roleName, text.Length > 20000 ? text[..20000] + "\n…" : text));
         }
+
+        if (!result.Any(message => message.Role == "user") &&
+            _shareShapeWarnings.TryAdd(sessionId, 0))
+            _logger.LogWarning("Could not extract user prompts from OpenCode session {SessionId}. Recognized roles: {Roles}; message type values: {MessageTypes}; user content JSON kinds: {ContentKinds}; JSON keys: {Keys}. Prompt text was not logged.",
+                sessionId, string.Join(",", roleCounts.Select(pair => $"{pair.Key}:{pair.Value}")),
+                string.Join(",", observedMessageTypes), string.Join(",", userContentKinds), string.Join(",", observedKeys));
         return result;
+    }
+
+    private static string? ExtractUserContentText(JsonElement content)
+    {
+        if (content.ValueKind == JsonValueKind.String)
+            return content.GetString();
+        if (content.ValueKind == JsonValueKind.Array)
+            return string.Join("\n", content.EnumerateArray().Select(ExtractUserContentText)
+                .Where(text => !string.IsNullOrWhiteSpace(text)));
+        if (content.ValueKind != JsonValueKind.Object)
+            return null;
+
+        if (content.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String &&
+            type.GetString() is "text" or "input_text" && content.TryGetProperty("text", out var textValue) &&
+            textValue.ValueKind == JsonValueKind.String)
+            return textValue.GetString();
+        if (content.TryGetProperty("text", out var plainText) && plainText.ValueKind == JsonValueKind.String)
+            return plainText.GetString();
+        if (content.TryGetProperty("parts", out var parts))
+            return ExtractUserContentText(parts);
+        if (content.TryGetProperty("content", out var nestedContent))
+            return ExtractUserContentText(nestedContent);
+        foreach (var key in new[] { "prompt", "input", "message", "value", "user", "query" })
+            if (content.TryGetProperty(key, out var nested))
+            {
+                var extracted = ExtractUserContentText(nested);
+                if (!string.IsNullOrWhiteSpace(extracted))
+                    return extracted;
+            }
+        return null;
+    }
+
+    private static void CollectShape(JsonElement element, HashSet<string> keys, HashSet<string> types)
+    {
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var child in element.EnumerateArray())
+                CollectShape(child, keys, types);
+            return;
+        }
+        if (element.ValueKind != JsonValueKind.Object)
+            return;
+        foreach (var property in element.EnumerateObject())
+        {
+            keys.Add(property.Name);
+            if (property.Name is "type" or "role" && property.Value.ValueKind == JsonValueKind.String &&
+                property.Value.GetString() is { Length: > 0 and <= 40 } value)
+                types.Add(value);
+            if (property.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+                CollectShape(property.Value, keys, types);
+        }
+    }
+
+    private static string? ReadRole(JsonElement info, JsonElement message)
+    {
+        foreach (var element in new[] { info, message })
+        {
+            foreach (var key in new[] { "role", "type" })
+            {
+                if (TryGetPropertyIgnoreCase(element, key, out var value) && value.ValueKind == JsonValueKind.String &&
+                    value.GetString() is "user" or "assistant")
+                    return value.GetString();
+            }
+            foreach (var nestedKey in new[] { "message", "info" })
+                if (TryGetPropertyIgnoreCase(element, nestedKey, out var nested) && nested.ValueKind == JsonValueKind.Object &&
+                    TryGetPropertyIgnoreCase(nested, "role", out var nestedRole) && nestedRole.ValueKind == JsonValueKind.String &&
+                    nestedRole.GetString() is "user" or "assistant")
+                    return nestedRole.GetString();
+        }
+        return null;
+    }
+
+    private static string ExtractUserMessageText(JsonElement message, JsonElement info)
+    {
+        var values = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var element in new[] { info, message })
+            CollectUserText(element, values, seen);
+        return string.Join("\n", values);
+    }
+
+    private static void CollectUserText(JsonElement element, List<string> values, HashSet<string> seen)
+    {
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var child in element.EnumerateArray())
+                CollectUserText(child, values, seen);
+            return;
+        }
+        if (element.ValueKind != JsonValueKind.Object)
+            return;
+
+        foreach (var property in element.EnumerateObject())
+        {
+            var isTextField = property.Name.Equals("text", StringComparison.OrdinalIgnoreCase) ||
+                              property.Name.Equals("content", StringComparison.OrdinalIgnoreCase) ||
+                              property.Name.Equals("prompt", StringComparison.OrdinalIgnoreCase) ||
+                              property.Name.Equals("input", StringComparison.OrdinalIgnoreCase) ||
+                              property.Name.Equals("message", StringComparison.OrdinalIgnoreCase) ||
+                              property.Name.Equals("parts", StringComparison.OrdinalIgnoreCase) ||
+                              property.Name.Equals("value", StringComparison.OrdinalIgnoreCase) ||
+                              property.Name.Equals("user", StringComparison.OrdinalIgnoreCase) ||
+                              property.Name.Equals("query", StringComparison.OrdinalIgnoreCase);
+            if (!isTextField)
+                continue;
+
+            var extracted = ExtractUserContentText(property.Value);
+            if (!string.IsNullOrWhiteSpace(extracted) && seen.Add(extracted.Trim()))
+                values.Add(extracted.Trim());
+        }
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+                if (property.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+        }
+        value = default;
+        return false;
     }
 
     public async Task<IReadOnlyList<ShareSession>?> GetRepositorySessionsAsync(string directory, CancellationToken cancellationToken)

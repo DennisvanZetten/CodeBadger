@@ -151,7 +151,6 @@
     private readonly Dictionary<string, DateTime> _lastSlackMessageSync = new(StringComparer.Ordinal);
     private readonly HashSet<string> _slackStartedSessions = new(StringComparer.Ordinal);
     private readonly Dictionary<Guid, string> _selectedOpenCodeSessions = [];
-    private bool _isSharing;
     private bool _activityNeedsBaseline = true;
     private bool _isRefreshingBranches;
     private bool _isDockDragActive;
@@ -898,91 +897,24 @@
 
     protected override void OnInitialized() => SessionShares.ShareChanged += HandleShareChanged;
 
-    private void HandleShareChanged() => _ = InvokeAsync(StateHasChanged);
+    private void HandleShareChanged() => _ = InvokeAsync(() =>
+    {
+        if (SessionShares.CurrentShare is { } share && _activeRepositories.Any(repository => repository.Id == share.RepositoryId))
+            _selectedOpenCodeSessions[share.RepositoryId] = share.SessionId;
+        StateHasChanged();
+    });
 
     private async Task ShareSessionAsync(RepositoryEntry repository)
     {
-        if (_isSharing)
-            return;
-        if (SessionShares.CurrentShare is { } activeShare && activeShare.RepositoryId == repository.Id)
-        {
-            var copyExisting = await DialogService.ShowMessageBoxAsync(L.T("Read-only session link"),
-                L.T("The session is already being shared. Anyone with this link can read its transcript:\n\n{0}", activeShare.Url),
-                yesText: L.T("Copy link"), cancelText: L.T("Close"),
-                options: new DialogOptions { CloseOnEscapeKey = true });
-            if (copyExisting == true)
-            {
-                await JS.InvokeVoidAsync("navigator.clipboard.writeText", activeShare.Url);
-                Snackbar.Add(L.T("Share link copied."), Severity.Success);
-            }
-            return;
-        }
-        var selection = await DialogService.ShowAsync<SessionShareDialog>(L.T("Share a session"),
+        var dialog = await DialogService.ShowAsync<SessionShareDialog>(L.T("Share a session"),
             new DialogParameters<SessionShareDialog>
             {
                 { dialog => dialog.RepositoryPath, repository.Path },
-                { dialog => dialog.RepositoryId, repository.Id }
+                { dialog => dialog.RepositoryId, repository.Id },
+                { dialog => dialog.RepositoryName, RepositoryTitle(repository) }
             },
             new DialogOptions { CloseButton = true, CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true });
-        var selectedSession = await selection.Result;
-        if (selectedSession is not { Canceled: false, Data: string sessionId } || string.IsNullOrWhiteSpace(sessionId))
-            return;
-
-        if (!await SessionShares.IsInstalledAndRunnableAsync(_statusMonitorCancellation.Token))
-        {
-            var install = await DialogService.ShowMessageBoxAsync(L.T("Install cloudflared"),
-                L.T("Sharing creates a temporary internet link through Cloudflare. CodeBadger will download cloudflared from Cloudflare's official GitHub release and verify its SHA-256 checksum against GitHub's release metadata. Anyone with the link can read this session transcript, but cannot access the repository or send commands. Continue?"),
-                yesText: L.T("Download and continue"), cancelText: L.T("Cancel"),
-                options: new DialogOptions { CloseOnEscapeKey = true });
-            if (install != true)
-                return;
-            try
-            {
-                _isSharing = true;
-                StateHasChanged();
-                await SessionShares.InstallCloudflaredAsync(_statusMonitorCancellation.Token);
-                Snackbar.Add(L.T("cloudflared installed and verified."), Severity.Success);
-            }
-            catch (Exception exception)
-            {
-                Logger.LogError(exception, "Could not install cloudflared for repository {RepositoryId} at stage download or verification.", repository.Id);
-                Snackbar.Add(L.T("Could not install cloudflared: {0}", exception.Message), Severity.Error);
-                return;
-            }
-            finally
-            {
-                _isSharing = false;
-            }
-        }
-
-        var activeSession = _runningOpenCodeSessions.GetValueOrDefault(sessionId);
-        var title = string.IsNullOrWhiteSpace(activeSession?.Title) ? RepositoryTitle(repository) : activeSession.Title;
-        try
-        {
-            _isSharing = true;
-            var share = await SessionShares.StartAsync(repository.Id, sessionId, repository.Path, title,
-                token => OpenCodeActivity.GetShareableSessionMessagesAsync(sessionId, repository.Path, token),
-                _statusMonitorCancellation.Token);
-            _selectedOpenCodeSessions[repository.Id] = sessionId;
-            var result = await DialogService.ShowMessageBoxAsync(L.T("Read-only session link"),
-                L.T("Anyone with this link can read the selected session. It does not grant access to the repository or allow sending prompts. The link stops working when you stop sharing or close CodeBadger.\n\n{0}", share.Url),
-                yesText: L.T("Copy link"), cancelText: L.T("Close"),
-                options: new DialogOptions { CloseOnEscapeKey = true });
-            if (result == true)
-            {
-                await JS.InvokeVoidAsync("navigator.clipboard.writeText", share.Url);
-                Snackbar.Add(L.T("Share link copied."), Severity.Success);
-            }
-        }
-        catch (Exception exception)
-        {
-            Snackbar.Add(L.T("Could not start session sharing: {0}", exception.Message), Severity.Error);
-        }
-        finally
-        {
-            _isSharing = false;
-            await InvokeAsync(StateHasChanged);
-        }
+        await dialog.Result;
     }
 
     private async Task StopSharingAsync()

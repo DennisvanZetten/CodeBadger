@@ -23,10 +23,18 @@ public sealed class SessionShareService(ILogger<SessionShareService> logger) : I
     private bool _disposed;
 
     public sealed record ShareLink(string Url, Guid RepositoryId, string SessionId);
+    public sealed record ShareProgress(string Stage, double? Percent = null);
     public ShareLink? CurrentShare => _link is { } url && _host is { } host
         ? new ShareLink(url, host.RepositoryId, host.SessionId) : null;
     public int ViewerCount => _host?.ViewerCount ?? 0;
     public event Action? ShareChanged;
+    public event Action<ShareProgress>? ProgressChanged;
+
+    private void ReportProgress(string stage, double? percent = null)
+    {
+        try { ProgressChanged?.Invoke(new ShareProgress(stage, percent)); }
+        catch (Exception exception) { logger.LogWarning(exception, "A session share progress listener failed."); }
+    }
 
     public int GetViewerCountForSession(string sessionId) => _host?.SessionId == sessionId ? _host.ViewerCount : 0;
 
@@ -48,8 +56,11 @@ public sealed class SessionShareService(ILogger<SessionShareService> logger) : I
                 throw new InvalidOperationException("A session share is already active. Stop it before creating another link.");
             }
 
+            ReportProgress("Checking cloudflared installation…");
             var executable = FindCloudflared() ?? throw new FileNotFoundException("cloudflared is not installed.");
+            ReportProgress("Checking cloudflared version…");
             await VerifyCloudflaredAsync(executable, cancellationToken);
+            ReportProgress("Starting the private local session viewer…");
             _host = new ShareHost(loadMessages, repositoryId, sessionId, title, () => ShareChanged?.Invoke());
             var port = _host.Start();
             var start = new ProcessStartInfo
@@ -74,6 +85,7 @@ public sealed class SessionShareService(ILogger<SessionShareService> logger) : I
             }
 
             _tunnel = process;
+            ReportProgress("Connecting to Cloudflare and creating a temporary link…");
             using var startupTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             startupTimeout.CancelAfter(TimeSpan.FromSeconds(50));
             var tunnelUrl = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -87,6 +99,7 @@ public sealed class SessionShareService(ILogger<SessionShareService> logger) : I
             {
                 var url = await tunnelUrl.Task.WaitAsync(startupTimeout.Token);
                 _link = url.TrimEnd('/') + "/s/" + _host.Token;
+                ReportProgress("Share is active.", 100);
                 ShareChanged?.Invoke();
                 logger.LogInformation("Started a read-only share for OpenCode session {SessionId}.", sessionId);
                 return new ShareLink(_link, repositoryId, sessionId);
@@ -134,12 +147,14 @@ public sealed class SessionShareService(ILogger<SessionShareService> logger) : I
             "CodeBadger", "tools", "cloudflared.exe");
         var stage = "prepare install directory";
         logger.LogInformation("Starting cloudflared installation for session sharing.");
+        ReportProgress("Preparing the cloudflared installation…");
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         var temporary = destination + ".download";
         var backup = destination + ".previous";
         try
         {
             stage = "download official Cloudflare release";
+            ReportProgress("Downloading cloudflared from the official Cloudflare release…", 0);
             using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
             using var response = await client.GetAsync(CloudflaredDownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             logger.LogInformation("Cloudflared download returned HTTP {StatusCode}.", (int)response.StatusCode);
@@ -160,9 +175,13 @@ public sealed class SessionShareService(ILogger<SessionShareService> logger) : I
                     if (total > 100_000_000)
                         throw new InvalidOperationException("The cloudflared download is unexpectedly large.");
                     await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                    var percent = response.Content.Headers.ContentLength is > 0 and var length
+                        ? Math.Clamp(total * 100d / length, 0, 100) : (double?)null;
+                    ReportProgress("Downloading cloudflared from the official Cloudflare release…", percent);
                 }
             }
 
+            ReportProgress("Checking the downloaded Windows executable…");
             await using (var file = File.OpenRead(temporary))
             {
                 var header = new byte[2];
@@ -171,9 +190,11 @@ public sealed class SessionShareService(ILogger<SessionShareService> logger) : I
             }
 
             stage = "verify official Cloudflare release checksum";
+            ReportProgress("Verifying the SHA-256 checksum against GitHub release metadata…");
             await VerifyCloudflaredReleaseChecksumAsync(temporary, cancellationToken);
 
             stage = "install and verify executable";
+            ReportProgress("Installing and testing cloudflared…");
             await VerifyCloudflaredAsync(temporary, cancellationToken);
             var hadPrevious = File.Exists(destination);
             if (hadPrevious)
@@ -191,6 +212,7 @@ public sealed class SessionShareService(ILogger<SessionShareService> logger) : I
                 throw;
             }
             logger.LogInformation("cloudflared installed and verified successfully.");
+            ReportProgress("cloudflared installed and verified.", 100);
             return destination;
         }
         catch (Exception exception)

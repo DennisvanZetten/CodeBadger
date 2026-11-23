@@ -1,7 +1,9 @@
 @inject OpenCodeActivityService Activity
+@inject SessionShareService SessionShares
 @inject LocalizationService L
 @inject ISnackbar Snackbar
-@inject SessionShareService SessionShares
+@inject IJSRuntime JS
+@inject ILogger<SessionShareDialog> Logger
 @implements IDisposable
 
 <MudDialog Class="settings-dialog">
@@ -12,60 +14,168 @@
         </MudStack>
     </TitleContent>
     <DialogContent>
-        <MudStack Spacing="2">
+        <MudStack Spacing="3">
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                @L.T("Choose an OpenCode session to share as a read-only transcript. Repository files, terminal access, and the ability to send prompts are not shared.")
+                @L.T("This creates a temporary internet link to a read-only transcript. Repository files, terminal access, and the ability to send prompts are not shared. Anyone with the link can read the transcript while sharing is active.")
             </MudAlert>
-            @if (_loading)
+
+            @if (_phase == Phase.Loading)
             {
-                <MudProgressLinear Indeterminate="true" />
+                <MudText>@L.T(_progressMessage)</MudText>
+                <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
             }
-            else if (_shareActiveElsewhere)
+            else if (_phase == Phase.SelectSession)
             {
-                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("A session is already being shared from another repository. Stop that share before creating another link.")</MudAlert>
-            }
-            else if (_sessionsUnavailable)
-            {
-                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("Could not load OpenCode sessions. Make sure the managed OpenCode service is available and try again.")</MudAlert>
-            }
-            else if (_sessions.Count == 0)
-            {
-                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("No OpenCode sessions were found for this repository.")</MudAlert>
-            }
-            else
-            {
-                <MudSelect T="string" @bind-Value="_selectedSessionId" Label="@L.T("Session")" Variant="Variant.Outlined">
-                    @foreach (var session in _sessions)
+                @if (_sessionsUnavailable)
+                {
+                    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
+                        @L.T("Could not load OpenCode sessions. Make sure the managed OpenCode service is available and try again.")
+                    </MudAlert>
+                }
+                else if (_sessions.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                        @L.T("No OpenCode sessions were found for this repository.")
+                    </MudAlert>
+                }
+                else
+                {
+                    <MudSelect T="string" @bind-Value="_selectedSessionId" Label="@L.T("Session")" Variant="Variant.Outlined">
+                        @foreach (var session in _sessions)
+                        {
+                            <MudSelectItem T="string" Value="@session.Id">
+                                @(string.IsNullOrWhiteSpace(session.Title) ? session.Id : session.Title)
+                            </MudSelectItem>
+                        }
+                    </MudSelect>
+                    @if (_shareActiveElsewhere)
                     {
-                        <MudSelectItem T="string" Value="@session.Id">@(string.IsNullOrWhiteSpace(session.Title) ? session.Id : session.Title)</MudSelectItem>
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                            @L.T("A session is already being shared from another repository. Stop that share before creating another link.")
+                        </MudAlert>
                     }
-                </MudSelect>
+                }
+            }
+            else if (_phase == Phase.ConfirmInstall)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                    @L.T("cloudflared is not installed or could not be started. CodeBadger can download it from the official Cloudflare GitHub release and verify its SHA-256 checksum against GitHub release metadata. Continue with installation and sharing?")
+                </MudAlert>
+            }
+            else if (_phase == Phase.Working)
+            {
+                <MudText Typo="Typo.subtitle2">@L.T(_progressMessage)</MudText>
+                @if (_progressPercent is { } percent)
+                {
+                    <MudProgressLinear Value="@percent" Color="Color.Primary" />
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@((int)percent)%</MudText>
+                }
+                else
+                {
+                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                }
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    @L.T("This window will stay open while CodeBadger downloads, verifies, and starts the share.")
+                </MudText>
+            }
+            else if (_phase == Phase.Active)
+            {
+                <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
+                    @L.T("The read-only share is active. The link stops working when you stop sharing or close CodeBadger.")
+                </MudAlert>
+                <MudTextField Value="@_shareUrl" Label="@L.T("Share link")" ReadOnly="true" Variant="Variant.Outlined"
+                              Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.ContentCopy"
+                              OnAdornmentClick="CopyLinkAsync" />
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    @L.T("Viewers do not need CodeBadger or OpenCode. Anyone with this link can read the session transcript.")
+                </MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    @L.T("Viewers connected: {0}", SessionShares.ViewerCount)
+                </MudText>
+            }
+            else if (_phase == Phase.Failed)
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
+                    <MudText Typo="Typo.subtitle2">@L.T("Sharing could not be started.")</MudText>
+                    <MudText>@_errorMessage</MudText>
+                </MudAlert>
+                @if (!string.IsNullOrWhiteSpace(_errorDetails))
+                {
+                    <MudExpansionPanels Elevation="0" Outlined="true">
+                        <MudExpansionPanel Text="@L.T("Technical details")">
+                            <MudTextField Value="@_errorDetails" ReadOnly="true" Lines="8" Variant="Variant.Outlined" />
+                        </MudExpansionPanel>
+                    </MudExpansionPanels>
+                }
+            }
+            else if (_phase == Phase.Cancelled)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@L.T("Sharing was cancelled.")</MudAlert>
             }
         </MudStack>
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="Cancel">@L.T("Cancel")</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(_loading || _selectedSessionId is null || _shareActive || _shareActiveElsewhere)" OnClick="Confirm">
-            @(_shareActive ? L.T("Sharing active") : L.T("Create read-only link"))
-        </MudButton>
+        @if (_phase == Phase.SelectSession)
+        {
+            <MudButton OnClick="Close">@L.T("Cancel")</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                       Disabled="@(_selectedSessionId is null || _sessionsUnavailable || _shareActiveElsewhere)"
+                       OnClick="PrepareSharingAsync">
+                @L.T("Continue")
+            </MudButton>
+        }
+        else if (_phase == Phase.ConfirmInstall)
+        {
+            <MudButton OnClick="ReturnToSelection">@L.T("Back")</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="StartSharingAsync">
+                @L.T("Install and continue")
+            </MudButton>
+        }
+        else if (_phase == Phase.Working)
+        {
+            <MudButton Color="Color.Warning" OnClick="CancelOperationAsync">@L.T("Cancel")</MudButton>
+        }
+        else if (_phase == Phase.Active)
+        {
+            <MudButton Color="Color.Error" Variant="Variant.Outlined" OnClick="StopSharingAsync">@L.T("Stop sharing")</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Close">@L.T("Done")</MudButton>
+        }
+        else if (_phase is Phase.Failed or Phase.Cancelled)
+        {
+            <MudButton OnClick="Close">@L.T("Close")</MudButton>
+            @if (_phase == Phase.Failed)
+            {
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="ReturnToSelection">@L.T("Try again")</MudButton>
+            }
+        }
     </DialogActions>
 </MudDialog>
 
 @code {
+    private enum Phase { Loading, SelectSession, ConfirmInstall, Working, Active, Failed, Cancelled }
+
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
     [Parameter, EditorRequired] public string RepositoryPath { get; set; } = string.Empty;
     [Parameter, EditorRequired] public Guid RepositoryId { get; set; }
+    [Parameter, EditorRequired] public string RepositoryName { get; set; } = string.Empty;
 
     private IReadOnlyList<OpenCodeActivityService.ShareSession> _sessions = [];
     private string? _selectedSessionId;
-    private bool _loading = true;
-    private bool _shareActive;
-    private bool _shareActiveElsewhere;
+    private Phase _phase = Phase.Loading;
+    private string _progressMessage = "Loading OpenCode sessions…";
+    private double? _progressPercent;
+    private string? _shareUrl;
+    private string? _errorMessage;
+    private string? _errorDetails;
     private bool _sessionsUnavailable;
+    private bool _shareActiveElsewhere;
+    private CancellationTokenSource? _operationCancellation;
+    private Task? _operationTask;
 
     protected override async Task OnInitializedAsync()
     {
-        SessionShares.ShareChanged += HandleShareChanged;
+        SessionShares.ProgressChanged += HandleProgressChanged;
+        _progressMessage = "Loading OpenCode sessions…";
         try
         {
             var loaded = await Activity.GetRepositorySessionsAsync(RepositoryPath, CancellationToken.None);
@@ -74,27 +184,180 @@
             var active = SessionShares.CurrentShare;
             if (active is not null && active.RepositoryId == RepositoryId)
             {
-                _shareActive = true;
                 _selectedSessionId = active.SessionId;
+                _shareUrl = active.Url;
+                _phase = Phase.Active;
             }
             else
             {
                 _shareActiveElsewhere = active is not null;
                 _selectedSessionId = _sessions.FirstOrDefault()?.Id;
+                _phase = Phase.SelectSession;
             }
         }
         catch (Exception exception)
         {
-            Snackbar.Add(L.T("Could not load OpenCode sessions: {0}", exception.Message), Severity.Error);
-        }
-        finally
-        {
-            _loading = false;
+            _sessionsUnavailable = true;
+            Logger.LogError(exception, "Could not load OpenCode sessions for sharing in repository {RepositoryId}.", RepositoryId);
+            _errorMessage = exception.Message;
+            _errorDetails = exception.ToString();
+            _phase = Phase.Failed;
         }
     }
 
-    private void Confirm() => MudDialog.Close(DialogResult.Ok(_selectedSessionId));
-    private void Cancel() => MudDialog.Cancel();
-    private void HandleShareChanged() => _ = InvokeAsync(StateHasChanged);
-    public void Dispose() => SessionShares.ShareChanged -= HandleShareChanged;
+    private async Task PrepareSharingAsync()
+    {
+        if (_selectedSessionId is null)
+            return;
+        if (SessionShares.CurrentShare is { } activeShare)
+        {
+            if (activeShare.RepositoryId == RepositoryId)
+            {
+                _selectedSessionId = activeShare.SessionId;
+                _shareUrl = activeShare.Url;
+                _phase = Phase.Active;
+            }
+            else
+            {
+                _shareActiveElsewhere = true;
+            }
+            return;
+        }
+
+        _progressMessage = "Checking whether cloudflared is available…";
+        _phase = Phase.Working;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var available = await SessionShares.IsInstalledAndRunnableAsync(CancellationToken.None);
+            if (!available)
+            {
+                _phase = Phase.ConfirmInstall;
+                return;
+            }
+            StartOperation(installCloudflared: false);
+        }
+        catch (Exception exception)
+        {
+            ShowFailure(exception);
+        }
+        finally { await InvokeAsync(StateHasChanged); }
+    }
+
+    private Task StartSharingAsync()
+    {
+        StartOperation(installCloudflared: true);
+        return Task.CompletedTask;
+    }
+
+    private void StartOperation(bool installCloudflared)
+    {
+        if (_operationTask is { IsCompleted: false })
+            return;
+        _operationCancellation?.Dispose();
+        _operationCancellation = new CancellationTokenSource();
+        _phase = Phase.Working;
+        _errorMessage = _errorDetails = null;
+        _progressPercent = null;
+        _operationTask = RunSharingAsync(installCloudflared, _operationCancellation.Token);
+    }
+
+    private async Task RunSharingAsync(bool installCloudflared, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (_selectedSessionId is not { } sessionId)
+                throw new InvalidOperationException("Select an OpenCode session first.");
+            if (installCloudflared)
+                await SessionShares.InstallCloudflaredAsync(cancellationToken);
+
+            cancellationToken.ThrowIfCancellationRequested();
+            var session = _sessions.FirstOrDefault(candidate => candidate.Id == sessionId);
+            var title = string.IsNullOrWhiteSpace(session?.Title) ? RepositoryName : session.Title;
+            var share = await SessionShares.StartAsync(RepositoryId, sessionId, RepositoryPath, title,
+                token => Activity.GetShareableSessionMessagesAsync(sessionId, RepositoryPath, token), cancellationToken);
+            _shareUrl = share.Url;
+            _phase = Phase.Active;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _phase = Phase.Cancelled;
+            _progressMessage = "Sharing was cancelled.";
+        }
+        catch (Exception exception)
+        {
+            ShowFailure(exception);
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void ShowFailure(Exception exception)
+    {
+        Logger.LogError(exception, "Could not create a read-only session share for repository {RepositoryId}.", RepositoryId);
+        _errorMessage = exception.Message;
+        _errorDetails = exception.ToString();
+        _phase = Phase.Failed;
+    }
+
+    private void HandleProgressChanged(SessionShareService.ShareProgress progress) => _ = InvokeAsync(() =>
+    {
+        if (_phase != Phase.Working)
+            return;
+        _progressMessage = progress.Stage;
+        _progressPercent = progress.Percent;
+        StateHasChanged();
+    });
+
+    private async Task CancelOperationAsync()
+    {
+        if (_operationCancellation is null || _operationCancellation.IsCancellationRequested)
+            return;
+        _progressMessage = "Cancelling…";
+        _operationCancellation.Cancel();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task CopyLinkAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_shareUrl))
+            return;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _shareUrl);
+            Snackbar.Add(L.T("Share link copied."), Severity.Success);
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "Could not copy the session share link to the clipboard.");
+            Snackbar.Add(L.T("Could not copy the share link. Select and copy it manually."), Severity.Warning);
+        }
+    }
+
+    private async Task StopSharingAsync()
+    {
+        await SessionShares.StopAsync();
+        _shareUrl = null;
+        _phase = Phase.Cancelled;
+        _progressMessage = "Sharing was stopped and the link was revoked.";
+    }
+
+    private void ReturnToSelection()
+    {
+        _errorMessage = _errorDetails = null;
+        _shareUrl = null;
+        _phase = Phase.SelectSession;
+    }
+
+    private void Close() => MudDialog.Close();
+
+    public void Dispose()
+    {
+        SessionShares.ProgressChanged -= HandleProgressChanged;
+        if (_phase == Phase.Working)
+            _operationCancellation?.Cancel();
+        _operationCancellation?.Dispose();
+    }
 }

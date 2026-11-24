@@ -19,6 +19,7 @@ public sealed class OpenCodeActivityService
         string RepositoryName = "");
     public sealed record AvailableModel(string Reference, string Name, string Status, bool Enabled,
         double InputCost, double OutputCost, bool HasPublishedCost, int Context, int OutputLimit);
+    public sealed record AvailableAgent(string Id, string Name, string Mode);
     public sealed record ShareSession(string Id, string Title, bool IsTerminalSession = false,
         bool IsActive = false, long? LastViewedAt = null);
     public sealed record SessionTextMessage(string Id, string Role, string Text);
@@ -700,13 +701,35 @@ public sealed class OpenCodeActivityService
     }
 
     public async Task<IReadOnlyList<string>> GetAvailableAgentsAsync(string directory, CancellationToken cancellationToken)
+        => (await GetAvailableAgentOptionsAsync(directory, cancellationToken)).Select(agent => agent.Id).ToArray();
+
+    public async Task<IReadOnlyList<AvailableAgent>> GetAvailableAgentOptionsAsync(string directory, CancellationToken cancellationToken)
     {
         using var response = await RequestAsync("/api/agent", cancellationToken, workingDirectory: directory);
         if (response?.RootElement.TryGetProperty("data", out var agents) != true || agents.ValueKind != JsonValueKind.Array)
-            return new[] { "build", "plan" };
-        return agents.EnumerateArray().Select(agent => GetString(agent, "id"))
-            .Where(name => name.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray();
+            return new[] { new AvailableAgent("build", "Build", "primary"), new AvailableAgent("plan", "Plan", "primary") };
+        return agents.EnumerateArray().Select(agent => new AvailableAgent(
+                GetString(agent, "id"), GetString(agent, "name"), GetString(agent, "mode")))
+            .Where(agent => agent.Id.Length > 0).DistinctBy(agent => agent.Id, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(agent => agent.Mode, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(agent => agent.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    public async Task<string?> GetDefaultAgentIdAsync(string directory, CancellationToken cancellationToken)
+    {
+        using var response = await RequestAsync("/api/config", cancellationToken, workingDirectory: directory);
+        if (response?.RootElement.TryGetProperty("data", out var entries) != true || entries.ValueKind != JsonValueKind.Array)
+            return null;
+        foreach (var entry in entries.EnumerateArray())
+        {
+            if (!entry.TryGetProperty("path", out var path) || path.ValueKind != JsonValueKind.String ||
+                !string.Equals(path.GetString(), "default_agent", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (entry.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(value.GetString()))
+                return value.GetString();
+        }
+        return null;
     }
 
     public async Task<ActiveSession> CreateOrchestrationSessionAsync(string directory, string role, string title,

@@ -116,9 +116,10 @@ public static class CodeBadgerRoles
     public const string Critic = "Critic";
 
     public static readonly string[] All = [Orchestrator, Router, Planner, Worker, Rag, Critic];
+    public static readonly string[] AgentTypes = ["Primary", "Plan", "Build", "Custom"];
 
     public static List<CodeBadgerRolePreference> CreateDefaults() =>
-        All.Select(role => new CodeBadgerRolePreference { Role = role, AgentId = DefaultAgent(role) }).ToList();
+        All.Select(role => new CodeBadgerRolePreference { Role = role, AgentType = DefaultAgentType(role) }).ToList();
 
     public static void Normalize(List<CodeBadgerRolePreference> preferences)
     {
@@ -130,8 +131,9 @@ public static class CodeBadgerRoles
         foreach (var role in All)
         {
             if (!normalized.TryGetValue(role, out var preference))
-                preference = new CodeBadgerRolePreference { Role = role, AgentId = DefaultAgent(role) };
-            preference.AgentId = string.IsNullOrWhiteSpace(preference.AgentId) ? DefaultAgent(role) : preference.AgentId.Trim();
+                preference = new CodeBadgerRolePreference { Role = role, AgentType = DefaultAgentType(role) };
+            preference.AgentType = string.IsNullOrWhiteSpace(preference.AgentType) ? DefaultAgentType(role) : preference.AgentType.Trim();
+            preference.CustomAgentId ??= string.Empty;
             preference.PreferredModels ??= [];
             var seenModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             preference.PreferredModels = preference.PreferredModels
@@ -144,17 +146,18 @@ public static class CodeBadgerRoles
         }
     }
 
-    public static string DefaultAgent(string role) => role switch
+    public static string DefaultAgentType(string role) => role switch
     {
-        Orchestrator or Router or Planner => "plan",
-        _ => "build"
+        Orchestrator or Router or Planner => "Plan",
+        _ => "Build"
     };
 }
 
 public sealed class CodeBadgerRolePreference
 {
     public string Role { get; set; } = CodeBadgerRoles.Worker;
-    public string AgentId { get; set; } = "build";
+    public string AgentType { get; set; } = "Build";
+    public string CustomAgentId { get; set; } = string.Empty;
     public List<string> PreferredModels { get; set; } = [];
 }
 

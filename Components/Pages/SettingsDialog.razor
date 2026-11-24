@@ -326,14 +326,43 @@
                                 <MudPaper @key="preference.Role" Outlined="true" Elevation="0" Class="pa-3">
                                     <MudStack Spacing="2">
                                         <MudText Typo="Typo.subtitle1">@CodeBadgerRoleDisplayName(preference.Role)</MudText>
-                                        <MudSelect T="string" Value="@preference.AgentId"
-                                                   ValueChanged="@(value => preference.AgentId = value)"
-                                                   Label="@L.T("OpenCode agent")" Margin="Margin.Dense" Variant="Variant.Outlined">
-                                            @foreach (var agent in _openCodeAgents)
+                                        <MudSelect T="string" Value="@(GetAgentTypeForDisplay(preference))"
+                                                   ValueChanged="@(value => preference.AgentType = value)"
+                                                       Label="@L.T("Agent type")" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                            @foreach (var type in CodeBadgerRoles.AgentTypes)
                                             {
-                                                <MudSelectItem T="string" Value="@agent">@agent</MudSelectItem>
+                                                <MudSelectItem T="string" Value="@type">@AgentTypeLabel(type)</MudSelectItem>
+                                            }
+                                            @if (!CodeBadgerRoles.AgentTypes.Contains(GetAgentTypeForDisplay(preference), StringComparer.Ordinal))
+                                            {
+                                                <MudSelectItem T="string" Value="@GetAgentTypeForDisplay(preference)">@AgentTypeLabel(GetAgentTypeForDisplay(preference))</MudSelectItem>
                                             }
                                         </MudSelect>
+                                        @if (GetAgentTypeForDisplay(preference) == "Primary")
+                                        {
+                                            <MudAlert Dense="true" Severity="Severity.Info" Variant="Variant.Outlined">
+                                                @L.T("Primary uses the default OpenCode agent configured for this project. It is distinct from the built-in Plan and Build agents.")
+                                            </MudAlert>
+                                        }
+                                        @if (GetAgentTypeForDisplay(preference) is "Plan" or "Build")
+                                        {
+                                            <MudAlert Dense="true" Severity="Severity.Info" Variant="Variant.Outlined">
+                                                @L.T("Plan and Build are OpenCode's built-in primary agents. Their model choice is controlled by the role's model priorities below.")
+                                            </MudAlert>
+                                        }
+                                        @if (GetAgentTypeForDisplay(preference) == "Custom")
+                                        {
+                                            <MudSelect T="string" Value="@preference.CustomAgentId"
+                                                       ValueChanged="@(value => preference.CustomAgentId = value)"
+                                                       Label="@L.T("Custom OpenCode agent")" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                                @foreach (var agent in _openCodeAgents)
+                                                {
+                                                    <MudSelectItem T="string" Value="@agent.Id" Disabled="@(agent.Mode is not ("subagent" or "all"))">
+                                                        @agent.Name (@agent.Id)@(agent.Mode is "subagent" or "all" ? string.Empty : " · " + L.T("Primary agent; choose the Primary type"))
+                                                    </MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                        }
                                         @for (var priorityIndex = 0; priorityIndex < 3; priorityIndex++)
                                         {
                                             var slot = priorityIndex;
@@ -514,7 +543,11 @@
     private bool _hasTestedConnection;
     private IReadOnlyList<string> _availableModels = [];
     private IReadOnlyList<OpenCodeActivityService.AvailableModel> _openCodeModels = [];
-    private IReadOnlyList<string> _openCodeAgents = new[] { "build", "plan" };
+    private IReadOnlyList<OpenCodeActivityService.AvailableAgent> _openCodeAgents = new[]
+    {
+        new OpenCodeActivityService.AvailableAgent("build", "Build", "primary"),
+        new OpenCodeActivityService.AvailableAgent("plan", "Plan", "primary")
+    };
     private bool _isLoadingCodeBadgerModels;
     private static readonly string[] AiProviders = ["OpenAI", "Azure OpenAI", "Anthropic", "Google Gemini", "Ollama", "Custom URL"];
     private string _selectedAgent = AgentTools.OpenCode;
@@ -560,6 +593,8 @@
     {
         var repositoryPath = Settings.Repositories.FirstOrDefault(repository => repository.IsActive &&
             AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)?.Path;
+        repositoryPath ??= Settings.Repositories.FirstOrDefault(repository =>
+            AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)?.Path;
         if (string.IsNullOrWhiteSpace(repositoryPath) || !Directory.Exists(repositoryPath))
         {
             Snackbar.Add(L.T("Activate an OpenCode repository to load its available models."), Severity.Warning);
@@ -571,7 +606,7 @@
         {
             _openCodeModels = await OpenCodeActivity.GetAvailableModelsAsync(repositoryPath, CancellationToken.None);
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-            var agents = await OpenCodeActivity.GetAvailableAgentsAsync(repositoryPath, timeout.Token);
+            var agents = await OpenCodeActivity.GetAvailableAgentOptionsAsync(repositoryPath, timeout.Token);
             if (agents.Count > 0)
                 _openCodeAgents = agents;
             Snackbar.Add(L.T("Loaded {0} OpenCode models and {1} agents.", _openCodeModels.Count, _openCodeAgents.Count),
@@ -621,6 +656,18 @@
         CodeBadgerRoles.Critic => L.T("Critic / Evaluator-agent"),
         _ => role
     };
+
+    private string AgentTypeLabel(string type) => type switch
+    {
+        "Primary" => L.T("Primary agent"),
+        "Plan" => L.T("Plan agent"),
+        "Build" => L.T("Build agent"),
+        "Custom" => L.T("Custom agent"),
+        _ => type
+    };
+
+    private static string GetAgentTypeForDisplay(CodeBadgerRolePreference preference) =>
+        string.IsNullOrWhiteSpace(preference.AgentType) ? CodeBadgerRoles.DefaultAgentType(preference.Role) : preference.AgentType;
 
     private void HandleAgentUpdatesChanged() => _ = InvokeAsync(StateHasChanged);
 

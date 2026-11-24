@@ -551,30 +551,16 @@
     private async Task RunSingleAgentPromptAsync(CodeBadgerTerminalSession session, string prompt,
         IReadOnlyList<CodeBadgerRolePreference> preferences)
     {
-        var availableAgents = await OpenCodeActivity.GetAvailableAgentsAsync(Repository.Path, CancellationToken.None);
-        var availableRoles = preferences.Where(preference => availableAgents.Contains(preference.AgentId, StringComparer.OrdinalIgnoreCase)).ToArray();
         var role = session.Mode == TerminalMode.Plan ? CodeBadgerRoles.Planner : CodeBadgerRoles.Worker;
-        var preference = availableRoles.FirstOrDefault(item => item.Role == role)
-            ?? availableRoles.FirstOrDefault()
-            ?? new CodeBadgerRolePreference { Role = role, AgentId = availableAgents.FirstOrDefault() ?? "build" };
-        await RunRoleAsync(session, role, prompt, parentRole: null,
-            new[] { new CodeBadgerRolePreference
-            {
-                Role = role,
-                AgentId = preference.AgentId,
-                PreferredModels = preference.PreferredModels
-            } });
+        await RunRoleAsync(session, role, prompt, parentRole: null, preferences);
     }
 
     private async Task<string> RunRoleAsync(CodeBadgerTerminalSession session, string role, string prompt,
         string? parentRole, IReadOnlyList<CodeBadgerRolePreference> preferences)
     {
         var preference = preferences.FirstOrDefault(item => item.Role == role)
-            ?? new CodeBadgerRolePreference { Role = role, AgentId = CodeBadgerRoles.DefaultAgent(role) };
-        var availableAgents = await OpenCodeActivity.GetAvailableAgentsAsync(Repository.Path, CancellationToken.None);
-        if (availableAgents.Count > 0 && !availableAgents.Contains(preference.AgentId, StringComparer.OrdinalIgnoreCase))
-            preference.AgentId = availableAgents.Contains(CodeBadgerRoles.DefaultAgent(role), StringComparer.OrdinalIgnoreCase)
-                ? CodeBadgerRoles.DefaultAgent(role) : availableAgents[0];
+            ?? new CodeBadgerRolePreference { Role = role, AgentType = CodeBadgerRoles.DefaultAgentType(role) };
+        var preferenceAgent = await ResolvePreferenceAgentAsync(preference, role);
         var model = await ResolveRoleModelAsync(session, preference, role, prompt, preferences);
         var parentId = parentRole is not null && session.State.AgentSessionIds.TryGetValue(parentRole, out var existingParent)
             ? existingParent : null;
@@ -583,7 +569,7 @@
             ? "SingleAgent" : role;
         if (!session.State.AgentSessionIds.TryGetValue(sessionKey, out var agentSessionId))
         {
-            var created = await OpenCodeActivity.CreateOrchestrationSessionAsync(Repository.Path, preference.AgentId,
+            var created = await OpenCodeActivity.CreateOrchestrationSessionAsync(Repository.Path, preferenceAgent,
                 $"{session.Title} · {RoleDisplayName(role)}", parentId, model, CancellationToken.None);
             agentSessionId = created.Id;
             session.State.AgentSessionIds[sessionKey] = agentSessionId;
@@ -593,7 +579,7 @@
         {
             if (!string.IsNullOrWhiteSpace(model))
                 await OpenCodeActivity.SwitchModelAsync(agentSessionId, Repository.Path, model, CancellationToken.None);
-            await OpenCodeActivity.SwitchAgentAsync(agentSessionId, Repository.Path, preference.AgentId, CancellationToken.None);
+            await OpenCodeActivity.SwitchAgentAsync(agentSessionId, Repository.Path, preferenceAgent, CancellationToken.None);
         }
         session.State.ActiveAgentRole = role;
         var modelStateKey = orchestrationMode == CodeBadgerOrchestrationModes.SingleAgent
@@ -612,7 +598,7 @@
         string response;
         try
         {
-            await OpenCodeActivity.SendPromptAsync(agentSessionId, Repository.Path, prompt, CancellationToken.None, preference.AgentId);
+            await OpenCodeActivity.SendPromptAsync(agentSessionId, Repository.Path, prompt, CancellationToken.None, preferenceAgent);
             await OpenCodeActivity.WaitForSessionAsync(agentSessionId, Repository.Path, CancellationToken.None);
             response = await OpenCodeActivity.GetLatestCompletedAnswerAsync(agentSessionId, Repository.Path, CancellationToken.None)
                 ?? L.T("The AI session completed without a text response.");
@@ -628,6 +614,53 @@
         await PersistTerminalStateAsync();
         await InvokeAsync(StateHasChanged);
         return response;
+    }
+
+    private async Task<string> ResolvePreferenceAgentAsync(CodeBadgerRolePreference preference, string role)
+    {
+        var agents = await OpenCodeActivity.GetAvailableAgentOptionsAsync(Repository.Path, CancellationToken.None);
+        string? requestedId = preference.AgentType switch
+        {
+            "Plan" => "plan",
+            "Build" => "build",
+            "Custom" => preference.CustomAgentId,
+            _ => await OpenCodeActivity.GetDefaultAgentIdAsync(Repository.Path, CancellationToken.None)
+        };
+
+        if (!string.IsNullOrWhiteSpace(requestedId))
+        {
+            var requestedAgent = agents.FirstOrDefault(agent => string.Equals(agent.Id, requestedId, StringComparison.OrdinalIgnoreCase));
+            if (requestedAgent is not null)
+            {
+                if (preference.AgentType == "Primary" && requestedAgent.Mode is not ("primary" or "all"))
+                    throw new InvalidOperationException(L.T("The configured OpenCode default agent is not a primary agent."));
+                if (preference.AgentType == "Custom" && requestedAgent.Mode is not ("subagent" or "all"))
+                    throw new InvalidOperationException(L.T("Choose a custom OpenCode subagent for this role."));
+                return requestedAgent.Id;
+            }
+        }
+
+        if (preference.AgentType == "Primary")
+        {
+            // Prefer a primary agent explicitly named primary; otherwise the mode="primary" agents
+            // returned by OpenCode are the only stable contract we have across installations.
+            var primary = agents.FirstOrDefault(agent => string.Equals(agent.Id, requestedId, StringComparison.OrdinalIgnoreCase))
+                ?? agents.FirstOrDefault(agent => agent.Mode == "primary");
+            if (primary is not null) return primary.Id;
+        }
+
+        if (preference.AgentType == "Custom")
+        {
+            var custom = agents.FirstOrDefault(agent => agent.Mode is "subagent" or "all");
+            if (custom is not null) return custom.Id;
+        }
+
+        var safeFallback = role is CodeBadgerRoles.Orchestrator or CodeBadgerRoles.Router or CodeBadgerRoles.Planner
+            ? "plan" : "build";
+        if (agents.Any(agent => string.Equals(agent.Id, safeFallback, StringComparison.OrdinalIgnoreCase)))
+            return safeFallback;
+        return agents.FirstOrDefault()?.Id
+            ?? throw new InvalidOperationException(L.T("OpenCode returned no available agents."));
     }
 
     private async Task RunFullOrchestrationAsync(CodeBadgerTerminalSession session, string prompt,
@@ -717,8 +750,9 @@
         {
             try
             {
-                var routerPreference = preferences.FirstOrDefault(item => item.Role == CodeBadgerRoles.Router);
-                var routerAgent = routerPreference?.AgentId ?? "plan";
+                var routerPreference = preferences.FirstOrDefault(item => item.Role == CodeBadgerRoles.Router)
+                    ?? new CodeBadgerRolePreference { Role = CodeBadgerRoles.Router, AgentType = "Plan" };
+                var routerAgent = await ResolvePreferenceAgentAsync(routerPreference, CodeBadgerRoles.Router);
                 var routerModel = routerPreference?.PreferredModels.FirstOrDefault(value => available.Any(model =>
                     string.Equals(model.Reference, value, StringComparison.OrdinalIgnoreCase)));
                 const string selectorRolePrefix = "ModelSelector:";
@@ -729,9 +763,6 @@
                         !string.IsNullOrWhiteSpace(_agentModelReference) && available.Any(model => model.Reference == _agentModelReference)
                             ? _agentModelReference
                             : available.OrderBy(model => EstimatedCost(model, CodeBadgerRoles.Router)).First().Reference;
-                    var agents = await OpenCodeActivity.GetAvailableAgentsAsync(Repository.Path, CancellationToken.None);
-                    if (agents.Count > 0 && !agents.Contains(routerAgent, StringComparer.OrdinalIgnoreCase))
-                        routerAgent = agents.Contains("plan", StringComparer.OrdinalIgnoreCase) ? "plan" : agents[0];
                     var selector = await OpenCodeActivity.CreateOrchestrationSessionAsync(Repository.Path,
                         routerAgent, $"{session.Title} · Model selector · {role}", null, seedModel, CancellationToken.None);
                     selectorSessionId = selector.Id;
@@ -746,7 +777,7 @@
                 });
                 var request = $"Choose the best model for the AI role '{RoleDisplayName(role)}' and the task below. Infer task suitability from model name/family and context/output limits. Treat price as a cost tradeoff, never assume an unpriced model is free. Prefer a priced model when quality looks comparable; choose an unpriced model only when its likely task quality is materially better. Choose exactly one Reference from the candidate JSON; if metadata cannot establish a quality advantage, choose the cheapest capable model with a published price. Return only JSON {{\"model\":\"provider/model\"}}.\nTask:\n{taskDescription}\nCandidates (prices USD per million tokens):\n{System.Text.Json.JsonSerializer.Serialize(candidates)}";
                 await OpenCodeActivity.SendPromptAsync(selectorSessionId, Repository.Path, request, CancellationToken.None,
-                    routerAgent is "build" or "plan" ? routerAgent : null);
+                    routerAgent);
                 await OpenCodeActivity.WaitForSessionAsync(selectorSessionId, Repository.Path, CancellationToken.None);
                 var result = await OpenCodeActivity.GetLatestCompletedAnswerAsync(selectorSessionId, Repository.Path, CancellationToken.None);
                 var selected = ReadStringField(result ?? string.Empty, "model");
@@ -822,9 +853,18 @@
             ? activeModel : null;
         var model = storedModel ?? preference?.PreferredModels.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? _agentModelReference;
         var currentAgent = Repository.AgentTool == AgentTools.OpenCode ? "OpenCode" : AgentTools.GetDisplayName(Repository.AgentTool);
-        var agent = preference?.AgentId ?? "build";
+        var agent = preference is null ? "Build" : AgentTypeLabel(preference.AgentType, preference.CustomAgentId);
         return $"{currentAgent} · {RoleDisplayName(selectedRole)} · {agent}{(string.IsNullOrWhiteSpace(model) ? string.Empty : " · " + FormatModelName(model.Split('/').Last()))}";
     }
+
+    private static string AgentTypeLabel(string agentType, string customAgentId) => agentType switch
+    {
+        "Primary" => "Primary",
+        "Plan" => "Plan",
+        "Build" => "Build",
+        "Custom" => string.IsNullOrWhiteSpace(customAgentId) ? "Custom" : customAgentId,
+        _ => agentType
+    };
 
     private async Task PersistTerminalStateAsync()
     {

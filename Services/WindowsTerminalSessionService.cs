@@ -15,6 +15,9 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, List<string>> _recentOutput = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, string> _openCodeSessionIds = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, string> _openCodeTerminalLines = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, DateTime> _interactiveAgentLastInput = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, DateTime> _interactiveAgentLastActivity = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, byte> _interactiveAgentSessions = new();
     private readonly LocalizationService _localization;
     private readonly ILogger<WindowsTerminalSessionService> _logger;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, SemaphoreSlim> _terminalWriteGates = new();
@@ -29,6 +32,15 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
     public event Action<Guid, int>? SessionExited;
     public bool TryGetOpenCodeSessionId(Guid id, out string sessionId) => _openCodeSessionIds.TryGetValue(id, out sessionId!);
     public bool TryGetOpenCodeTerminalLine(Guid id, out string line) => _openCodeTerminalLines.TryGetValue(id, out line!);
+
+    public bool IsInteractiveAgentWorking(Guid id) =>
+        _interactiveAgentSessions.ContainsKey(id) &&
+        _interactiveAgentLastInput.TryGetValue(id, out var lastInput) &&
+        DateTime.UtcNow - lastInput < TimeSpan.FromMinutes(10) &&
+        _interactiveAgentLastActivity.TryGetValue(id, out var lastActivity) &&
+        (lastActivity <= lastInput
+            ? DateTime.UtcNow - lastInput < TimeSpan.FromSeconds(90)
+            : DateTime.UtcNow - lastActivity < TimeSpan.FromSeconds(12));
 
     public bool IsRunning(Guid id)
     {
@@ -78,6 +90,10 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
             }
             if (IsOpenCodeCommand(commandLine))
                 _openCodeTerminalLines[id] = openCodeSessionId ?? string.Empty;
+            if (IsInteractiveAgentCommand(commandLine))
+                _interactiveAgentSessions[id] = 0;
+            else
+                ClearInteractiveAgentActivity(id);
 
             var hasEncodedPowerShellCommand = commandLine.StartsWith("powershell-encoded ", StringComparison.Ordinal);
             var encodedPowerShellCommand = hasEncodedPowerShellCommand ? commandLine["powershell-encoded ".Length..] : null;
@@ -148,6 +164,12 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
             var bytes = Encoding.UTF8.GetBytes(input);
             await session.Input.WriteAsync(bytes);
             await session.Input.FlushAsync();
+            if (_interactiveAgentSessions.ContainsKey(id) && input.IndexOfAny(['\r', '\n']) >= 0)
+            {
+                var now = DateTime.UtcNow;
+                _interactiveAgentLastInput[id] = now;
+                _interactiveAgentLastActivity.TryRemove(id, out _);
+            }
             _logger.LogInformation("Forwarded terminal input to agent for repository {RepositoryId}.", id);
             }
             finally { gate.Release(); }
@@ -191,6 +213,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
             _sessions.Remove(id);
         _openCodeSessionIds.TryRemove(id, out _);
         _openCodeTerminalLines.TryRemove(id, out _);
+        ClearInteractiveAgentActivity(id);
         _recentOutput.TryRemove(id, out _);
         session.Dispose();
         _logger.LogInformation("Agent terminal stopped for repository {RepositoryId}.", id);
@@ -247,6 +270,10 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
                 output.RemoveAt(0);
         }
         OutputReceived?.Invoke(id, text);
+        if (_interactiveAgentSessions.ContainsKey(id) &&
+            _interactiveAgentLastInput.TryGetValue(id, out var lastInput) &&
+            DateTime.UtcNow - lastInput < TimeSpan.FromMinutes(10))
+            _interactiveAgentLastActivity[id] = DateTime.UtcNow;
     }
 
     private async Task WatchProcessAsync(Guid id, TerminalSession session)
@@ -256,6 +283,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
             await session.Process.WaitForExitAsync();
             if (IsActiveSession(id, session))
             {
+                ClearInteractiveAgentActivity(id);
                 _logger.LogInformation("Agent terminal process for repository {RepositoryId} exited with code {ExitCode}.", id, session.Process.ExitCode);
                 SessionExited?.Invoke(id, session.Process.ExitCode);
             }
@@ -432,6 +460,26 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
             ? command[1..Math.Max(1, command.IndexOf('"', 1))]
             : command.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
         return Path.GetFileNameWithoutExtension(token).Equals("opencode", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsInteractiveAgentCommand(string commandLine)
+    {
+        if (string.IsNullOrWhiteSpace(commandLine) || commandLine.StartsWith("powershell-encoded ", StringComparison.Ordinal))
+            return false;
+        var command = commandLine.Trim();
+        var token = command.StartsWith('"')
+            ? command[1..Math.Max(1, command.IndexOf('"', 1))]
+            : command.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
+        var executable = Path.GetFileNameWithoutExtension(token);
+        return executable.Equals("claude", StringComparison.OrdinalIgnoreCase) ||
+               executable.Equals("hermes", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ClearInteractiveAgentActivity(Guid id)
+    {
+        _interactiveAgentSessions.TryRemove(id, out _);
+        _interactiveAgentLastInput.TryRemove(id, out _);
+        _interactiveAgentLastActivity.TryRemove(id, out _);
     }
 
     private string ReadExecutableToken(string command, out string arguments)

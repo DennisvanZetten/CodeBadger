@@ -85,7 +85,7 @@
                                              title="@L.T("Agent is waiting for your answer")" />
                                 </MudTooltip>
                             }
-                            else if (_runningSessions.Contains(repository.Id))
+                            else if (_runningSessions.Contains(repository.Id) || _workingInteractiveAgentSessions.Contains(repository.Id))
                             {
                                 <span class="repository-activity-spinner @AgentSpinnerClass(repository)" role="status"
                                        aria-label="@L.T("Agent session is working", AgentTools.GetDisplayName(repository.AgentTool))"
@@ -148,6 +148,7 @@
     private readonly Dictionary<Guid, DateTime> _lastInvalidSnapshotRetry = [];
     private readonly HashSet<Guid> _runningSessions = [];
     private readonly HashSet<Guid> _questionSessions = [];
+    private readonly HashSet<Guid> _workingInteractiveAgentSessions = [];
     private readonly Dictionary<string, OpenCodeActivityService.ActiveSession> _runningOpenCodeSessions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTime> _pendingSlackCompletions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTime> _lastSlackMessageSync = new(StringComparer.Ordinal);
@@ -208,6 +209,7 @@
         }
         _ = MonitorActiveRepositoryStatusAsync(_statusMonitorCancellation.Token);
         _ = MonitorOpenCodeActivityAsync(_statusMonitorCancellation.Token);
+        _ = MonitorInteractiveAgentActivityAsync(_statusMonitorCancellation.Token);
     }
 
     protected override void OnParametersSet()
@@ -889,6 +891,33 @@
                         // Keep completed sessions queued until Slack reconnects, so a transient
                         // connection interruption does not silently drop their completion reply.
                     }
+                });
+            } while (await timer.WaitForNextTickAsync(cancellationToken));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (ObjectDisposedException) { }
+    }
+
+    private async Task MonitorInteractiveAgentActivityAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
+        {
+            do
+            {
+                await InvokeAsync(() =>
+                {
+                    var working = _activeRepositories
+                        .Where(repository => AgentTools.Normalize(repository.AgentTool) is AgentTools.ClaudeCode or AgentTools.Hermes)
+                        .Where(repository => WindowsTerminalSessions.IsInteractiveAgentWorking(repository.Id))
+                        .Select(repository => repository.Id)
+                        .ToHashSet();
+                    if (_workingInteractiveAgentSessions.SetEquals(working))
+                        return;
+
+                    _workingInteractiveAgentSessions.Clear();
+                    _workingInteractiveAgentSessions.UnionWith(working);
+                    StateHasChanged();
                 });
             } while (await timer.WaitForNextTickAsync(cancellationToken));
         }

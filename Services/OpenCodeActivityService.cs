@@ -10,6 +10,8 @@ public sealed class OpenCodeActivityService
 {
     private readonly ILogger<OpenCodeActivityService> _logger;
     private readonly ConcurrentDictionary<string, byte> _shareShapeWarnings = new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _activityRequestGate = new(1, 1);
+    private volatile bool _activityEndpointFailed;
 
     public OpenCodeActivityService(ILogger<OpenCodeActivityService> logger) => _logger = logger;
 
@@ -41,6 +43,20 @@ public sealed class OpenCodeActivityService
     public async Task<ActivitySnapshot?> GetActivityAsync(CancellationToken cancellationToken,
         IReadOnlyCollection<string>? directories = null)
     {
+        if (_activityEndpointFailed)
+            return null;
+        try
+        {
+            if (!await _activityRequestGate.WaitAsync(0, cancellationToken))
+                return null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+
+        try
+        {
         var activeDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var questionDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var activeSessions = new Dictionary<string, ActiveSession>(StringComparer.Ordinal);
@@ -167,7 +183,15 @@ public sealed class OpenCodeActivityService
                 formResponse?.Dispose();
             }
         }
+        }
+        finally
+        {
+            _activityRequestGate.Release();
+        }
     }
+
+    public void MarkActivityEndpointFailed() => _activityEndpointFailed = true;
+    public void ResetActivityEndpointFailure() => _activityEndpointFailed = false;
 
     public async Task<string?> GetLatestCompletedAnswerAsync(string sessionId, string directory, CancellationToken cancellationToken)
     {
@@ -728,7 +752,16 @@ public sealed class OpenCodeActivityService
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+            if (path.Equals("/api/session/active", StringComparison.Ordinal))
+                _activityEndpointFailed = true;
             _logger.LogWarning("Managed OpenCode API request {ApiPath} timed out.", path);
+            return null;
+        }
+        catch (System.Net.Http.HttpRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound &&
+                                                                   path.Equals("/api/session/active", StringComparison.Ordinal))
+        {
+            _activityEndpointFailed = true;
+            _logger.LogWarning("Installed OpenCode no longer supports the activity API endpoint; activity polling has been disabled for this app launch.");
             return null;
         }
         catch (System.ComponentModel.Win32Exception exception)

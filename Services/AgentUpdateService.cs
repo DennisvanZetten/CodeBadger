@@ -215,10 +215,11 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
         startInfo.ArgumentList.Add("new");
         startInfo.ArgumentList.Add("pwsh.exe");
         startInfo.ArgumentList.Add("-NoExit");
-        startInfo.ArgumentList.Add("-Command");
-        startInfo.ArgumentList.Add(agent == AgentTools.OpenCode
+        var script = agent == AgentTools.OpenCode
             ? command
-            : $"{command}; if ($LASTEXITCODE -eq 0) {{ Write-Host 'Update command completed. Review the output above; restart CodeBadger if the updated executable is still in use.' -ForegroundColor Green }} else {{ Write-Host 'Update command failed or did not complete. Review the output above.' -ForegroundColor Yellow }}");
+            : $"{command}; if ($LASTEXITCODE -eq 0) {{ Write-Host 'Update command completed. Review the output above; restart CodeBadger if the updated executable is still in use.' -ForegroundColor Green }} else {{ Write-Host 'Update command failed or did not complete. Review the output above.' -ForegroundColor Yellow }}";
+        startInfo.ArgumentList.Add("-EncodedCommand");
+        startInfo.ArgumentList.Add(Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(script)));
         if (Process.Start(startInfo) is null)
             throw new InvalidOperationException("Could not start Windows Terminal.");
     }
@@ -232,23 +233,34 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
             throw new FileNotFoundException("The OpenCode executable could not be found.");
         if (!Path.GetExtension(executable).Equals(".exe", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Automatic OpenCode updates require its native Windows executable. This installation type is not supported safely.");
+        var installMethod = GetOpenCodeInstallMethod(executable);
+        if (installMethod == "unknown")
+            throw new InvalidOperationException("Could not determine the selected OpenCode installation method. No update was started, to avoid installing a second copy.");
+        var installationRoot = GetNodeRootForExecutable(executable);
+        if (installMethod == "npm" && installationRoot is null)
+            throw new InvalidOperationException("The npm install directory for this OpenCode executable could not be identified. No update was started, to avoid updating a different Node installation.");
+        var updateCommand = GetOpenCodeInstallerUpdateCommand(executable, installMethod);
 
         var escapedPath = executable.Replace("'", "''", StringComparison.Ordinal);
         return "$ErrorActionPreference = 'Continue'; " +
             $"$openCode = '{escapedPath}'; " +
             "$updateExit = 1; " +
+            "$managedServiceStopped = $false; " +
             "try { " +
                 "& $openCode service stop; " +
                 "$managedServiceStopped = $LASTEXITCODE -eq 0; " +
                 "if (-not $managedServiceStopped) { throw 'OpenCode background service did not stop cleanly; update cancelled.' }; " +
                 "$openCodeProcesses = @(Get-CimInstance Win32_Process -Filter \"Name='opencode.exe'\" -ErrorAction Stop); " +
+                "$updatedBinary = [System.IO.Path]::GetFullPath($openCode); " +
                 "foreach ($openCodeProcess in $openCodeProcesses) { " +
                     "$commandLine = [string]$openCodeProcess.CommandLine; " +
+                    "$processPath = [string]$openCodeProcess.ExecutablePath; " +
+                    "if ($processPath -and -not [string]::Equals([System.IO.Path]::GetFullPath($processPath), $updatedBinary, [StringComparison]::OrdinalIgnoreCase)) { continue }; " +
                     "if ($commandLine -match '(?i)(?:^|\\s)api\\s+(?:get|post|put|patch|delete)\\s+' -or $commandLine -match '(?i)(?:^|\\s)upgrade(?:\\s|$)') { continue }; " +
                     "Stop-Process -Id $openCodeProcess.ProcessId -Force -ErrorAction SilentlyContinue; " +
                 "}; " +
                 "Start-Sleep -Seconds 2; " +
-                "& $openCode upgrade; " +
+                updateCommand + "; " +
                 "$updateExit = $LASTEXITCODE; " +
             "} finally { " +
                 "if ($managedServiceStopped) { & $openCode service start; " +
@@ -256,6 +268,277 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
             "}; " +
             "if ($updateExit -eq 0) { Write-Host 'OpenCode was updated and its background service restart was requested.' -ForegroundColor Green } " +
             "else { Write-Host 'OpenCode update failed. The background service restart was requested; review the output above.' -ForegroundColor Yellow }";
+    }
+
+    private static string GetOpenCodeInstallMethod(string executablePath)
+    {
+        var normalized = executablePath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+        var nvmHome = Environment.GetEnvironmentVariable("NVM_HOME") ??
+                      Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "AppData", "Local", "nvm");
+        if (normalized.Contains("\\nvm4w\\", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("\\node_modules\\", StringComparison.OrdinalIgnoreCase) && IsUnderDirectory(executablePath, nvmHome))
+            return "npm";
+
+        var nvmSymlink = Environment.GetEnvironmentVariable("NVM_SYMLINK");
+        if (!string.IsNullOrWhiteSpace(nvmSymlink) && IsUnderDirectory(executablePath, nvmSymlink))
+            return "npm";
+
+        var nodeRoot = GetNodeRootForExecutable(executablePath);
+        var npmRoot = RunNpmGlobalRoot(executablePath);
+        if (!string.IsNullOrWhiteSpace(npmRoot))
+        {
+            var binaryPaths = new[]
+            {
+                Path.Combine(npmRoot, "@opencode", "cli", "bin", "opencode.exe"),
+                Path.Combine(npmRoot, "opencode-ai", "bin", "opencode.exe"),
+                Path.Combine(npmRoot, "opencode-ai", "node_modules", "opencode-windows-x64", "bin", "opencode.exe")
+            };
+            if (binaryPaths.Any(binaryPath => SamePhysicalFile(executablePath, binaryPath)))
+                return "npm";
+        }
+
+        var globalManagerPrefix = RunNpmGlobalPrefix(executablePath);
+        var nodeRootForManager = nodeRoot;
+        var managerPaths = new (string Command, string PackageDirectory, string Method)[]
+        {
+            ("pnpm.cmd", Path.Combine("global", "5", "node_modules", "@opencode", "cli", "bin", "opencode.exe"), "pnpm"),
+            ("bun.exe", Path.Combine("node_modules", "@opencode", "cli", "bin", "opencode.exe"), "bun"),
+            ("yarn.cmd", Path.Combine("node_modules", "@opencode", "cli", "bin", "opencode.exe"), "yarn"),
+            ("vp.exe", Path.Combine("node_modules", "@opencode", "cli", "bin", "opencode.exe"), "vp")
+        };
+        foreach (var manager in managerPaths)
+        {
+            var managerPath = FindCommandPath(manager.Command);
+            if (string.IsNullOrWhiteSpace(managerPath))
+                continue;
+            var managerRoot = Path.GetDirectoryName(managerPath)!;
+            var possibleRoots = new[]
+            {
+                nodeRootForManager ?? string.Empty,
+                managerRoot,
+                globalManagerPrefix ?? string.Empty,
+                globalManagerPrefix is null || nodeRootForManager is null ? string.Empty : Path.Combine(globalManagerPrefix, Path.GetFileName(nodeRootForManager))
+            };
+            foreach (var root in possibleRoots.Where(root => !string.IsNullOrWhiteSpace(root)))
+            {
+                if (SamePhysicalFile(executablePath, Path.Combine(root, manager.PackageDirectory)))
+                    return manager.Method;
+            }
+        }
+
+        var commandPath = FindCommandPath("opencode.cmd");
+        if (!string.IsNullOrWhiteSpace(commandPath))
+        {
+            var commandDirectory = Path.GetDirectoryName(commandPath)!;
+            var commandBinaries = new[]
+            {
+                Path.Combine(commandDirectory, "node_modules", "@opencode", "cli", "bin", "opencode.exe"),
+                Path.Combine(commandDirectory, "node_modules", "opencode-ai", "bin", "opencode.exe"),
+                Path.Combine(commandDirectory, "node_modules", "opencode-ai", "node_modules", "opencode-windows-x64", "bin", "opencode.exe")
+            };
+            if (commandBinaries.Any(binary => SamePhysicalFile(executablePath, binary)))
+                return "npm";
+        }
+
+        var scoopRoot = Environment.GetEnvironmentVariable("SCOOP");
+        if (!string.IsNullOrWhiteSpace(scoopRoot) && IsUnderDirectory(executablePath, Path.Combine(scoopRoot, "apps", "opencode")))
+            return "scoop";
+        if (IsUnderDirectory(executablePath, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "scoop", "apps", "opencode")))
+            return "scoop";
+
+        if (IsUnderDirectory(executablePath, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WinGet", "Packages")))
+            return "winget";
+
+        var standaloneDirs = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".opencode", "bin"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "bin")
+        };
+        if (standaloneDirs.Any(directory => SamePhysicalFile(executablePath, Path.Combine(directory, "opencode.exe"))))
+            return "curl";
+
+        if (nodeRoot is not null && IsUnderDirectory(executablePath, nodeRoot))
+            return "npm";
+        return "unknown";
+    }
+
+    private static string? FindCommandPath(string command)
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "where.exe",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                ArgumentList = { command }
+            });
+            if (process is null)
+                return null;
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            if (!process.WaitForExit(5000) || process.ExitCode != 0)
+                return null;
+            return stdout.GetAwaiter().GetResult().Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        }
+        catch { return null; }
+    }
+
+    private static string GetOpenCodeInstallerUpdateCommand(string executablePath, string method)
+    {
+        var prefix = GetNpmPrefixForExecutable(executablePath);
+        var escapedPrefix = string.IsNullOrWhiteSpace(prefix) ? null : prefix.Replace("'", "''", StringComparison.Ordinal);
+        return method switch
+        {
+            "npm" when escapedPrefix is not null => $"npm install --global --prefix '{escapedPrefix}' @opencode/cli@latest",
+            "npm" => "npm install --global @opencode/cli@latest",
+            "pnpm" => "pnpm add --global @opencode/cli@latest",
+            "bun" => "bun install --global @opencode/cli@latest",
+            "yarn" => "yarn global add @opencode/cli@latest",
+            "winget" => "winget upgrade --id SST.opencode --exact",
+            "scoop" => "scoop update opencode",
+            "brew" => "brew upgrade opencode",
+            "vp" => "vp install --global @opencode/cli@latest",
+            "curl" => "& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing https://opencode.ai/install.ps1).Content))",
+            _ => throw new InvalidOperationException("Could not determine how this OpenCode instance was installed; refusing to install another copy.")
+        };
+    }
+
+    private static string? GetNpmPrefixForExecutable(string executablePath)
+    {
+        var nodeRoot = GetNodeRootForExecutable(executablePath);
+        if (nodeRoot is not null)
+        {
+            var prefix = RunNpmGlobalPrefix(executablePath);
+            if (!string.IsNullOrWhiteSpace(prefix))
+                return prefix;
+
+            // NVM installs each Node version under its own directory. Setting this
+            // exact prefix updates that Node version instead of PATH's current Node.
+            if (Directory.Exists(Path.Combine(nodeRoot, "node_modules")))
+                return nodeRoot;
+        }
+        return null;
+    }
+
+    private static string GetPackageManagerUpdateCommand(string command, string executablePath, string arguments)
+    {
+        var nodeRoot = GetNodeRootForExecutable(executablePath);
+        var managerPath = nodeRoot is not null
+            ? Path.Combine(nodeRoot, command + ".cmd")
+            : FindCommandPath(command + ".cmd") ?? command;
+        var globalPrefix = RunNpmGlobalPrefix(executablePath);
+        if (!string.IsNullOrWhiteSpace(globalPrefix))
+            arguments = command.Equals("pnpm", StringComparison.OrdinalIgnoreCase)
+                ? $"{arguments} --global-dir '{globalPrefix.Replace("'", "''", StringComparison.Ordinal)}'"
+                : $"{arguments} --global-dir '{globalPrefix.Replace("'", "''", StringComparison.Ordinal)}'";
+        return $"& '{managerPath.Replace("'", "''", StringComparison.Ordinal)}' {arguments}";
+    }
+
+    private static string? GetNodeRootForExecutable(string executablePath)
+    {
+        var directory = Path.GetDirectoryName(executablePath);
+        while (!string.IsNullOrWhiteSpace(directory))
+        {
+            if (Directory.Exists(Path.Combine(directory, "node_modules", "@opencode", "cli")) ||
+                Directory.Exists(Path.Combine(directory, "node_modules", "opencode-ai")))
+                return directory;
+            var parent = Directory.GetParent(directory);
+            if (parent is null || string.Equals(parent.FullName, directory, StringComparison.OrdinalIgnoreCase))
+                break;
+            directory = parent.FullName;
+        }
+        return null;
+    }
+
+    private static string GetNpmCommandForExecutable(string executablePath)
+    {
+        var nodeRoot = GetNodeRootForExecutable(executablePath);
+        if (nodeRoot is not null)
+        {
+            foreach (var name in new[] { "npm.cmd", "npm.exe" })
+            {
+                var candidate = Path.Combine(nodeRoot, name);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+        }
+        return FindCommandPath("npm.cmd") ?? "npm";
+    }
+
+    private static string? RunNpmGlobalRoot(string executablePath)
+    {
+        try
+        {
+            var nodeRoot = GetNodeRootForExecutable(executablePath);
+            var npmCommand = GetNpmCommandForExecutable(executablePath);
+            var args = nodeRoot is null
+                ? new[] { "root", "--global" }
+                : new[] { "--prefix", nodeRoot, "root", "--global" };
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = npmCommand,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                ArgumentList = { }
+            });
+            if (process is null)
+                return null;
+            foreach (var arg in args)
+                process.StartInfo.ArgumentList.Add(arg);
+            if (!process.WaitForExit(5000) || process.ExitCode != 0)
+                return null;
+            return process.StandardOutput.ReadToEnd().Trim();
+        }
+        catch { return null; }
+    }
+
+    private static string? RunNpmGlobalPrefix(string executablePath)
+    {
+        try
+        {
+            var nodeRoot = GetNodeRootForExecutable(executablePath);
+            var npmCommand = GetNpmCommandForExecutable(executablePath);
+            var args = new[] { "config", "get", "prefix" };
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = npmCommand,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                ArgumentList = { }
+            });
+            if (process is null)
+                return null;
+            foreach (var arg in args)
+                process.StartInfo.ArgumentList.Add(arg);
+            if (!process.WaitForExit(5000) || process.ExitCode != 0)
+                return null;
+            return process.StandardOutput.ReadToEnd().Trim();
+        }
+        catch { return null; }
+    }
+
+    private static bool SamePhysicalFile(string left, string right)
+    {
+        if (!File.Exists(left) || !File.Exists(right))
+            return false;
+        try
+        {
+            return OpenCodeExecutableLocator.AreSameFile(left, right);
+        }
+        catch { return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase); }
+    }
+
+    private static bool IsUnderDirectory(string file, string directory)
+    {
+        var fullFile = Path.GetFullPath(file);
+        var fullDirectory = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        return fullFile.StartsWith(fullDirectory, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string GetCodexUpdateCommand()

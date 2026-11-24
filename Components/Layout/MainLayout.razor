@@ -6,6 +6,7 @@
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject StartupDetectionService StartupDetection
+@inject OpenCodeActivityService OpenCodeActivity
 @inject UpdateService UpdateService
 @inject AgentUpdateService AgentUpdates
 @inject WindowTitleBarService WindowTitleBar
@@ -28,6 +29,49 @@
         <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T(_startupStage)</MudText>
         <MudProgressLinear Value="_startupProgress" Color="Color.Primary" Rounded="true" />
         <MudText Typo="Typo.caption" Color="Color.Secondary">@((int)_startupProgress)%</MudText>
+        @{
+            var warningText = _startupWarning ?? StartupDetection.OpenCodeHealth.Warning;
+        }
+        @if (warningText is not null)
+        {
+            <MudPaper Class="ma-4 pa-4" Outlined="true" Elevation="0" Style="max-width: 52rem;">
+                <MudStack Spacing="2">
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                        <MudText Typo="Typo.subtitle1">@L.T("OpenCode installation conflict")</MudText>
+                        <MudText Typo="Typo.body2">@L.T(warningText)</MudText>
+                    </MudAlert>
+                    @foreach (var instance in StartupDetection.OpenCodeHealth.Instances)
+                    {
+                        <MudPaper Class="pa-2" Outlined="true" Elevation="0">
+                            <MudText Typo="Typo.body2">
+                                <strong>@(instance.IsWorking ? L.T("Working instance") : L.T("Not responding"))</strong>
+                                @if (instance.IsSelected)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">@L.T("Used by CodeBadger")</MudChip>
+                                }
+                            </MudText>
+                            @if (instance.NodeVersion is { } nodeVersion)
+                            {
+                                <MudText Typo="Typo.caption">@L.T("NVM Node version: {0}", nodeVersion)</MudText>
+                            }
+                            <MudText Typo="Typo.caption">@L.T("Version {0} · installed with {1}", instance.Version ?? "?", instance.InstallMethod)</MudText>
+                            <MudText Typo="Typo.caption" Style="overflow-wrap:anywhere">@instance.ExecutablePath</MudText>
+                            @if (!instance.IsWorking && !string.IsNullOrWhiteSpace(instance.Failure))
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Error">@instance.Failure</MudText>
+                            }
+                        </MudPaper>
+                    }
+                    <MudText Typo="Typo.body2">@L.T("CodeBadger uses the PATH-selected executable and probes only the managed OpenCode service once at startup. A failed database health check disables activity polling; OpenCode CLI sessions may continue independently, but activity indicators and Slack completion detection will not work.")</MudText>
+                    @if (StartupDetection.OpenCodeHealth.ServiceHealthy)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="RecheckOpenCodeActivityAsync">@L.T("Try OpenCode activity check again")</MudButton>
+                    }
+                    <MudText Typo="Typo.body2">@L.T("Existing sessions and history remain in the shared OpenCode data directory, but sessions may not appear if the selected installation uses a different data directory. Avoid uninstalling or deleting OpenCode data until you have backed it up.")</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("To resolve the conflict, choose one installation method, keep its command first on PATH, and update or uninstall the other using that same package manager. NVM/nvm4w installations are linked to a Node version; global packages may exist separately in each Node version.")</MudText>
+                </MudStack>
+            </MudPaper>
+        }
     </div>
 }
 else
@@ -70,6 +114,7 @@ else
     private bool _isStarting = true;
     private string _startupStage = "Detecting OpenCode...";
     private double _startupProgress;
+    private string? _startupWarning;
     private IDialogReference? _activeDialog;
     private AppDialog? _activeDialogKind;
     private int _dialogGeneration;
@@ -86,6 +131,7 @@ else
         L.LanguageChanged += HandleLanguageChanged;
         SettingsService.SettingsSaved += HandleSettingsSaved;
         AgentUpdates.UpdatesChanged += HandleAgentUpdatesChanged;
+        StartupDetection.OpenCodeStartupHealthChanged += HandleOpenCodeStartupHealthChanged;
         if (IsMainWindowRoute())
             WindowTitleBar.SetSettingsState(false, L.T("Open settings"));
     }
@@ -97,6 +143,11 @@ else
     {
         WindowTitleBar.SetAgentUpdateAvailable(AgentUpdates.HasUpdates);
         StateHasChanged();
+    });
+    private void HandleOpenCodeStartupHealthChanged(OpenCodeStartupHealth health) => _ = InvokeAsync(async () =>
+    {
+        StateHasChanged();
+        await Task.Yield();
     });
 
     protected override void OnInitialized()
@@ -149,7 +200,9 @@ else
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender && IsMainWindowRoute())
-            WindowTitleBar.SetSettingsState(true, L.T("Open settings"));
+            WindowTitleBar.SetSettingsState(!_isStarting || StartupDetection.OpenCodeHealth.Warning is not null, L.T("Open settings"));
+        if (firstRender && IsMainWindowRoute() && _isStarting)
+            _ = PrepareStartupOpenCodeWarningAsync();
         if (firstRender && IsDocumentationWindowRoute())
             await InitializeDocumentationWindowAsync();
         else if (firstRender && _isStarting)
@@ -195,6 +248,52 @@ else
         {
             Logger.LogDebug(exception, "Could not check coding agent updates.");
         }
+    }
+
+    private async Task PrepareStartupOpenCodeWarningAsync()
+    {
+        try
+        {
+            await StartupDetection.DetectOpenCodeInstancesAsync(CancellationToken.None, force: true);
+            _startupWarning = StartupDetection.OpenCodeHealth.Warning;
+            if (_startupWarning is not null)
+                await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogWarning(exception, "Could not check OpenCode instances during startup.");
+        }
+        _startupWarning ??= StartupDetection.OpenCodeHealth.Warning;
+        await InvokeAsync(StateHasChanged);
+        if (_startupWarning is not null && IsMainWindowRoute())
+            WindowTitleBar.SetSettingsState(true, L.T("Open settings"));
+    }
+
+    private async Task RecheckOpenCodeActivityAsync()
+    {
+        StartupDetection.RecheckOpenCodeActivityEndpoint();
+        try
+        {
+            if (!await StartupDetection.RecheckOpenCodeActivityAsync(CancellationToken.None))
+                throw new InvalidOperationException("OpenCode service health check failed.");
+            var activity = await OpenCodeActivity.GetActivityAsync(CancellationToken.None);
+            if (activity is not null && activity.Sessions.Count > 0)
+            {
+                OpenCodeExecutableLocator.SetHealthCheckResult(StartupDetection.OpenCodeHealth.SelectedExecutablePath);
+                StartupDetection.RefreshOpenCodeStartupWarning(null);
+                _startupWarning = null;
+            }
+            else
+            {
+                StartupDetection.RefreshOpenCodeStartupWarning("OpenCode activity check did not find a session response. Polling stays disabled until a session is visible.");
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogWarning(exception, "Manual OpenCode activity health check failed.");
+            StartupDetection.RefreshOpenCodeStartupWarning("The OpenCode activity check failed again; activity polling remains disabled.");
+        }
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task RunUpdateChecksAsync()
@@ -248,9 +347,11 @@ else
             {
                 _startupStage = stage;
                 _startupProgress = progress;
+                _startupWarning = StartupDetection.OpenCodeHealth.Warning;
                 await InvokeAsync(StateHasChanged);
                 await Task.Yield();
             });
+            _startupWarning = StartupDetection.OpenCodeHealth.Warning;
             Logger.LogInformation("CodeBadger startup initialization completed.");
         }
         catch (Exception exception)
@@ -261,6 +362,7 @@ else
         finally
         {
             _isStarting = false;
+            _startupWarning = StartupDetection.OpenCodeHealth.Warning;
             WindowTitleBar.SetSettingsState(true, L.T("Open settings"));
             await InvokeAsync(StateHasChanged);
         }
@@ -474,6 +576,7 @@ else
         L.LanguageChanged -= HandleLanguageChanged;
         SettingsService.SettingsSaved -= HandleSettingsSaved;
         AgentUpdates.UpdatesChanged -= HandleAgentUpdatesChanged;
+        StartupDetection.OpenCodeStartupHealthChanged -= HandleOpenCodeStartupHealthChanged;
         WindowTitleBar.SettingsRequested -= HandleSettingsRequested;
         WindowTitleBar.HelpRequested -= HandleHelpRequested;
         WindowTitleBar.IdeasRequested -= HandleIdeasRequested;

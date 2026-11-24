@@ -611,7 +611,7 @@
 
     private async Task MonitorActiveRepositoryStatusAsync(CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(6));
         try
         {
             while (await timer.WaitForNextTickAsync(cancellationToken))
@@ -658,6 +658,23 @@
         catch (ObjectDisposedException) { }
     }
 
+    private readonly SemaphoreSlim _activityCheckGate = new(1, 1);
+
+    private async Task<OpenCodeActivityService.ActivitySnapshot?> GetOpenCodeActivityAsync(
+        IReadOnlyCollection<string> monitoredDirectories, CancellationToken cancellationToken)
+    {
+        if (!await _activityCheckGate.WaitAsync(0, cancellationToken))
+            return null;
+        try
+        {
+            return await OpenCodeActivity.GetActivityAsync(cancellationToken, monitoredDirectories);
+        }
+        finally
+        {
+            _activityCheckGate.Release();
+        }
+    }
+
     private async Task MonitorOpenCodeActivityAsync(CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
@@ -665,22 +682,21 @@
         {
             do
             {
-                var supported = _activeRepositories.Any(repository => AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode);
+                var hasOpenCodeRepositories = _activeRepositories.Any(repository => AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode);
+                if (hasOpenCodeRepositories && !OpenCodeExecutableLocator.HealthCheckCompleted)
+                    await StartupDetection.DetectOpenCodeInstancesAsync(cancellationToken);
+                var supported = hasOpenCodeRepositories && StartupDetection.OpenCodeHealth.ServiceHealthy;
                 var monitoredDirectories = _activeRepositories
                     .Where(repository => AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
                     .Select(repository => OpenCodeActivityService.NormalizePath(repository.Path))
                     .Where(path => path is not null).Cast<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-                var activity = supported ? await OpenCodeActivity.GetActivityAsync(cancellationToken, monitoredDirectories) : null;
+                var activity = supported && OpenCodeExecutableLocator.HealthCheckCompleted
+                    ? await GetOpenCodeActivityAsync(monitoredDirectories, cancellationToken)
+                    : null;
                 await InvokeAsync(async () =>
                 {
                     if (activity is null)
                     {
-                        if (_runningSessions.Count > 0 || _questionSessions.Count > 0)
-                        {
-                            _runningSessions.Clear();
-                            _questionSessions.Clear();
-                            StateHasChanged();
-                        }
                         return;
                     }
                     var running = _activeRepositories

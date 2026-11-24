@@ -2225,6 +2225,142 @@ h1:focus {
     border-radius: var(--mud-default-borderradius);
 }
 
+.repository-terminal-stack {
+    display: grid;
+    grid-template-rows: minmax(120px, var(--ai-terminal-height, 38%)) 2rem minmax(120px, 1fr);
+    gap: 0.2rem;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--mud-palette-background);
+}
+
+.repository-terminal-stack.ai-pane-collapsed {
+    grid-template-rows: 0 2rem minmax(0, 1fr);
+}
+
+.repository-terminal-stack.ai-pane-expanded {
+    grid-template-rows: minmax(0, 1fr) 2rem 0;
+}
+
+.repository-ai-pane,
+.repository-codebadger-pane {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.repository-ai-pane > .repository-terminal-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.repository-ai-pane > .repository-terminal-panel .repository-terminal {
+    min-height: 0;
+}
+
+.repository-terminal-splitter {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+    cursor: ns-resize;
+    touch-action: none;
+    outline: none;
+    background: var(--mud-palette-background);
+}
+
+.repository-terminal-splitter:focus-visible,
+.repository-terminal-splitter:hover {
+    background: var(--mud-palette-action-hover);
+}
+
+.repository-terminal-splitter-grip {
+    width: 2.5rem;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--mud-palette-divider);
+}
+
+.repository-terminal-splitter-actions {
+    position: absolute;
+    right: 0.35rem;
+    display: flex;
+    align-items: center;
+    gap: 0.1rem;
+}
+
+.repository-codebadger-pane {
+    background: var(--mud-palette-background);
+}
+
+.repository-codebadger-terminal-header {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 2.5rem;
+    padding: 0 0.5rem;
+    border-bottom: 1px solid var(--mud-palette-divider);
+}
+
+.repository-codebadger-session-tabs {
+    min-width: 0;
+    overflow-x: auto;
+}
+
+.repository-codebadger-session-tab {
+    display: flex;
+    align-items: center;
+    gap: 0.1rem;
+    max-width: 13rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: var(--mud-default-borderradius);
+}
+
+.repository-codebadger-session-tab.selected {
+    border-color: var(--mud-palette-primary);
+    background: color-mix(in srgb, var(--mud-palette-primary) 10%, var(--mud-palette-background));
+}
+
+.repository-codebadger-session-select {
+    overflow: hidden;
+    padding: 0.25rem 0.45rem;
+    border: 0;
+    background: transparent;
+    color: var(--mud-palette-text-primary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.repository-codebadger-session-tab .mud-icon-button {
+    width: 1.6rem;
+    height: 1.6rem;
+}
+
+.repository-codebadger-session-content,
+.repository-codebadger-terminal-view {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--mud-palette-background);
+}
+
+.repository-codebadger-terminal-view > .repository-terminal {
+    min-height: 0;
+}
+
+body.repository-terminal-resizing,
+body.repository-terminal-resizing * {
+    cursor: ns-resize !important;
+    user-select: none !important;
+}
+
 .sandbox-terminal-layout {
     height: 100%;
     min-height: 0;

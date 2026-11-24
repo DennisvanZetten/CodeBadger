@@ -59,6 +59,15 @@
             </MudStack>
 
             <fieldset class="repository-dialog-section">
+                <legend>@L.T("Terminals")</legend>
+                <MudSwitch T="bool" @bind-Value="Repository.CodeBadgerTerminalEnabled" Color="Color.Primary"
+                           Label="@L.T("Enable CodeBadger terminal")" />
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    @L.T("Show a CodeBadger terminal alongside the selected AI terminal. The AI terminal is collapsed by default.")
+                </MudText>
+            </fieldset>
+
+            <fieldset class="repository-dialog-section">
                 <legend>@L.T("Submodules")</legend>
                 <MudSwitch T="bool" @bind-Value="Repository.AutoSyncSubmodules" Color="Color.Primary"
                            Label="@L.T("Automatically sync after branch changes")" />

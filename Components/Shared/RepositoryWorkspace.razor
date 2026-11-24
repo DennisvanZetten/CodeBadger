@@ -1,9 +1,11 @@
+@implements IAsyncDisposable
 @using CodeBadger.Components.Pages
 @inject LocalizationService L
 @inject RepositoryDetachedWindowService DetachedWindows
 @inject AgentSessionNotificationService AgentSessionNotifications
 @inject Microsoft.Extensions.Logging.ILogger<RepositoryWorkspace> Logger
 @inject WindowsTerminalSessionService TerminalSessions
+@inject IJSRuntime JS
 
 <MudPaper Outlined="true" Elevation="0" Class="repository-workspace" data-repository-id="@Repository.Id">
     @if (!RepositoryExists)
@@ -14,6 +16,97 @@
     }
     else
     {
+        @if (Repository.CodeBadgerTerminalEnabled)
+        {
+            <div class="repository-terminal-stack @AiPaneModeClass" @ref="_terminalStack"
+                 style="--ai-terminal-height: @_aiPanelHeight.ToString(System.Globalization.CultureInfo.InvariantCulture)%">
+                <section class="repository-ai-pane" aria-label="@L.T("AI terminal")">
+                    <div class="repository-terminal-panel">
+                        @if (!string.IsNullOrWhiteSpace(_notificationSetupError))
+                        {
+                            <MudAlert Dense="true" Severity="Severity.Warning" Variant="Variant.Outlined">
+                                @L.T("Session notifications could not be configured: {0}", _notificationSetupError)
+                            </MudAlert>
+                        }
+                        @if (AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode && Repository.OpenCodeSandboxEnabled)
+                        {
+                            <SandboxRepositoryTerminal @key="TerminalKey" RepositoryId="Repository.Id"
+                                RepositoryPath="@Repository.Path" RepositoryName="@RepositoryTitle"
+                                ModelReference="@Repository.OpenCodeSandboxModel" ReviewedFiles="@Repository.OpenCodeSandboxFiles"
+                                IsVisible="@IsVisible" />
+                        }
+                        else if (AgentAvailable)
+                        {
+                            <RepositoryTerminal @key="TerminalKey" SessionId="Repository.Id" RepositoryPath="@Repository.Path"
+                                                Command="@_agentCommand"
+                                                OpenCodeSandboxEnabled="@(AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode && Repository.OpenCodeSandboxEnabled)"
+                                                OpenCodeSessionId="@OpenCodeSessionId"
+                                                IsVisible="@IsVisible" />
+                        }
+                        else
+                        {
+                            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                                @L.T("{0} was not detected. The agent cannot start; install it or choose another agent in Settings, then restart CodeBadger.", AgentTools.Normalize(Repository.AgentTool))
+                            </MudAlert>
+                        }
+                    </div>
+                </section>
+
+                <div class="repository-terminal-splitter" role="separator" aria-orientation="horizontal"
+                     aria-label="@L.T("Resize terminal panels")" tabindex="0">
+                    <span class="repository-terminal-splitter-grip" aria-hidden="true"></span>
+                    <div class="repository-terminal-splitter-actions">
+                        <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal" : "Hide AI terminal")">
+                            <MudIconButton Size="Size.Small" Icon="@(_aiPanelMode == AiPanelMode.Collapsed ? Icons.Material.Filled.Visibility : Icons.Material.Filled.VisibilityOff)"
+                                           aria-label="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal" : "Hide AI terminal")"
+                                           OnClick="ToggleAiPanel" />
+                        </MudTooltip>
+                        <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Expanded ? "Restore split view" : "Expand AI terminal")">
+                            <MudIconButton Size="Size.Small" Icon="@(_aiPanelMode == AiPanelMode.Expanded ? Icons.Material.Filled.CloseFullscreen : Icons.Material.Filled.OpenInFull)"
+                                           aria-label="@L.T(_aiPanelMode == AiPanelMode.Expanded ? "Restore split view" : "Expand AI terminal")"
+                                           OnClick="ToggleAiPanelExpanded" />
+                        </MudTooltip>
+                    </div>
+                </div>
+
+                <section class="repository-codebadger-pane" aria-label="@L.T("CodeBadger terminal")">
+                    <div class="repository-codebadger-terminal-header">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="repository-codebadger-session-tabs">
+                            @foreach (var session in _terminalSessions)
+                            {
+                                <div class="repository-codebadger-session-tab @(session.Id == _selectedTerminalSessionId ? "selected" : string.Empty)">
+                                    <button type="button" class="repository-codebadger-session-select" @onclick="() => SelectTerminalSession(session.Id)">
+                                        @session.Title
+                                    </button>
+                                    @if (_terminalSessions.Count > 1)
+                                    {
+                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close"
+                                                       aria-label="@L.T("Close session {0}", session.Title)"
+                                                       OnClick="@(() => CloseTerminalSessionAsync(session.Id))" />
+                                    }
+                                </div>
+                            }
+                            <MudTooltip Text="@L.T("New session")">
+                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add"
+                                               aria-label="@L.T("New session")" OnClick="AddTerminalSession" />
+                            </MudTooltip>
+                        </MudStack>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("CodeBadger terminal")</MudText>
+                    </div>
+                    <div class="repository-codebadger-session-content">
+                        @foreach (var session in _terminalSessions)
+                        {
+                            <div class="repository-codebadger-terminal-view" style="display:@(session.Id == _selectedTerminalSessionId ? "block" : "none")">
+                                <RepositoryTerminal @key="session.Id" SessionId="session.Id" RepositoryPath="@Repository.Path"
+                                                    Command="" UsePowerShell="true" IsVisible="@(IsVisible && session.Id == _selectedTerminalSessionId)" />
+                            </div>
+                        }
+                    </div>
+                </section>
+            </div>
+        }
+        else
+        {
         <div class="repository-terminal-panel">
             @if (!string.IsNullOrWhiteSpace(_notificationSetupError))
             {
@@ -43,6 +136,7 @@
                 </MudAlert>
             }
         </div>
+        }
 
         <div class="repository-git-panel">
             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap" Spacing="1">
@@ -87,9 +181,33 @@
         $"{Repository.Id}:{Repository.Path}:{AgentTools.Normalize(Repository.AgentTool)}:{Repository.OpenCodeSandboxEnabled}:{Repository.OpenCodeSandboxModel}:{Repository.OpenCodeSandboxFiles}:{OpenCodeSessionId}";
 
     private string _agentCommand = "opencode";
+    private ElementReference _terminalStack;
+    private IJSObjectReference? _splitterModule;
+    private DotNetObjectReference<RepositoryWorkspace>? _selfReference;
+    private readonly List<CodeBadgerTerminalSession> _terminalSessions = [];
+    private Guid _selectedTerminalSessionId;
+    private int _nextTerminalSessionNumber;
+    private double _aiPanelHeight = 38;
+    private AiPanelMode _aiPanelMode = AiPanelMode.Collapsed;
+    private bool _splitterAttached;
+    private bool _wasCodeBadgerTerminalEnabled;
+
+    private string AiPaneModeClass => _aiPanelMode switch
+    {
+        AiPanelMode.Collapsed => "ai-pane-collapsed",
+        AiPanelMode.Expanded => "ai-pane-expanded",
+        _ => string.Empty
+    };
 
     protected override async Task OnParametersSetAsync()
     {
+        if (Repository.CodeBadgerTerminalEnabled && !_wasCodeBadgerTerminalEnabled)
+            _aiPanelMode = AiPanelMode.Collapsed;
+        _wasCodeBadgerTerminalEnabled = Repository.CodeBadgerTerminalEnabled;
+
+        if (Repository.CodeBadgerTerminalEnabled && _terminalSessions.Count == 0)
+            AddTerminalSession();
+
         var terminalAlreadyStarted = TerminalSessions.IsRunning(Repository.Id);
         _agentCommand = AgentTools.GetCommand(Repository.AgentTool);
         if (!terminalAlreadyStarted &&
@@ -117,10 +235,91 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender)
+        if (firstRender && DetachedWindows.IsDocking(Repository.Id))
+            DetachedWindows.MarkWorkspaceAttached(Repository.Id);
+
+        if (!Repository.CodeBadgerTerminalEnabled)
+        {
+            if (_splitterAttached && _splitterModule is not null)
+            {
+                try { await _splitterModule.InvokeVoidAsync("detach", _terminalStack); }
+                catch (JSDisconnectedException) { }
+                _splitterAttached = false;
+            }
             return;
-        if (DetachedWindows.IsDocking(Repository.Id))
-        DetachedWindows.MarkWorkspaceAttached(Repository.Id);
+        }
+
+        if (_splitterAttached)
+            return;
+
+        try
+        {
+            _splitterModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./repository-terminal-splitter.js");
+            _selfReference ??= DotNetObjectReference.Create(this);
+            await _splitterModule.InvokeVoidAsync("attach", _terminalStack, _selfReference);
+            _splitterAttached = true;
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "Repository terminal splitter could not be initialized.");
+        }
     }
+
+    private void ToggleAiPanel() => _aiPanelMode = _aiPanelMode == AiPanelMode.Collapsed ? AiPanelMode.Split : AiPanelMode.Collapsed;
+
+    private void ToggleAiPanelExpanded() => _aiPanelMode = _aiPanelMode == AiPanelMode.Expanded ? AiPanelMode.Split : AiPanelMode.Expanded;
+
+    private void AddTerminalSession()
+    {
+        var session = new CodeBadgerTerminalSession(Guid.NewGuid(), L.T("Terminal session {0}", ++_nextTerminalSessionNumber));
+        _terminalSessions.Add(session);
+        _selectedTerminalSessionId = session.Id;
+    }
+
+    private void SelectTerminalSession(Guid id) => _selectedTerminalSessionId = id;
+
+    private async Task CloseTerminalSessionAsync(Guid id)
+    {
+        if (_terminalSessions.Count <= 1)
+            return;
+        var index = _terminalSessions.FindIndex(session => session.Id == id);
+        if (index < 0)
+            return;
+        await TerminalSessions.StopAsync(id);
+        _terminalSessions.RemoveAt(index);
+        if (_selectedTerminalSessionId == id)
+            _selectedTerminalSessionId = _terminalSessions[Math.Min(index, _terminalSessions.Count - 1)].Id;
+    }
+
+    [JSInvokable]
+    public Task SetAiPanelSize(double percent) => InvokeAsync(() =>
+    {
+        _aiPanelHeight = Math.Clamp(percent, 15, 75);
+        _aiPanelMode = AiPanelMode.Split;
+        StateHasChanged();
+    });
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var session in _terminalSessions)
+        {
+            await TerminalSessions.StopAsync(session.Id);
+            TerminalSessions.ClearRecentOutput(session.Id);
+        }
+
+        if (_splitterModule is not null)
+        {
+            try
+            {
+                await _splitterModule.InvokeVoidAsync("detach", _terminalStack);
+                await _splitterModule.DisposeAsync();
+            }
+            catch (JSDisconnectedException) { }
+        }
+        _selfReference?.Dispose();
+    }
+
+    private enum AiPanelMode { Split, Collapsed, Expanded }
+    private sealed record CodeBadgerTerminalSession(Guid Id, string Title);
 
 }

@@ -39,6 +39,7 @@ public sealed partial class WindowsSandboxSessionService
                     chat = new SandboxSdkChatBridge(sid, _logger);
                     chat.Updated += (type, text) =>
                     {
+                        using var repositoryScope = _logger.BeginScope(new Dictionary<string, object?> { ["RepositoryPath"] = path });
                         if (type == "tool")
                             _logger.LogInformation("OpenCode SDK invoked a tool for repository {RepositoryId}.", repositoryId);
                         else if (type == "busy")
@@ -105,7 +106,11 @@ public sealed partial class WindowsSandboxSessionService
         {
             if (!_sessions.TryGetValue(repositoryId, out var session) || session.Chat is null)
                 throw new InvalidOperationException("The direct SDK chat is not running.");
-            _logger.LogInformation("Submitting prompt to direct OpenCode SDK session for repository {RepositoryId}. Prompt excerpt: {PromptExcerpt}",
+            using var repositoryScope = _logger.BeginScope(new Dictionary<string, object?>
+            {
+                ["RepositoryPath"] = session.RepositoryPath
+            });
+            _logger.LogInformation("Submitting prompt to direct OpenCode SDK session for repository {RepositoryId}. Prompt: {Prompt}",
                 repositoryId, CreateLogExcerpt(prompt));
             session.Chat.Send(prompt);
         }
@@ -128,7 +133,7 @@ public sealed partial class WindowsSandboxSessionService
 
     private static string CreateLogExcerpt(string text)
     {
-        const int maximumLength = 4000;
+        const int maximumLength = 12000;
         var excerpt = System.Text.RegularExpressions.Regex.Replace(text,
             @"(?i)(https?://)[^/@\s]+:[^/@\s]+@", "$1[redacted]@");
         excerpt = System.Text.RegularExpressions.Regex.Replace(excerpt,

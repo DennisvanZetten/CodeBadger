@@ -156,8 +156,11 @@ public sealed class SessionShareService(ILogger<SessionShareService> logger) : I
             stage = "download official Cloudflare release";
             ReportProgress("Downloading cloudflared from the official Cloudflare release…", 0);
             using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+            var downloadStartedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             using var response = await client.GetAsync(CloudflaredDownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            logger.LogInformation("Cloudflared download returned HTTP {StatusCode}.", (int)response.StatusCode);
+            logger.LogInformation("Cloudflared download from {Endpoint} returned HTTP {StatusCode}, content length {ContentLength} in {ElapsedMilliseconds} ms.",
+                CloudflaredDownloadUrl, (int)response.StatusCode, response.Content.Headers.ContentLength,
+                System.Diagnostics.Stopwatch.GetElapsedTime(downloadStartedAt).TotalMilliseconds);
             response.EnsureSuccessStatusCode();
             if (response.Content.Headers.ContentLength is > 100_000_000)
                 throw new InvalidOperationException("The cloudflared download is unexpectedly large.");
@@ -330,12 +333,15 @@ public sealed class SessionShareService(ILogger<SessionShareService> logger) : I
         }
     }
 
-    private static async Task VerifyCloudflaredReleaseChecksumAsync(string executable, CancellationToken cancellationToken)
+    private async Task VerifyCloudflaredReleaseChecksumAsync(string executable, CancellationToken cancellationToken)
     {
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("CodeBadger-SessionSharing/1.0");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+        var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
         using var response = await client.GetAsync(CloudflaredReleaseApiUrl, cancellationToken);
+        logger.LogInformation("Cloudflared release metadata from {Endpoint} returned HTTP {StatusCode} in {ElapsedMilliseconds} ms.",
+            CloudflaredReleaseApiUrl, (int)response.StatusCode, System.Diagnostics.Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
         response.EnsureSuccessStatusCode();
         using var release = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken),
             cancellationToken: cancellationToken);

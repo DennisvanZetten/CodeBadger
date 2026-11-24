@@ -6,6 +6,7 @@
 @inject SlackNotificationService SlackNotifications
 @inject StartupDetectionService StartupDetection
 @inject WindowsSandboxSessionService SandboxSessions
+@inject WindowsTerminalSessionService WindowsTerminalSessions
 @inject SandboxApprovalService SandboxApprovals
 @inject IJSRuntime JS
 @inject IDialogService DialogService
@@ -922,12 +923,18 @@
 
     private async Task ShareSessionAsync(RepositoryEntry repository)
     {
+        var terminalSessionId = _selectedOpenCodeSessions.TryGetValue(repository.Id, out var selectedSessionId)
+            ? selectedSessionId
+            : WindowsTerminalSessions.TryGetOpenCodeSessionId(repository.Id, out var terminalId)
+                ? terminalId
+                : null;
         var dialog = await DialogService.ShowAsync<SessionShareDialog>(L.T("Share a session"),
             new DialogParameters<SessionShareDialog>
             {
                 { dialog => dialog.RepositoryPath, repository.Path },
                 { dialog => dialog.RepositoryId, repository.Id },
-                { dialog => dialog.RepositoryName, RepositoryTitle(repository) }
+                { dialog => dialog.RepositoryName, RepositoryTitle(repository) },
+                { dialog => dialog.TerminalSessionId, terminalSessionId }
             },
             new DialogOptions { CloseButton = true, CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true });
         await dialog.Result;

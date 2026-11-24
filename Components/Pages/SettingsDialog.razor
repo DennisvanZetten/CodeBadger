@@ -410,7 +410,7 @@
             <MudTabPanel Text="@L.T("Logging")" Icon="@Icons.Material.Filled.Article">
                 <MudStack Spacing="3" Class="settings-content-stack">
                     <MudText Typo="Typo.h6">@L.T("Logging")</MudText>
-                    <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Choose the minimum log level independently for each category. Debug and Trace can include detailed operational data.")</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Choose the minimum log level independently for each category. Information enables diagnostic request and response details, including prompts and personal data. Secrets such as API keys and tokens are redacted before logs are stored.")</MudText>
                     @foreach (var category in ApplicationLogCategories.All)
                     {
                         <MudSelect T="string" Label="@L.T(category)" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_logLevelValues[category]">
@@ -424,7 +424,7 @@
                                      HelperText="@L.T("Older log files are deleted automatically.")" Min="1" Max="3650"
                                      Margin="Margin.Dense" Variant="Variant.Outlined" />
                     <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Filled.DeleteOutline" OnClick="ClearApplicationLogs">@L.T("Clear logs now")</MudButton>
-                    <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Log files are stored locally. Secrets, full AI prompts, and full provider responses are not intentionally logged.")</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Log files are stored locally. Information logging can include prompts and personal data. Credentials and tokens are redacted before storage; avoid sharing log files publicly.")</MudText>
                 </MudStack>
             </MudTabPanel>
         </MudTabs>

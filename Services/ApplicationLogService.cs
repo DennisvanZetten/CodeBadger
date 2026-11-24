@@ -45,6 +45,17 @@ public sealed class ApplicationLogService : ILoggerProvider
 {
     private const int MaximumVisibleEntries = 5000;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = false };
+    private static readonly (System.Text.RegularExpressions.Regex Pattern, string Replacement)[] SecretPatterns =
+    [
+        (new(@"(?i)(https?://)[^/@\s]+:[^/@\s]+@", System.Text.RegularExpressions.RegexOptions.Compiled), "$1[redacted]@"),
+        (new("(?i)([\\\"']?(?:authorization|proxy-authorization)[\\\"']?\\s*[:=]\\s*[\\\"']?)(?:(?:bearer|basic)\\s+)?[^\\s,;}\\\"']+", System.Text.RegularExpressions.RegexOptions.Compiled), "$1[redacted]"),
+        (new("(?i)(\\b(?:bearer|basic)\\s+)[A-Za-z0-9._~+/-]+=*", System.Text.RegularExpressions.RegexOptions.Compiled), "$1[redacted]"),
+        (new("(?i)([\\\"']?(?:x-api-key|api[_-]?key|key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|passwd|secret|token|credential|auth|api[_-]?secret)[\\\"']?\\s*[:=]\\s*[\\\"']?)[^\\s,;}&\\\"']+", System.Text.RegularExpressions.RegexOptions.Compiled), "$1[redacted]"),
+        (new("(?i)([\\\"']?(?:authorization|proxy-authorization)[\\\"']?\\s*[:=]\\s*[\\\"']?)(?:\\\\\\\"|[^\\s,;}])+", System.Text.RegularExpressions.RegexOptions.Compiled), "$1[redacted]"),
+        (new(@"(?i)([?&](?:key|token|ticket|access_token|api_key|apikey|client_secret|password|secret|sig|signature|auth)=)[^&#\s]+", System.Text.RegularExpressions.RegexOptions.Compiled), "$1[redacted]"),
+        (new(@"\b(?:xox[baprs]-[A-Za-z0-9-]{10,}|xapp-[A-Za-z0-9-]{10,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xai-[A-Za-z0-9_-]{20,})\b", System.Text.RegularExpressions.RegexOptions.Compiled), "[redacted]"),
+        (new(@"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b", System.Text.RegularExpressions.RegexOptions.Compiled), "[redacted]")
+    ];
     private readonly ConcurrentQueue<ApplicationLogEntry> _entries = new();
     private readonly ConcurrentDictionary<string, CategoryLogger> _loggers = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _writeGate = new(1, 1);
@@ -86,15 +97,9 @@ public sealed class ApplicationLogService : ILoggerProvider
             return;
 
         EnsureLoaded(settings.LogRetentionDays);
-        if (!string.Equals(category, ApplicationLogCategories.Git, StringComparison.Ordinal))
-        {
-            message = System.Text.RegularExpressions.Regex.Replace(message,
-                @"(?i)(https?://)[^/@\s]+:[^/@\s]+@", "$1[redacted]@");
-            message = System.Text.RegularExpressions.Regex.Replace(message,
-                @"(?i)(token|authorization|password|api[_-]?key)(\s*[:=]\s*)[^\s,;]+", "$1$2[redacted]");
-        }
+        message = RedactSecrets(message, settings);
         var entry = new ApplicationLogEntry(DateTimeOffset.Now, category, level, message,
-            exception?.ToString(), repository);
+            exception is null ? null : RedactSecrets(exception.ToString(), settings), repository);
         _entries.Enqueue(entry);
         while (_entries.Count > MaximumVisibleEntries)
             _entries.TryDequeue(out _);
@@ -160,6 +165,27 @@ public sealed class ApplicationLogService : ILoggerProvider
     }
 
     public void Dispose() { }
+
+    private static string RedactSecrets(string text)
+    {
+        foreach (var (pattern, replacement) in SecretPatterns)
+            text = pattern.Replace(text, replacement);
+        return text;
+    }
+
+    private static string RedactSecrets(string text, LauncherSettings settings)
+    {
+        text = RedactSecrets(text);
+        foreach (var secret in new[] { settings.AiApiKey, settings.SlackBotToken, settings.SlackAppToken, settings.DiscordBotToken }
+                     .Where(secret => !string.IsNullOrWhiteSpace(secret))
+                     .Distinct(StringComparer.Ordinal))
+        {
+            text = text.Replace(secret, "[redacted]", StringComparison.Ordinal);
+            text = text.Replace(Uri.EscapeDataString(secret), "[redacted]", StringComparison.Ordinal);
+            text = text.Replace(System.Text.Json.JsonSerializer.Serialize(secret).Trim('"'), "[redacted]", StringComparison.Ordinal);
+        }
+        return text;
+    }
 
     private async Task<LauncherSettings> GetSettingsAsync()
     {
@@ -236,7 +262,11 @@ public sealed class ApplicationLogService : ILoggerProvider
                     {
                         var entry = JsonSerializer.Deserialize<ApplicationLogEntry>(line, JsonOptions);
                         if (entry is not null)
-                            _entries.Enqueue(entry);
+                            _entries.Enqueue(entry with
+                            {
+                                Message = RedactSecrets(entry.Message, _cachedSettings ?? new LauncherSettings()),
+                                Exception = entry.Exception is null ? null : RedactSecrets(entry.Exception, _cachedSettings ?? new LauncherSettings())
+                            });
                     }
                     catch (JsonException) { }
                 }

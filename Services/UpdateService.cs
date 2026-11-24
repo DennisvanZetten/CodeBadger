@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using System.Net.Http;
 
 namespace CodeBadger.Services;
 
@@ -14,6 +16,9 @@ public sealed class UpdateService
     private const string ExpectedPublisher = "CN=CodeBadger Local";
     private static readonly HttpClient UpdateCheckHttp = CreateHttpClient(TimeSpan.FromSeconds(12));
     private static readonly HttpClient DownloadHttp = CreateHttpClient(TimeSpan.FromMinutes(10));
+    private readonly ILogger<UpdateService> _logger;
+
+    public UpdateService(ILogger<UpdateService> logger) => _logger = logger;
 
     public async Task<AppUpdate?> CheckForUpdateAsync(CancellationToken cancellationToken = default)
     {
@@ -23,7 +28,12 @@ public sealed class UpdateService
             if (string.IsNullOrWhiteSpace(GetSigningThumbprint()))
                 return null;
 
+            var startedAt = Stopwatch.GetTimestamp();
+            _logger.LogInformation("Checking application updates at {Endpoint}.", LatestReleaseApi);
             using var response = await UpdateCheckHttp.GetAsync(LatestReleaseApi, cancellationToken);
+            _logger.LogInformation("Application update check returned HTTP {StatusCode} in {ElapsedMilliseconds} ms.",
+                (int)response.StatusCode, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+            _logger.LogInformation("Application update release response body: {ResponseBody}", await ReadLogExcerptAsync(response.Content));
             if (!response.IsSuccessStatusCode)
                 return null;
 
@@ -97,7 +107,12 @@ public sealed class UpdateService
 
     public async Task<AppRelease?> GetLatestReleaseAsync(CancellationToken cancellationToken = default)
     {
+        var startedAt = Stopwatch.GetTimestamp();
+        _logger.LogInformation("Loading latest application release from {Endpoint}.", LatestReleaseApi);
         using var response = await UpdateCheckHttp.GetAsync(LatestReleaseApi, cancellationToken);
+        _logger.LogInformation("Application release request returned HTTP {StatusCode} in {ElapsedMilliseconds} ms.",
+            (int)response.StatusCode, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+        _logger.LogInformation("Application release response body: {ResponseBody}", await ReadLogExcerptAsync(response.Content));
         response.EnsureSuccessStatusCode();
         if (response.Content.Headers.ContentLength is > 1024 * 1024)
             throw new InvalidOperationException("The GitHub release response is unexpectedly large.");
@@ -130,6 +145,7 @@ public sealed class UpdateService
     public async Task DownloadAndStartInstallAsync(AppUpdate update, CancellationToken cancellationToken = default)
     {
 #if WINDOWS
+        _logger.LogInformation("Starting application update download for version {Version}.", update.Version);
         var thumbprint = GetSigningThumbprint();
 
         if (string.IsNullOrWhiteSpace(thumbprint))
@@ -200,6 +216,7 @@ public sealed class UpdateService
 
         if (Process.Start(startInfo) is null)
             throw new InvalidOperationException("The Windows installer could not be started.");
+        _logger.LogInformation("Started the Windows installer for application version {Version}.", update.Version);
 #else
         await Task.CompletedTask;
         throw new PlatformNotSupportedException("In-app updates are only supported on Windows.");
@@ -212,6 +229,13 @@ public sealed class UpdateService
         client.DefaultRequestHeaders.UserAgent.ParseAdd("CodeBadger-UpdateChecker/1.0");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
         return client;
+    }
+
+    private static async Task<string> ReadLogExcerptAsync(HttpContent content)
+    {
+        const int maximumLength = 12000;
+        var text = await content.ReadAsStringAsync();
+        return text.Length <= maximumLength ? text : text[..maximumLength] + "… [truncated]";
     }
 
     private static string? GetSigningThumbprint() => typeof(UpdateService).Assembly
@@ -230,12 +254,15 @@ public sealed class UpdateService
         return true;
     }
 
-    private static async Task DownloadAssetAsync(Uri uri, string destination, CancellationToken cancellationToken)
+    private async Task DownloadAssetAsync(Uri uri, string destination, CancellationToken cancellationToken)
     {
         if (uri.Scheme != Uri.UriSchemeHttps || uri.Host != "github.com")
             throw new InvalidOperationException("The update download URL is not a GitHub HTTPS URL.");
 
+        var startedAt = Stopwatch.GetTimestamp();
         using var response = await DownloadHttp.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        _logger.LogInformation("Update asset download returned HTTP {StatusCode} for {AssetName} in {ElapsedMilliseconds} ms.",
+            (int)response.StatusCode, Path.GetFileName(destination), Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
         response.EnsureSuccessStatusCode();
         await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
         await using var target = File.Create(destination);

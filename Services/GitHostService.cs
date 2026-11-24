@@ -260,6 +260,8 @@ public sealed class GitHostService(LocalizationService localization, ILogger<Git
             var message = string.IsNullOrWhiteSpace(error) ? output.Trim() : error.Trim();
             if (process.ExitCode == 0)
                 logger.LogInformation("Git host CLI {Executable} response: {CommandResponse}", executable, TruncateLogOutput(output));
+            else
+                logger.LogInformation("Git host CLI {Executable} error response: {CommandResponse}", executable, TruncateLogOutput(error));
             return new CommandResult(process.ExitCode == 0, output.Trim(), message);
         }
         catch (Win32Exception exception)
@@ -309,8 +311,9 @@ public sealed class GitHostService(LocalizationService localization, ILogger<Git
             else
                 logger.LogWarning("Git host CLI {Executable} failed with exit code {ExitCode} in {ElapsedMilliseconds} ms.", executable, process.ExitCode, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
             var message = suppressStandardError ? string.Empty : string.IsNullOrWhiteSpace(error) ? output.Trim() : error.Trim();
-            if (process.ExitCode == 0 && !suppressStandardError)
-                logger.LogInformation("Git host CLI {Executable} response: {CommandResponse}", executable, TruncateLogOutput(output));
+            if (!suppressStandardError)
+                logger.LogInformation("Git host CLI {Executable} response: {CommandResponse}", executable,
+                    TruncateLogOutput(process.ExitCode == 0 || string.IsNullOrWhiteSpace(error) ? output : error));
             return new CommandResult(process.ExitCode == 0, output.Trim(), message);
         }
         catch (Win32Exception exception)

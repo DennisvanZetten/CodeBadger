@@ -16,7 +16,8 @@ public sealed class OpenCodeActivityService
     public OpenCodeActivityService(ILogger<OpenCodeActivityService> logger) => _logger = logger;
 
     public sealed record ActiveSession(string Id, string Directory, string Agent, string Title);
-    public sealed record ShareSession(string Id, string Title);
+    public sealed record ShareSession(string Id, string Title, bool IsTerminalSession = false,
+        bool IsActive = false, long? LastViewedAt = null);
     public sealed record SessionTextMessage(string Id, string Role, string Text);
     public sealed record FormField(string Key, string Title, string Description, string Type, bool Required,
         IReadOnlyList<(string Value, string Label)> Options, bool Custom);
@@ -518,7 +519,8 @@ public sealed class OpenCodeActivityService
         return false;
     }
 
-    public async Task<IReadOnlyList<ShareSession>?> GetRepositorySessionsAsync(string directory, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ShareSession>?> GetRepositorySessionsAsync(
+        string directory, CancellationToken cancellationToken, string? preferredSessionId = null)
     {
         if (NormalizePath(directory) is null || !Directory.Exists(directory))
             return [];
@@ -526,25 +528,63 @@ public sealed class OpenCodeActivityService
         if (response is null || !response.RootElement.TryGetProperty("data", out var sessions) ||
             sessions.ValueKind != JsonValueKind.Array)
             return null;
+        var activeSessionIds = new HashSet<string>(StringComparer.Ordinal);
+        using (var active = await RequestAsync("/api/session/active", cancellationToken, workingDirectory: directory))
+        {
+            if (active?.RootElement.TryGetProperty("data", out var activeSessions) == true && activeSessions.ValueKind == JsonValueKind.Object)
+                foreach (var property in activeSessions.EnumerateObject())
+                    activeSessionIds.Add(property.Name);
+        }
         var candidates = sessions.EnumerateArray()
             .Where(session => session.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String &&
                 IsValidSessionId(id.GetString() ?? string.Empty))
             .Select(session => new ShareSession(GetString(session, "id"), GetString(session, "title")))
             .ToArray();
+
+        // A TUI terminal can be showing a session that is not in the recent-page
+        // window returned by /api/session. Resolve that exact known ID first and
+        // promote it, rather than silently defaulting to a different recent session.
+        if (!string.IsNullOrWhiteSpace(preferredSessionId) && IsValidSessionId(preferredSessionId) &&
+            candidates.All(candidate => candidate.Id != preferredSessionId))
+        {
+            using var preferred = await RequestAsync($"/api/session/{preferredSessionId}", cancellationToken, workingDirectory: directory);
+            if (IsSessionInDirectory(preferred, directory))
+            {
+                candidates = candidates.Prepend(new ShareSession(preferredSessionId,
+                    GetString(preferred!.RootElement.GetProperty("data"), "title"), IsTerminalSession: true)).ToArray();
+            }
+        }
+
         var matching = new List<ShareSession>();
         foreach (var session in candidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
             using var details = await RequestAsync($"/api/session/{session.Id}", cancellationToken, workingDirectory: directory);
-            if (details?.RootElement.TryGetProperty("data", out var data) != true ||
-                !data.TryGetProperty("location", out var location) ||
-                !location.TryGetProperty("directory", out var path) || path.ValueKind != JsonValueKind.String ||
-                !string.Equals(NormalizePath(path.GetString()!), NormalizePath(directory), StringComparison.OrdinalIgnoreCase))
+            if (!IsSessionInDirectory(details, directory))
                 continue;
-            matching.Add(session);
+            var data = details!.RootElement.GetProperty("data");
+            var viewedAt = data.TryGetProperty("time", out var time) &&
+                           time.TryGetProperty("viewed", out var viewed) && viewed.TryGetInt64(out var viewedValue)
+                ? viewedValue : (long?)null;
+            matching.Add(session with { IsActive = activeSessionIds.Contains(session.Id), LastViewedAt = viewedAt });
         }
-        return matching;
+        if (!string.IsNullOrWhiteSpace(preferredSessionId))
+        {
+            var preferredIndex = matching.FindIndex(session => session.Id == preferredSessionId);
+            if (preferredIndex >= 0)
+                matching[preferredIndex] = matching[preferredIndex] with { IsTerminalSession = true };
+        }
+        return matching.OrderByDescending(session => session.IsTerminalSession)
+            .ThenByDescending(session => session.LastViewedAt ?? 0)
+            .ThenByDescending(session => session.IsActive)
+            .ToArray();
     }
+
+    private static bool IsSessionInDirectory(JsonDocument? response, string directory) =>
+        response?.RootElement.TryGetProperty("data", out var data) == true &&
+        data.TryGetProperty("location", out var location) &&
+        location.TryGetProperty("directory", out var path) && path.ValueKind == JsonValueKind.String &&
+        string.Equals(NormalizePath(path.GetString()!), NormalizePath(directory), StringComparison.OrdinalIgnoreCase);
 
     public async Task<bool> HasPendingInteractionAsync(string sessionId, string directory, CancellationToken cancellationToken)
     {
@@ -626,7 +666,8 @@ public sealed class OpenCodeActivityService
             HttpMethod.Post, payload, directory);
         if (response is null)
             throw new InvalidOperationException("Could not submit the reply to the OpenCode session.");
-        _logger.LogInformation("Prompt submitted to OpenCode session {SessionId}; prompt content omitted.", sessionId);
+        _logger.LogInformation("Prompt submitted to OpenCode session {SessionId}. Prompt content: {PromptContent}",
+            sessionId, ExtractPromptExcerpt(payload));
     }
 
     public async Task<ActiveSession> CreateSessionAsync(string directory, CancellationToken cancellationToken)
@@ -725,7 +766,7 @@ public sealed class OpenCodeActivityService
                     methodName, path, requestExcerpt);
             }
             else
-                _logger.LogDebug("Calling managed OpenCode API {HttpMethod} {ApiPath}.", methodName, path);
+                _logger.LogInformation("Calling managed OpenCode API {HttpMethod} {ApiPath}.", methodName, path);
             if (!process.Start())
             {
                 _logger.LogWarning("Could not start managed OpenCode process for API request {ApiPath}.", path);
@@ -743,11 +784,19 @@ public sealed class OpenCodeActivityService
             }
             var json = await output;
             if (method == HttpMethod.Post)
-                _logger.LogInformation("Managed OpenCode API {ApiPath} completed successfully in {ElapsedMilliseconds} ms.",
-                    path, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
-            else
-                _logger.LogDebug("Managed OpenCode API {ApiPath} completed successfully in {ElapsedMilliseconds} ms.",
-                    path, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+            {
+                const int maximumResponseLogLength = 12000;
+                var responseExcerpt = json.Length <= maximumResponseLogLength ? json : json[..maximumResponseLogLength] + "… [truncated]";
+                _logger.LogInformation("Managed OpenCode API {ApiPath} response body: {ResponseBody}", path, responseExcerpt);
+            }
+            if (method != HttpMethod.Post)
+            {
+                const int maximumResponseLogLength = 12000;
+                var responseExcerpt = json.Length <= maximumResponseLogLength ? json : json[..maximumResponseLogLength] + "… [truncated]";
+                _logger.LogInformation("Managed OpenCode API {ApiPath} response body: {ResponseBody}", path, responseExcerpt);
+            }
+            _logger.LogInformation("Managed OpenCode API {ApiPath} completed successfully in {ElapsedMilliseconds} ms.",
+                path, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
             return JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -796,7 +845,7 @@ public sealed class OpenCodeActivityService
 
     private static string CreateLogExcerpt(string text)
     {
-        const int maximumLength = 4000;
+        const int maximumLength = 12000;
         var excerpt = System.Text.RegularExpressions.Regex.Replace(text,
             @"(?i)(https?://)[^/@\s]+:[^/@\s]+@", "$1[redacted]@");
         excerpt = System.Text.RegularExpressions.Regex.Replace(excerpt,

@@ -89,7 +89,9 @@ public sealed class SlackNotificationService : IAsyncDisposable
                 "conversations.list?types=public_channel,private_channel&exclude_archived=true&limit=200" +
                 (string.IsNullOrWhiteSpace(cursor) ? string.Empty : "&cursor=" + Uri.EscapeDataString(cursor)));
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", RequireToken(botToken, "xoxb-"));
+            await LogHttpRequestAsync(request);
             using var response = await Http.SendAsync(request, cancellationToken);
+            await LogHttpResponseAsync(response);
             using var json = await ReadSlackResponseAsync(response, cancellationToken);
             foreach (var channel in json.RootElement.GetProperty("channels").EnumerateArray())
             {
@@ -124,7 +126,9 @@ public sealed class SlackNotificationService : IAsyncDisposable
             throw new InvalidOperationException("Enter a valid Discord server ID first.");
         using var request = new HttpRequestMessage(HttpMethod.Get, $"guilds/{Uri.EscapeDataString(guildId.Trim())}/channels");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bot", botToken.Trim());
+        await LogHttpRequestAsync(request);
         using var response = await DiscordHttp.SendAsync(request, cancellationToken);
+        await LogHttpResponseAsync(response);
         using var json = await ReadDiscordResponseAsync(response, cancellationToken);
         var channels = new List<DiscordChannel>();
         foreach (var channel in json.RootElement.EnumerateArray())
@@ -138,7 +142,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
                 channels.Add(new DiscordChannel(id, name, type == 0 ? "Text" : "Announcement"));
         }
         var result = channels.OrderBy(channel => channel.Name, StringComparer.OrdinalIgnoreCase).ToArray();
-        _logger.LogDebug("Loaded {ChannelCount} Discord channels for guild {GuildId}.", result.Length, guildId);
+        _logger.LogInformation("Loaded {ChannelCount} Discord channels for guild {GuildId}.", result.Length, guildId);
         return result;
     }
 
@@ -147,7 +151,9 @@ public sealed class SlackNotificationService : IAsyncDisposable
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, $"channels/{Uri.EscapeDataString(channelId.Trim())}");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bot", botToken.Trim());
+        await LogHttpRequestAsync(request);
         using var response = await DiscordHttp.SendAsync(request, cancellationToken);
+        await LogHttpResponseAsync(response);
         using var json = await ReadDiscordResponseAsync(response, cancellationToken);
         if (!json.RootElement.TryGetProperty("id", out _))
             throw new InvalidOperationException("Discord did not return the configured channel.");
@@ -236,7 +242,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
             title = string.IsNullOrWhiteSpace(existingThread.Title) ? title : existingThread.Title;
         try
         {
-            _logger.LogDebug("Publishing completion notification for session {SessionId} through {NotificationPlatform}.", session.Id, _activePlatform);
+            _logger.LogInformation("Publishing completion notification for session {SessionId} through {NotificationPlatform}. Message: {Message}", session.Id, _activePlatform, answer);
             var thread = await EnsureSessionThreadLinkAsync(session, title, cancellationToken);
             await PostLongThreadMessageAsync(thread, "✅ *OpenCode klaar*", answer, cancellationToken);
             _logger.LogInformation("Published completion notification for session {SessionId} through {NotificationPlatform}.", session.Id, _activePlatform);
@@ -462,14 +468,18 @@ public sealed class SlackNotificationService : IAsyncDisposable
                 $"channels/{Uri.EscapeDataString(channelId)}/messages/{Uri.EscapeDataString(rootMessageId)}");
             discordRequest.Headers.Authorization = new AuthenticationHeaderValue("Bot", _discordBotToken);
             discordRequest.Content = JsonContent.Create(new { content = $"**{EscapeSlack(title)}**" });
+            await LogHttpRequestAsync(discordRequest);
             using var discordResponse = await DiscordHttp.SendAsync(discordRequest, cancellationToken);
+            await LogHttpResponseAsync(discordResponse);
             using var discordJson = await ReadDiscordResponseAsync(discordResponse, cancellationToken);
             return;
         }
         using var request = new HttpRequestMessage(HttpMethod.Post, "chat.update");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _botToken);
         request.Content = JsonContent.Create(new { channel = _channelId, ts = threadTs, text = $"*{EscapeSlack(title)}*" });
+        await LogHttpRequestAsync(request);
         using var response = await Http.SendAsync(request, cancellationToken);
+        await LogHttpResponseAsync(response);
         using var json = await ReadSlackResponseAsync(response, cancellationToken);
         _ = json.RootElement.GetProperty("ts").GetString();
     }
@@ -947,8 +957,9 @@ public sealed class SlackNotificationService : IAsyncDisposable
             using var repositoryScope = !string.IsNullOrWhiteSpace(repository)
                 ? _logger.BeginScope(new Dictionary<string, object?> { ["RepositoryPath"] = repository })
                 : null;
-            _logger.LogInformation("Received {NotificationPlatform} command {CommandName}; command arguments omitted. Repository: {RepositoryName}; session: {SessionId}.",
+            _logger.LogInformation("Received {NotificationPlatform} command {CommandName}. Command text: {CommandText}. Repository: {RepositoryName}; session: {SessionId}.",
                 _activePlatform, commandName,
+                text,
                 string.IsNullOrWhiteSpace(repository) ? "unknown" : Path.GetFileName(Path.TrimEndingDirectorySeparator(repository)),
                 string.IsNullOrWhiteSpace(commandSession.Key) ? "none" : commandSession.Key);
         }
@@ -1482,17 +1493,19 @@ public sealed class SlackNotificationService : IAsyncDisposable
             try { SecureStorage.Default.Remove(ThreadLinksStorageKey); }
             catch (Exception exception)
             {
-                _logger.LogDebug(exception, "Could not remove legacy Slack thread links from secure storage.");
+                _logger.LogInformation(exception, "Could not remove legacy Slack thread links from secure storage.");
             }
         }
         finally { _threadLinksStorageGate.Release(); }
     }
 
-    private static async Task<Uri> OpenSocketAsync(string appToken, CancellationToken cancellationToken)
+    private async Task<Uri> OpenSocketAsync(string appToken, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "apps.connections.open");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", RequireToken(appToken, "xapp-"));
+        await LogHttpRequestAsync(request);
         using var response = await Http.SendAsync(request, cancellationToken);
+        await LogHttpResponseAsync(response);
         using var json = await ReadSlackResponseAsync(response, cancellationToken);
         var url = json.RootElement.GetProperty("url").GetString();
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "wss" ||
@@ -1519,7 +1532,9 @@ public sealed class SlackNotificationService : IAsyncDisposable
                 content = ConvertSlackFormatting(text),
                 allowed_mentions = new { parse = Array.Empty<string>() }
             });
+            await LogHttpRequestAsync(discordRequest);
             using var discordResponse = await DiscordHttp.SendAsync(discordRequest, cancellationToken);
+            await LogHttpResponseAsync(discordResponse);
             using var discordJson = await ReadDiscordResponseAsync(discordResponse, cancellationToken);
             return discordJson.RootElement.GetProperty("id").GetString()
                 ?? throw new InvalidOperationException("Discord did not return the notification message ID.");
@@ -1536,7 +1551,9 @@ public sealed class SlackNotificationService : IAsyncDisposable
         if (!string.IsNullOrWhiteSpace(threadTs))
             payload["thread_ts"] = threadTs;
         request.Content = JsonContent.Create(payload);
+        await LogHttpRequestAsync(request);
         using var response = await Http.SendAsync(request, cancellationToken);
+        await LogHttpResponseAsync(response);
         using var json = await ReadSlackResponseAsync(response, cancellationToken);
         return json.RootElement.GetProperty("ts").GetString()
             ?? throw new InvalidOperationException("Slack did not return the notification message ID.");
@@ -1553,6 +1570,24 @@ public sealed class SlackNotificationService : IAsyncDisposable
             throw new InvalidOperationException("Slack API error: " + error);
         }
         return json;
+    }
+
+    private async Task LogHttpRequestAsync(HttpRequestMessage request)
+    {
+        var endpoint = request.RequestUri?.IsAbsoluteUri == true
+            ? request.RequestUri.GetLeftPart(UriPartial.Path)
+            : request.RequestUri?.ToString() ?? "[unknown]";
+        var body = request.Content is null ? "[empty]" : await request.Content.ReadAsStringAsync();
+        _logger.LogInformation("{Platform} HTTP request {HttpMethod} {Endpoint}. Request body: {RequestBody}",
+            _activePlatform, request.Method, endpoint, body.Length <= 12000 ? body : body[..12000] + "… [truncated]");
+    }
+
+    private async Task LogHttpResponseAsync(HttpResponseMessage response)
+    {
+        var body = response.Content is null ? "[empty]" : await response.Content.ReadAsStringAsync();
+        _logger.LogInformation("{Platform} HTTP response HTTP {StatusCode} {ReasonPhrase}. Response body: {ResponseBody}",
+            _activePlatform, (int)response.StatusCode, response.ReasonPhrase,
+            body.Length <= 12000 ? body : body[..12000] + "… [truncated]");
     }
 
     private async Task RunDiscordGatewayLoopAsync(CancellationToken cancellationToken)
@@ -1687,7 +1722,9 @@ public sealed class SlackNotificationService : IAsyncDisposable
         if (threadName.Length > 100)
             threadName = threadName[..100];
         request.Content = JsonContent.Create(new { name = threadName, auto_archive_duration = 1440 });
+        await LogHttpRequestAsync(request);
         using var response = await DiscordHttp.SendAsync(request, cancellationToken);
+        await LogHttpResponseAsync(response);
         using var json = await ReadDiscordResponseAsync(response, cancellationToken);
         return json.RootElement.GetProperty("id").GetString()
             ?? throw new InvalidOperationException("Discord did not return the created thread ID.");

@@ -154,8 +154,10 @@ public sealed class SandboxNetworkBroker : IDisposable
                 _logger.LogError("Sandbox provider response contained protected authentication material for repository {RepositoryId}.", repositoryId);
                 throw new InvalidDataException("Provider response contained protected authentication material.");
             }
-            _logger.LogInformation("Sandbox provider request completed for repository {RepositoryId}, host {ProviderHost}, method {HttpMethod} in {ElapsedMilliseconds} ms; response content omitted.",
-                repositoryId, destination.IdnHost, method.Method, System.Diagnostics.Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+            _logger.LogInformation("Sandbox provider request {HttpMethod} to {ProviderHost} completed for repository {RepositoryId} in {ElapsedMilliseconds} ms. Request body: {RequestBody}. Response body: {ResponseBody}",
+                method.Method, destination.IdnHost, repositoryId, System.Diagnostics.Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+                requestJson is null ? "[empty]" : requestJson.Length <= 12000 ? requestJson : requestJson[..12000] + "… [truncated]",
+                text.Length <= 12000 ? text : text[..12000] + "… [truncated]");
             return text;
         }
         catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)

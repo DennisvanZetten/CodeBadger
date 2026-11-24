@@ -13,6 +13,8 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
     private readonly object _sessionsLock = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, SemaphoreSlim> _startGates = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, List<string>> _recentOutput = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, string> _openCodeSessionIds = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, string> _openCodeTerminalLines = new();
     private readonly LocalizationService _localization;
     private readonly ILogger<WindowsTerminalSessionService> _logger;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, SemaphoreSlim> _terminalWriteGates = new();
@@ -25,6 +27,8 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
 
     public event Action<Guid, string>? OutputReceived;
     public event Action<Guid, int>? SessionExited;
+    public bool TryGetOpenCodeSessionId(Guid id, out string sessionId) => _openCodeSessionIds.TryGetValue(id, out sessionId!);
+    public bool TryGetOpenCodeTerminalLine(Guid id, out string line) => _openCodeTerminalLines.TryGetValue(id, out line!);
 
     public bool IsRunning(Guid id)
     {
@@ -70,7 +74,10 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
                     !openCodeSessionId.All(character => char.IsAsciiLetterOrDigit(character) || character == '_'))
                     throw new ArgumentException("Invalid OpenCode session ID.", nameof(openCodeSessionId));
                 sessionArguments = $"--session {openCodeSessionId}";
+                _openCodeSessionIds[id] = openCodeSessionId;
             }
+            if (IsOpenCodeCommand(commandLine))
+                _openCodeTerminalLines[id] = openCodeSessionId ?? string.Empty;
 
             var hasEncodedPowerShellCommand = commandLine.StartsWith("powershell-encoded ", StringComparison.Ordinal);
             var encodedPowerShellCommand = hasEncodedPowerShellCommand ? commandLine["powershell-encoded ".Length..] : null;
@@ -182,6 +189,8 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         catch (TimeoutException) when (!requireTermination) { }
         lock (_sessionsLock)
             _sessions.Remove(id);
+        _openCodeSessionIds.TryRemove(id, out _);
+        _openCodeTerminalLines.TryRemove(id, out _);
         _recentOutput.TryRemove(id, out _);
         session.Dispose();
         _logger.LogInformation("Agent terminal stopped for repository {RepositoryId}.", id);
@@ -224,7 +233,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         catch (ObjectDisposedException) { }
         catch (IOException exception)
         {
-            _logger.LogDebug(exception, "Agent terminal output stream closed for session {SessionId}.", id);
+            _logger.LogInformation(exception, "Agent terminal output stream closed for session {SessionId}.", id);
         }
     }
 
@@ -412,6 +421,17 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         sanitized = System.Text.RegularExpressions.Regex.Replace(sanitized,
             @"(?i)(token|authorization|password|api[_-]?key)(\s*[:=]\s*)[^\s,;]+", "$1$2[redacted]");
         return sanitized.Length <= maximumLength ? sanitized : sanitized[..maximumLength] + "… [truncated]";
+    }
+
+    private static bool IsOpenCodeCommand(string commandLine)
+    {
+        if (string.IsNullOrWhiteSpace(commandLine) || commandLine.StartsWith("powershell-encoded ", StringComparison.Ordinal))
+            return false;
+        var command = commandLine.Trim();
+        var token = command.StartsWith('"')
+            ? command[1..Math.Max(1, command.IndexOf('"', 1))]
+            : command.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
+        return Path.GetFileNameWithoutExtension(token).Equals("opencode", StringComparison.OrdinalIgnoreCase);
     }
 
     private string ReadExecutableToken(string command, out string arguments)

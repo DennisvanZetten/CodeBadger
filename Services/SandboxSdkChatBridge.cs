@@ -61,7 +61,7 @@ public sealed class SandboxSdkChatBridge : IDisposable
         if (body.GetProperty("acceptPrompt").GetBoolean() && _prompts.TryDequeue(out prompt))
         {
             Interlocked.Decrement(ref _queued);
-            _logger.LogInformation("Direct OpenCode SDK accepted a queued prompt; prompt content omitted.");
+            _logger.LogInformation("Direct OpenCode SDK accepted queued prompt. Prompt: {Prompt}", prompt);
         }
         if (acceptedEvents > 0)
             _logger.LogInformation("Received {SdkEventCount} OpenCode SDK lifecycle/tool events.", acceptedEvents);

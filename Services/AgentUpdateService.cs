@@ -164,7 +164,7 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
         }
         catch (Exception exception)
         {
-            logger.LogDebug(exception, "Could not check coding agent updates.");
+                logger.LogInformation(exception, "Could not check coding agent updates.");
         }
         finally
         {
@@ -577,7 +577,7 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
         }
         catch (Exception exception)
         {
-            logger.LogDebug(exception, "Could not identify installed {Agent}.", definition.Agent);
+            logger.LogInformation(exception, "Could not identify installed {Agent}.", definition.Agent);
             return null;
         }
         if (executable is null)
@@ -613,7 +613,7 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
         }
         catch (Exception exception)
         {
-            logger.LogDebug(exception, "Could not check update for {Agent}.", definition.Agent);
+            logger.LogInformation(exception, "Could not check update for {Agent}.", definition.Agent);
             var installedVersion = ExtractVersion(installedText);
             return installedVersion is null
                 ? null
@@ -621,17 +621,24 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
         }
     }
 
-    private static async Task<(string Version, string Url, string Notes, bool ReachedInstalledVersion)?> GetLatestClaudeCodeReleaseAsync(
+    private async Task<(string Version, string Url, string Notes, bool ReachedInstalledVersion)?> GetLatestClaudeCodeReleaseAsync(
         string installedVersion, CancellationToken cancellationToken)
     {
+        var startedAt = Stopwatch.GetTimestamp();
+        logger.LogInformation("Checking Claude Code package registry {Endpoint}.", "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/latest");
         using var packageResponse = await Http.GetAsync("https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/latest", cancellationToken);
+        logger.LogInformation("Claude Code package registry returned HTTP {StatusCode} in {ElapsedMilliseconds} ms.",
+            (int)packageResponse.StatusCode, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
         packageResponse.EnsureSuccessStatusCode();
         await using var packageStream = await packageResponse.Content.ReadAsStreamAsync(cancellationToken);
         using var package = await JsonDocument.ParseAsync(packageStream, cancellationToken: cancellationToken);
         if (!package.RootElement.TryGetProperty("version", out var versionElement) || versionElement.GetString() is not { Length: > 0 } latestVersion)
             return null;
 
+        startedAt = Stopwatch.GetTimestamp();
         using var notesResponse = await Http.GetAsync("https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md", cancellationToken);
+        logger.LogInformation("Claude Code changelog returned HTTP {StatusCode} in {ElapsedMilliseconds} ms.",
+            (int)notesResponse.StatusCode, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
         notesResponse.EnsureSuccessStatusCode();
         var allNotes = await notesResponse.Content.ReadAsStringAsync(cancellationToken);
         var latestNotes = GetChangelogRange(allNotes, latestVersion, installedVersion);
@@ -655,10 +662,13 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
         return match.Success ? startIndex + match.Index : -1;
     }
 
-    private static async Task<(string Version, string Url, string Notes, bool ReachedInstalledVersion)?> GetLatestReleaseAsync(
+    private async Task<(string Version, string Url, string Notes, bool ReachedInstalledVersion)?> GetLatestReleaseAsync(
         string repository, string installedVersion, CancellationToken cancellationToken)
     {
+        var startedAt = Stopwatch.GetTimestamp();
         using var response = await Http.GetAsync($"https://api.github.com/repos/{repository}/releases?per_page=100", cancellationToken);
+        logger.LogInformation("Agent release API for {Repository} returned HTTP {StatusCode} in {ElapsedMilliseconds} ms.",
+            repository, (int)response.StatusCode, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);

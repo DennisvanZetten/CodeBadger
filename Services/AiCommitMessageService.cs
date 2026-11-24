@@ -53,14 +53,18 @@ public sealed class AiCommitMessageService
         try
         {
             var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
-            _logger.LogInformation("Starting AI {Operation} with provider {Provider} and model {Model}. Input excerpt: {InputExcerpt}",
+            _logger.LogInformation("Starting AI {Operation} with provider {Provider} and model {Model}. Input: {Input}",
                 commitMessage ? "commit-message generation" : "conflict resolution", provider, model, CreateLogExcerpt(promptText));
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
             using var request = commitMessage
                 ? CreateRequest(provider, uri, settings, LimitInput(promptText, settings.AiMaxInputTokens), branchName, customInstruction)
                 : CreateConflictRequest(provider, uri, settings, promptText, model);
+            _logger.LogInformation("AI HTTP request {HttpMethod} {Endpoint}. Request body: {RequestBody}",
+                request.Method, uri.GetLeftPart(UriPartial.Path), await GetLogContentAsync(request.Content));
             using var response = await client.SendAsync(request);
             var responseBody = await response.Content.ReadAsStringAsync();
+            _logger.LogInformation("AI HTTP response from {Provider}: HTTP {StatusCode}. Response body: {ResponseBody}",
+                provider, (int)response.StatusCode, responseBody);
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("AI provider {Provider} returned HTTP {StatusCode} for {Operation} after {ElapsedMilliseconds} ms.",
@@ -130,12 +134,19 @@ public sealed class AiCommitMessageService
 
     private static string CreateLogExcerpt(string text)
     {
-        const int maximumLength = 4000;
+        const int maximumLength = 12000;
         var excerpt = System.Text.RegularExpressions.Regex.Replace(text,
             @"(?i)(https?://)[^/@\s]+:[^/@\s]+@", "$1[redacted]@");
-        excerpt = System.Text.RegularExpressions.Regex.Replace(excerpt,
-            @"(?i)(token|authorization|password|api[_-]?key)(\s*[:=]\s*)[^\s,;]+", "$1$2[redacted]");
         return excerpt.Length <= maximumLength ? excerpt : excerpt[..maximumLength] + "… [truncated]";
+    }
+
+    private static async Task<string> GetLogContentAsync(HttpContent? content)
+    {
+        if (content is null)
+            return "[empty]";
+        const int maximumLength = 12000;
+        var text = await content.ReadAsStringAsync();
+        return text.Length <= maximumLength ? text : text[..maximumLength] + "… [truncated]";
     }
 
     public async Task<AiCommitMessageResult> TestConnectionAsync(LauncherSettings settings)
@@ -260,8 +271,11 @@ public sealed class AiCommitMessageService
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             AddAuthHeaders(request, provider, settings.AiApiKey);
+            _logger.LogInformation("AI model-list HTTP request {HttpMethod} {Endpoint}.", request.Method, uri.GetLeftPart(UriPartial.Path));
             using var response = await client.SendAsync(request);
             var responseBody = await response.Content.ReadAsStringAsync();
+            _logger.LogInformation("AI model-list HTTP response from {Provider}: HTTP {StatusCode}. Response body: {ResponseBody}",
+                provider, (int)response.StatusCode, responseBody);
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("AI provider {Provider} returned HTTP {StatusCode} while listing models.", provider, (int)response.StatusCode);

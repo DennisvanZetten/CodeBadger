@@ -44,10 +44,43 @@
                         @foreach (var session in _sessions)
                         {
                             <MudSelectItem T="string" Value="@session.Id">
-                                @(string.IsNullOrWhiteSpace(session.Title) ? session.Id : session.Title)
+                                @if (session.IsTerminalSession)
+                                {
+                                    @L.T("Current terminal session: {0}", string.IsNullOrWhiteSpace(session.Title) ? session.Id : session.Title)
+                                }
+                                else
+                                {
+                                    @(string.IsNullOrWhiteSpace(session.Title) ? session.Id : session.Title)
+                                    @if (session.IsActive)
+                                    {
+                                        <span> · @L.T("Active")</span>
+                                    }
+                                    else if (session.LastViewedAt is not null)
+                                    {
+                                        <span> · @L.T("Recently viewed")</span>
+                                    }
+                                }
                             </MudSelectItem>
                         }
                     </MudSelect>
+                    @if (_terminalSessionId is null)
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                            @L.T("CodeBadger cannot read the selected session ID from a newly started OpenCode TUI. Sessions are sorted by most recently viewed as a best guess; confirm the title before sharing.")
+                        </MudAlert>
+                    }
+                    @if (_terminalSessionId is not null && _sessions.All(session => session.Id != _terminalSessionId))
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                            @L.T("The current terminal session could not be confirmed in the OpenCode session list. Choose a session explicitly; the selected session will be shared, not necessarily the terminal currently on screen.")
+                        </MudAlert>
+                    }
+                    else if (_terminalSessionId is null && _selectedSessionId is null)
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                            @L.T("No last-viewed session could be inferred. Select the session title that matches the OpenCode terminal before sharing.")
+                        </MudAlert>
+                    }
                     @if (_shareActiveElsewhere)
                     {
                         <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
@@ -158,9 +191,11 @@
     [Parameter, EditorRequired] public string RepositoryPath { get; set; } = string.Empty;
     [Parameter, EditorRequired] public Guid RepositoryId { get; set; }
     [Parameter, EditorRequired] public string RepositoryName { get; set; } = string.Empty;
+    [Parameter] public string? TerminalSessionId { get; set; }
 
     private IReadOnlyList<OpenCodeActivityService.ShareSession> _sessions = [];
     private string? _selectedSessionId;
+    private string? _terminalSessionId;
     private Phase _phase = Phase.Loading;
     private string _progressMessage = "Loading OpenCode sessions…";
     private double? _progressPercent;
@@ -178,7 +213,8 @@
         _progressMessage = "Loading OpenCode sessions…";
         try
         {
-            var loaded = await Activity.GetRepositorySessionsAsync(RepositoryPath, CancellationToken.None);
+            _terminalSessionId = TerminalSessionId;
+            var loaded = await Activity.GetRepositorySessionsAsync(RepositoryPath, CancellationToken.None, _terminalSessionId);
             _sessionsUnavailable = loaded is null;
             _sessions = loaded ?? [];
             var active = SessionShares.CurrentShare;
@@ -191,7 +227,9 @@
             else
             {
                 _shareActiveElsewhere = active is not null;
-                _selectedSessionId = _sessions.FirstOrDefault()?.Id;
+                _selectedSessionId = _terminalSessionId is not null && _sessions.Any(session => session.Id == _terminalSessionId)
+                    ? _terminalSessionId
+                    : _sessions.FirstOrDefault(session => session.LastViewedAt is not null)?.Id;
                 _phase = Phase.SelectSession;
             }
         }

@@ -28,8 +28,9 @@ public sealed class TicketMcpService
         CancellationToken cancellationToken = default)
     {
         var startedAt = Stopwatch.GetTimestamp();
-        _logger.LogInformation("Creating {TicketType} through MCP server {McpServer} for repository {RepositoryName}; ticket text omitted.",
-            itemType, repository.TicketMcpServerName, repository.Name);
+        using var repositoryScope = _logger.BeginScope(new Dictionary<string, object?> { ["RepositoryName"] = repository.Name });
+        _logger.LogInformation("Creating {TicketType} through MCP server {McpServer} for repository {RepositoryName}. Ticket title: {TicketTitle}. Ticket description: {TicketDescription}",
+            itemType, repository.TicketMcpServerName, repository.Name, title, description);
         if (TicketSystems.Normalize(repository.TicketSystem) == TicketSystems.None ||
             string.IsNullOrWhiteSpace(repository.TicketMcpServerName))
             throw new InvalidOperationException("Configure a ticket system and MCP server for this repository first.");
@@ -239,7 +240,7 @@ public sealed class TicketMcpService
         return (match.Groups["owner"].Value, match.Groups["repo"].Value);
     }
 
-    private static async Task<JsonObject?> CallRemoteServerAsync(Uri endpoint, JsonObject server,
+    private async Task<JsonObject?> CallRemoteServerAsync(Uri endpoint, JsonObject server,
         CancellationToken cancellationToken, string? toolName = null, JsonObject? arguments = null)
     {
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -282,13 +283,20 @@ public sealed class TicketMcpService
         return call.Result;
     }
 
-    private static async Task<(JsonObject? Result, string? SessionId)> SendRemoteRequestAsync(Uri endpoint,
+    private async Task<(JsonObject? Result, string? SessionId)> SendRemoteRequestAsync(Uri endpoint,
         IReadOnlyDictionary<string, string> headers, string? sessionId, string protocolVersion, object message,
         int id, CancellationToken cancellationToken)
     {
         using var request = CreateRemoteRequest(endpoint, headers, sessionId, protocolVersion, message);
+        var startedAt = Stopwatch.GetTimestamp();
+        var requestBody = await request.Content!.ReadAsStringAsync(cancellationToken);
+        _logger.LogInformation("Remote MCP HTTP request {HttpMethod} {Endpoint}. Request body: {RequestBody}",
+            request.Method, endpoint.GetLeftPart(UriPartial.Path), requestBody.Length <= 12000 ? requestBody : requestBody[..12000] + "… [truncated]");
         using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+        _logger.LogInformation("Remote MCP HTTP response HTTP {StatusCode} in {ElapsedMilliseconds} ms. Response body: {ResponseBody}",
+            (int)response.StatusCode, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+            responseText.Length <= 12000 ? responseText : responseText[..12000] + "… [truncated]");
         if (!response.IsSuccessStatusCode)
         {
             var authHelp = response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
@@ -305,11 +313,14 @@ public sealed class TicketMcpService
         return (result?["result"] as JsonObject, returnedSessionId ?? sessionId);
     }
 
-    private static async Task SendRemoteNotificationAsync(Uri endpoint, IReadOnlyDictionary<string, string> headers,
+    private async Task SendRemoteNotificationAsync(Uri endpoint, IReadOnlyDictionary<string, string> headers,
         string? sessionId, string protocolVersion, object message, CancellationToken cancellationToken)
     {
         using var request = CreateRemoteRequest(endpoint, headers, sessionId, protocolVersion, message);
+        _logger.LogInformation("Remote MCP HTTP notification {HttpMethod} {Endpoint}. Request body: {RequestBody}",
+            request.Method, endpoint.GetLeftPart(UriPartial.Path), await request.Content!.ReadAsStringAsync(cancellationToken));
         using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        _logger.LogInformation("Remote MCP HTTP notification response HTTP {StatusCode}.", (int)response.StatusCode);
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException($"Remote MCP server rejected initialization notification with HTTP {(int)response.StatusCode} ({response.ReasonPhrase}).");
     }
@@ -361,7 +372,7 @@ public sealed class TicketMcpService
         throw new InvalidOperationException("The remote MCP server response did not contain the expected JSON-RPC response.");
     }
 
-    private static async Task<JsonObject?> CallServerAsync(string workingDirectory, JsonArray command, JsonObject server,
+    private async Task<JsonObject?> CallServerAsync(string workingDirectory, JsonArray command, JsonObject server,
         CancellationToken cancellationToken, string? toolName = null, JsonObject? arguments = null)
     {
         var startInfo = new ProcessStartInfo
@@ -378,6 +389,8 @@ public sealed class TicketMcpService
                     startInfo.Environment[name] = text;
 
         using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start the ticket MCP server.");
+        _logger.LogInformation("Started local MCP server process {Executable} for repository {RepositoryPath}; tool {ToolName}.",
+            startInfo.FileName, Path.GetFileName(Path.TrimEndingDirectorySeparator(workingDirectory)), toolName ?? "tools/list");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
         try
@@ -404,19 +417,22 @@ public sealed class TicketMcpService
         }
     }
 
-    private static async Task WriteMessageAsync(Process process, object message, CancellationToken cancellationToken)
+    private async Task WriteMessageAsync(Process process, object message, CancellationToken cancellationToken)
     {
-        await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(message).AsMemory(), cancellationToken);
+        var json = JsonSerializer.Serialize(message);
+        _logger.LogInformation("Local MCP request sent. Request body: {RequestBody}", json.Length <= 12000 ? json : json[..12000] + "… [truncated]");
+        await process.StandardInput.WriteLineAsync(json.AsMemory(), cancellationToken);
         await process.StandardInput.FlushAsync(cancellationToken);
     }
 
-    private static async Task<JsonObject?> ReadResponseAsync(Process process, int id, CancellationToken cancellationToken)
+    private async Task<JsonObject?> ReadResponseAsync(Process process, int id, CancellationToken cancellationToken)
     {
         while (true)
         {
             var line = await process.StandardOutput.ReadLineAsync(cancellationToken);
             if (line is null)
                 throw new InvalidOperationException("The ticket MCP server closed its output before responding.");
+            _logger.LogInformation("Local MCP response line: {ResponseBody}", line.Length <= 12000 ? line : line[..12000] + "… [truncated]");
             if (JsonNode.Parse(line) is not JsonObject response || response["id"]?.GetValue<int>() != id)
                 continue;
             if (response["error"] is JsonObject error)

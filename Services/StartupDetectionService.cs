@@ -535,12 +535,12 @@ public sealed class StartupDetectionService(
                 return false;
             await process.WaitForExitAsync();
             var available = process.ExitCode == 0;
-            logger.LogDebug("Agent executable probe for {CommandName}: {Availability}.", command, available ? "available" : "not found");
+            logger.LogInformation("Agent executable probe for {CommandName}: {Availability}.", command, available ? "available" : "not found");
             return available;
         }
         catch (Exception exception)
         {
-            logger.LogDebug("Agent executable probe for {CommandName} failed ({ExceptionType}).", command, exception.GetType().Name);
+            logger.LogInformation(exception, "Agent executable probe for {CommandName} failed.", command);
             return false;
         }
     }

@@ -829,7 +829,11 @@ public sealed class GitBranchService
 
         try
         {
+            var startedAt = Stopwatch.GetTimestamp();
+            _logger.LogInformation("Checking Git for Windows releases at {Endpoint}.", LatestGitForWindowsReleaseUrl);
             using var response = await GitReleaseHttp.GetAsync(LatestGitForWindowsReleaseUrl, cancellationToken);
+            _logger.LogInformation("Git for Windows release API returned HTTP {StatusCode} in {ElapsedMilliseconds} ms.",
+                (int)response.StatusCode, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
             response.EnsureSuccessStatusCode();
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
             using var release = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
@@ -850,7 +854,7 @@ public sealed class GitBranchService
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            _logger.LogDebug(exception, "Could not check for a Git for Windows update.");
+            _logger.LogInformation(exception, "Could not check for a Git for Windows update.");
             return null;
         }
     }

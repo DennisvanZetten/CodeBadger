@@ -69,6 +69,10 @@ public sealed partial class WindowsSandboxSessionService : IAsyncDisposable
     {
         _logger.LogInformation("Starting sandbox session for repository {RepositoryId}; selected file count {SelectedFileCount}.",
             repositoryId, selectedFiles.Count);
+        using var repositoryScope = _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["RepositoryPath"] = repositoryPath
+        });
         var assessment = await Task.Run(() => SandboxWorkspace.Assess(repositoryPath, selectedFiles, limits));
         _logger.LogInformation("Sandbox access mode selected for repository {RepositoryId}: {AccessMode}; assessed file count {FileCount}.",
             repositoryId, assessment.Mode, assessment.Files.Count);

@@ -125,6 +125,10 @@
                     </MudStack>
                     <span class="repository-terminal-splitter-grip" aria-hidden="true"></span>
                     <div class="repository-terminal-splitter-actions">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="repository-codebadger-mode-label"
+                                 title="@L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })">
+                            @L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })
+                        </MudText>
                         <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal" : "Hide AI terminal")">
                             <MudIconButton Size="Size.Small" Icon="@(_aiPanelMode == AiPanelMode.Collapsed ? Icons.Material.Filled.Visibility : Icons.Material.Filled.VisibilityOff)"
                                            aria-label="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal" : "Hide AI terminal")"

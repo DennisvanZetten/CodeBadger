@@ -2227,8 +2227,8 @@ h1:focus {
 
 .repository-terminal-stack {
     display: grid;
-    grid-template-rows: minmax(120px, var(--ai-terminal-height, 38%)) 2.25rem minmax(120px, 1fr);
-    gap: 0.2rem;
+    grid-template-rows: minmax(120px, var(--ai-terminal-height, 38%)) 1.85rem minmax(120px, 1fr);
+    gap: 0;
     height: 100%;
     min-height: 0;
     overflow: hidden;
@@ -2236,11 +2236,11 @@ h1:focus {
 }
 
 .repository-terminal-stack.ai-pane-collapsed {
-    grid-template-rows: 0 2.25rem minmax(0, 1fr);
+    grid-template-rows: 0 1.85rem minmax(0, 1fr);
 }
 
 .repository-terminal-stack.ai-pane-expanded {
-    grid-template-rows: minmax(0, 1fr) 2.25rem 0;
+    grid-template-rows: minmax(0, 1fr) 1.85rem 0;
 }
 
 .repository-ai-pane,
@@ -2266,10 +2266,11 @@ h1:focus {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
+    gap: 0.4rem;
     min-width: 0;
     min-height: 0;
-    padding: 0 0.5rem;
+    padding: 0 0.4rem;
+    border-top: 1px solid var(--mud-palette-divider);
     cursor: ns-resize;
     touch-action: none;
     outline: none;
@@ -2278,27 +2279,31 @@ h1:focus {
 
 .repository-terminal-splitter:focus-visible,
 .repository-terminal-splitter:hover {
-    background: var(--mud-palette-action-hover);
+    border-top-color: var(--mud-palette-primary);
 }
 
 .repository-terminal-splitter-grip {
-    flex: 1 1 auto;
-    min-width: 1.5rem;
-    height: 3px;
-    border-radius: 2px;
-    background: var(--mud-palette-divider);
+    position: absolute;
+    inset: -4px 0 auto;
+    height: 9px;
+    cursor: ns-resize;
 }
 
 .repository-terminal-splitter > .repository-codebadger-session-tabs {
     flex: 0 1 auto;
-    max-width: min(55%, 54rem);
+    max-width: min(48%, 42rem);
 }
 
 .repository-terminal-splitter-actions {
     flex: 0 0 auto;
     display: flex;
     align-items: center;
-    gap: 0.1rem;
+    gap: 0.25rem;
+    margin-left: auto;
+}
+
+.repository-codebadger-mode-label {
+    white-space: nowrap;
 }
 
 .repository-codebadger-pane {
@@ -2317,7 +2322,7 @@ h1:focus {
     gap: 0.1rem;
     flex: 0 1 auto;
     min-width: 0;
-    max-width: 13rem;
+    max-width: 9rem;
     border: 1px solid var(--mud-palette-divider);
     border-radius: var(--mud-default-borderradius);
 }
@@ -2330,7 +2335,8 @@ h1:focus {
 .repository-codebadger-session-select {
     min-width: 0;
     overflow: hidden;
-    padding: 0.15rem 0.35rem;
+    max-width: 7rem;
+    padding: 0.05rem 0.25rem;
     border: 0;
     background: transparent;
     color: var(--mud-palette-text-primary);
@@ -2409,15 +2415,15 @@ h1:focus {
 .repository-codebadger-agent-context-track.unavailable > span { width: 30%; background: var(--mud-palette-text-disabled); }
 
 .repository-codebadger-session-tab .mud-icon-button {
-    width: 1.45rem;
-    height: 1.45rem;
-    min-width: 1.45rem;
+    width: 1.25rem;
+    height: 1.25rem;
+    min-width: 1.25rem;
 }
 
 .repository-terminal-splitter-actions .mud-icon-button {
-    width: 1.65rem;
-    height: 1.65rem;
-    min-width: 1.65rem;
+    width: 1.5rem;
+    height: 1.5rem;
+    min-width: 1.5rem;
 }
 
 @media (max-width: 900px) {
@@ -2427,7 +2433,7 @@ h1:focus {
     }
 
     .repository-terminal-splitter > .repository-codebadger-session-tabs {
-        max-width: 48%;
+        max-width: 42%;
     }
 
     .repository-codebadger-agent-links {
@@ -2441,8 +2447,12 @@ h1:focus {
 }
 
 @media (max-width: 600px) {
+    .repository-codebadger-mode-label {
+        display: none;
+    }
+
     .repository-terminal-splitter > .repository-codebadger-session-tabs {
-        max-width: 55%;
+        max-width: 52%;
     }
 
     .repository-codebadger-agent-links {

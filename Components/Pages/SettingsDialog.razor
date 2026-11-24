@@ -2,6 +2,7 @@
 @inject LocalizationService L
 @inject AiCommitMessageService AiCommitMessageService
 @inject AgentConfigService AgentConfigService
+@inject OpenCodeActivityService OpenCodeActivity
 @inject SlackNotificationService SlackNotificationService
 @inject StartupDetectionService StartupDetection
 @inject AgentUpdateService AgentUpdates
@@ -310,6 +311,52 @@
                             </MudSelect>
                         </MudStack>
                     </MudPaper>
+                    <MudPaper Outlined="true" Elevation="0" Class="pa-4">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.h6">@L.T("CodeBadger AI team")</MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                @L.T("Configure an OpenCode agent and ordered model preferences for each role. Listed model prices are USD per million input/output tokens; models without published prices are unpriced, not free.")
+                            </MudText>
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh"
+                                       OnClick="LoadCodeBadgerModelsAsync" Disabled="@_isLoadingCodeBadgerModels">
+                                @(_isLoadingCodeBadgerModels ? L.T("Loading models...") : L.T("Load OpenCode models"))
+                            </MudButton>
+                            @foreach (var preference in Settings.CodeBadgerRolePreferences)
+                            {
+                                <MudPaper @key="preference.Role" Outlined="true" Elevation="0" Class="pa-3">
+                                    <MudStack Spacing="2">
+                                        <MudText Typo="Typo.subtitle1">@CodeBadgerRoleDisplayName(preference.Role)</MudText>
+                                        <MudSelect T="string" Value="@preference.AgentId"
+                                                   ValueChanged="@(value => preference.AgentId = value)"
+                                                   Label="@L.T("OpenCode agent")" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                            @foreach (var agent in _openCodeAgents)
+                                            {
+                                                <MudSelectItem T="string" Value="@agent">@agent</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                        @for (var priorityIndex = 0; priorityIndex < 3; priorityIndex++)
+                                        {
+                                            var slot = priorityIndex;
+                                            <MudSelect T="string" Value="@GetPreferredModel(preference, slot)"
+                                                       ValueChanged="@(value => SetPreferredModel(preference, slot, value))"
+                                                       Label="@L.T("Model priority {0}", slot + 1)" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                                <MudSelectItem T="string" Value="@string.Empty">@L.T("Automatic selection")</MudSelectItem>
+                                                @foreach (var model in _openCodeModels)
+                                                {
+                                                    <MudSelectItem T="string" Value="@model.Reference" Disabled="@(!model.Enabled)">
+                                                        @ModelOptionLabel(model)
+                                                    </MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                        }
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                            @L.T("Higher-priority selections are preferred. Missing, disabled, or unavailable models are skipped.")
+                                        </MudText>
+                                    </MudStack>
+                                </MudPaper>
+                            }
+                        </MudStack>
+                    </MudPaper>
                 </MudStack>
             </MudTabPanel>
             <MudTabPanel Text="@L.T("Notifications")" Icon="@Icons.Material.Filled.NotificationsActive">
@@ -466,6 +513,9 @@
     private bool _isSaving;
     private bool _hasTestedConnection;
     private IReadOnlyList<string> _availableModels = [];
+    private IReadOnlyList<OpenCodeActivityService.AvailableModel> _openCodeModels = [];
+    private IReadOnlyList<string> _openCodeAgents = new[] { "build", "plan" };
+    private bool _isLoadingCodeBadgerModels;
     private static readonly string[] AiProviders = ["OpenAI", "Azure OpenAI", "Anthropic", "Google Gemini", "Ollama", "Custom URL"];
     private string _selectedAgent = AgentTools.OpenCode;
     private string _agentConfigJson = "{}";
@@ -502,7 +552,75 @@
     protected override void OnInitialized()
     {
         AgentUpdates.UpdatesChanged += HandleAgentUpdatesChanged;
+        Settings.CodeBadgerRolePreferences ??= CodeBadgerRoles.CreateDefaults();
+        CodeBadgerRoles.Normalize(Settings.CodeBadgerRolePreferences);
     }
+
+    private async Task LoadCodeBadgerModelsAsync()
+    {
+        var repositoryPath = Settings.Repositories.FirstOrDefault(repository => repository.IsActive &&
+            AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)?.Path;
+        if (string.IsNullOrWhiteSpace(repositoryPath) || !Directory.Exists(repositoryPath))
+        {
+            Snackbar.Add(L.T("Activate an OpenCode repository to load its available models."), Severity.Warning);
+            return;
+        }
+
+        _isLoadingCodeBadgerModels = true;
+        try
+        {
+            _openCodeModels = await OpenCodeActivity.GetAvailableModelsAsync(repositoryPath, CancellationToken.None);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            var agents = await OpenCodeActivity.GetAvailableAgentsAsync(repositoryPath, timeout.Token);
+            if (agents.Count > 0)
+                _openCodeAgents = agents;
+            Snackbar.Add(L.T("Loaded {0} OpenCode models and {1} agents.", _openCodeModels.Count, _openCodeAgents.Count),
+                _openCodeModels.Count > 0 ? Severity.Success : Severity.Warning);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not load OpenCode models: {0}", exception.Message), Severity.Error);
+        }
+        finally { _isLoadingCodeBadgerModels = false; }
+    }
+
+    private static string GetPreferredModel(CodeBadgerRolePreference preference, int index) =>
+        preference.PreferredModels.ElementAtOrDefault(index) ?? string.Empty;
+
+    private static void SetPreferredModel(CodeBadgerRolePreference preference, int index, string? model)
+    {
+        while (preference.PreferredModels.Count <= index)
+            preference.PreferredModels.Add(string.Empty);
+        preference.PreferredModels[index] = model ?? string.Empty;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var slot = 0; slot < preference.PreferredModels.Count; slot++)
+        {
+            var value = preference.PreferredModels[slot];
+            if (!string.IsNullOrWhiteSpace(value) && !seen.Add(value))
+                preference.PreferredModels[slot] = string.Empty;
+        }
+        while (preference.PreferredModels.Count > 0 && string.IsNullOrEmpty(preference.PreferredModels[^1]))
+            preference.PreferredModels.RemoveAt(preference.PreferredModels.Count - 1);
+    }
+
+    private string ModelOptionLabel(OpenCodeActivityService.AvailableModel model)
+    {
+        var price = !model.HasPublishedCost
+            ? L.T("price unavailable")
+            : $"${model.InputCost:0.####}/${model.OutputCost:0.####}";
+        return $"{model.Name} · {model.Reference} · {price}";
+    }
+
+    private string CodeBadgerRoleDisplayName(string role) => role switch
+    {
+        CodeBadgerRoles.Orchestrator => L.T("Orchestrator / Manager"),
+        CodeBadgerRoles.Router => L.T("Router / Triage-agent"),
+        CodeBadgerRoles.Planner => L.T("Planner / Reasoning-agent"),
+        CodeBadgerRoles.Worker => L.T("Worker / Tool-use agent"),
+        CodeBadgerRoles.Rag => L.T("RAG / Knowledge-agent"),
+        CodeBadgerRoles.Critic => L.T("Critic / Evaluator-agent"),
+        _ => role
+    };
 
     private void HandleAgentUpdatesChanged() => _ = InvokeAsync(StateHasChanged);
 
@@ -653,6 +771,7 @@
         target.AgentTool = source.AgentTool;
         target.OpenCodeSandboxEnabled = source.OpenCodeSandboxEnabled;
         target.CodeBadgerTerminalEnabled = source.CodeBadgerTerminalEnabled;
+        target.CodeBadgerOrchestrationMode = source.CodeBadgerOrchestrationMode;
         target.OpenCodeSandboxModel = source.OpenCodeSandboxModel;
         target.OpenCodeSandboxFiles = source.OpenCodeSandboxFiles;
         target.TicketRequired = source.TicketRequired;

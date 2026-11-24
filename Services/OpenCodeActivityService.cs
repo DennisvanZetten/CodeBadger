@@ -17,6 +17,8 @@ public sealed class OpenCodeActivityService
 
     public sealed record ActiveSession(string Id, string Directory, string Agent, string Title,
         string RepositoryName = "");
+    public sealed record AvailableModel(string Reference, string Name, string Status, bool Enabled,
+        double InputCost, double OutputCost, bool HasPublishedCost, int Context, int OutputLimit);
     public sealed record ShareSession(string Id, string Title, bool IsTerminalSession = false,
         bool IsActive = false, long? LastViewedAt = null);
     public sealed record SessionTextMessage(string Id, string Role, string Text);
@@ -660,9 +662,9 @@ public sealed class OpenCodeActivityService
             throw new ArgumentException("Reply must contain 1–32,000 characters.", nameof(text));
         _logger.LogInformation("Submitting prompt to OpenCode session {SessionId} with agent {Agent}. Prompt excerpt: {PromptExcerpt}",
             sessionId, agent ?? "current", CreateLogExcerpt(text));
-        var payload = agent is "build" or "plan"
-            ? JsonSerializer.Serialize(new { text, delivery = "steer", agent })
-            : JsonSerializer.Serialize(new { text, delivery = "steer" });
+        if (!string.IsNullOrWhiteSpace(agent))
+            await SwitchAgentAsync(sessionId, directory, agent, cancellationToken);
+        var payload = JsonSerializer.Serialize(new { text, delivery = "steer" });
         using var response = await RequestAsync($"/api/session/{sessionId}/prompt", cancellationToken,
             HttpMethod.Post, payload, directory);
         if (response is null)
@@ -670,6 +672,109 @@ public sealed class OpenCodeActivityService
         _logger.LogInformation("Prompt submitted to OpenCode session {SessionId}. Prompt content: {PromptContent}",
             sessionId, ExtractPromptExcerpt(payload));
     }
+
+    public async Task<IReadOnlyList<AvailableModel>> GetAvailableModelsAsync(string directory, CancellationToken cancellationToken)
+    {
+        using var response = await RequestAsync("/api/model", cancellationToken, workingDirectory: directory);
+        if (response?.RootElement.TryGetProperty("data", out var models) != true || models.ValueKind != JsonValueKind.Array)
+            return [];
+
+        return models.EnumerateArray().Select(model =>
+        {
+            var provider = GetString(model, "providerID");
+            var id = GetString(model, "id");
+            var cost = model.TryGetProperty("cost", out var costValue) && costValue.ValueKind == JsonValueKind.Array
+                ? costValue.EnumerateArray().FirstOrDefault() : default;
+            var limit = model.TryGetProperty("limit", out var limitValue) && limitValue.ValueKind == JsonValueKind.Object
+                ? limitValue : default;
+            return new AvailableModel(
+                $"{provider}/{id}",
+                GetString(model, "name"),
+                GetString(model, "status"),
+                model.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.True,
+                GetNumber(cost, "input"), GetNumber(cost, "output"),
+                cost.ValueKind == JsonValueKind.Object && cost.TryGetProperty("input", out _) && cost.TryGetProperty("output", out _),
+                GetInt32(limit, "context"), GetInt32(limit, "output"));
+        }).Where(model => model.Reference.Contains('/') && model.Name.Length > 0)
+            .OrderBy(model => model.Reference, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    public async Task<IReadOnlyList<string>> GetAvailableAgentsAsync(string directory, CancellationToken cancellationToken)
+    {
+        using var response = await RequestAsync("/api/agent", cancellationToken, workingDirectory: directory);
+        if (response?.RootElement.TryGetProperty("data", out var agents) != true || agents.ValueKind != JsonValueKind.Array)
+            return new[] { "build", "plan" };
+        return agents.EnumerateArray().Select(agent => GetString(agent, "id"))
+            .Where(name => name.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    public async Task<ActiveSession> CreateOrchestrationSessionAsync(string directory, string role, string title,
+        string? parentSessionId, string? modelReference, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+            throw new ArgumentException("Repository directory does not exist.", nameof(directory));
+        if (!string.IsNullOrWhiteSpace(parentSessionId) && !IsValidSessionId(parentSessionId))
+            throw new ArgumentException("Invalid parent OpenCode session ID.", nameof(parentSessionId));
+
+        var payload = new Dictionary<string, object?> { ["title"] = title, ["agent"] = role };
+        if (string.IsNullOrWhiteSpace(parentSessionId))
+            payload["location"] = new { directory };
+        else
+            payload["parentID"] = parentSessionId;
+        if (TryParseModelReference(modelReference, out var model))
+            payload["model"] = model;
+
+        using var response = await RequestAsync("/api/session", cancellationToken, HttpMethod.Post,
+            JsonSerializer.Serialize(payload), directory);
+        if (response?.RootElement.TryGetProperty("data", out var data) != true ||
+            !data.TryGetProperty("id", out var idValue) || idValue.ValueKind != JsonValueKind.String ||
+            !IsValidSessionId(idValue.GetString() ?? string.Empty))
+            throw new InvalidOperationException("Could not create a linked OpenCode session.");
+
+        var id = idValue.GetString()!;
+        _logger.LogInformation("Created linked OpenCode session {SessionId} for role {Role} in repository {RepositoryDirectory}.",
+            id, role, directory);
+        return new ActiveSession(id, NormalizePath(directory) ?? directory, role, title);
+    }
+
+    public async Task WaitForSessionAsync(string sessionId, string directory, CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId))
+            throw new ArgumentException("Invalid OpenCode session ID.", nameof(sessionId));
+        using var response = await RequestAsync($"/api/experimental/session/{sessionId}/wait", cancellationToken,
+            HttpMethod.Post, workingDirectory: directory, timeoutSeconds: 300);
+        // The opencode API CLI prints no JSON for this successful HTTP 204 response.
+    }
+
+    public async Task SwitchModelAsync(string sessionId, string directory, string modelReference,
+        CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId) || !TryParseModelReference(modelReference, out var model))
+            throw new ArgumentException("A valid session ID and provider/model reference are required.");
+        using var response = await RequestAsync($"/api/session/{sessionId}/model", cancellationToken,
+            HttpMethod.Post, JsonSerializer.Serialize(new { model }), directory);
+        if (response is null)
+            throw new InvalidOperationException("Could not select the requested model for the OpenCode session.");
+    }
+
+    private static bool TryParseModelReference(string? reference, out object model)
+    {
+        model = new { };
+        if (string.IsNullOrWhiteSpace(reference)) return false;
+        var separator = reference.IndexOf('/');
+        if (separator < 1 || separator == reference.Length - 1) return false;
+        model = new { providerID = reference[..separator], id = reference[(separator + 1)..] };
+        return true;
+    }
+
+    private static double GetNumber(JsonElement element, string property) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) &&
+        value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number) ? number : 0;
+
+    private static int GetInt32(JsonElement element, string property) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) &&
+        value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number) ? number : 0;
 
     public async Task<ActiveSession> CreateSessionAsync(string directory, CancellationToken cancellationToken)
     {
@@ -696,8 +801,9 @@ public sealed class OpenCodeActivityService
     {
         if (!IsValidSessionId(sessionId))
             throw new ArgumentException("Invalid OpenCode session ID.", nameof(sessionId));
-        if (agent is not ("build" or "plan"))
-            throw new ArgumentException("Only the build and plan agents can be selected from Slack.", nameof(agent));
+        if (string.IsNullOrWhiteSpace(agent) || agent.Length > 128 ||
+            agent.Any(character => !char.IsAsciiLetterOrDigit(character) && character is not ('_' or '-' or '.')))
+            throw new ArgumentException("Invalid OpenCode agent ID.", nameof(agent));
         _logger.LogInformation("Switching OpenCode session {SessionId} to agent {Agent}.", sessionId, agent);
         using var response = await RequestAsync($"/api/session/{sessionId}/agent", cancellationToken,
             HttpMethod.Post, JsonSerializer.Serialize(new { agent }), directory);
@@ -718,7 +824,7 @@ public sealed class OpenCodeActivityService
     }
 
     private async Task<JsonDocument?> RequestAsync(string path, CancellationToken cancellationToken,
-        HttpMethod? method = null, string? body = null, string? workingDirectory = null)
+        HttpMethod? method = null, string? body = null, string? workingDirectory = null, int timeoutSeconds = 5)
     {
         using var repositoryScope = !string.IsNullOrWhiteSpace(workingDirectory)
             ? _logger.BeginScope(new Dictionary<string, object?> { ["RepositoryPath"] = workingDirectory })
@@ -727,7 +833,7 @@ public sealed class OpenCodeActivityService
             return null;
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
         string executable;
         try { executable = OpenCodeExecutableLocator.Find(); }
         catch (FileNotFoundException) { return null; }

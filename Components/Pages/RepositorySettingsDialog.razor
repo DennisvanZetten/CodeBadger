@@ -62,10 +62,29 @@
                 <legend>@L.T("Terminals")</legend>
                 <MudSwitch T="bool" @bind-Value="Repository.CodeBadgerTerminalEnabled" Color="Color.Primary"
                            Label="@L.T("Enable CodeBadger terminal")" />
+                @if (Repository.CodeBadgerTerminalEnabled)
+                {
+                    <MudSelect T="string" @bind-Value="Repository.CodeBadgerOrchestrationMode" Label="@L.T("AI team orchestration")"
+                               Variant="Variant.Outlined" Margin="Margin.Dense">
+                        <MudSelectItem T="string" Value="@CodeBadgerOrchestrationModes.SingleAgent">@L.T("One agent for everything")</MudSelectItem>
+                        <MudSelectItem T="string" Value="@CodeBadgerOrchestrationModes.PlanBuild">@L.T("Plan and build")</MudSelectItem>
+                        <MudSelectItem T="string" Value="@CodeBadgerOrchestrationModes.Full">@L.T("Full orchestration")</MudSelectItem>
+                    </MudSelect>
+                }
                 <MudText Typo="Typo.caption" Color="Color.Secondary">
                     @L.T("Show a CodeBadger terminal alongside the selected AI terminal. The AI terminal is collapsed by default.")
                 </MudText>
             </fieldset>
+
+            @if (Repository.CodeBadgerTerminalEnabled)
+            {
+                <fieldset class="repository-dialog-section">
+                    <legend>@L.T("AI team roles")</legend>
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                        @L.T("Role preferences and ordered model choices are configured in the AI provider settings. Unavailable models are skipped; remaining choices are considered in priority order.")
+                    </MudAlert>
+                </fieldset>
+            }
 
             <fieldset class="repository-dialog-section">
                 <legend>@L.T("Submodules")</legend>

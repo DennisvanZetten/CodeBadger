@@ -53,9 +53,12 @@ public sealed class LauncherSettingsService
             settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
             settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);
             settings.TaskBranchPrefix = NormalizeBranchPrefix(settings.TaskBranchPrefix);
+            settings.CodeBadgerRolePreferences ??= CodeBadgerRoles.CreateDefaults();
+            CodeBadgerRoles.Normalize(settings.CodeBadgerRolePreferences);
             foreach (var repository in settings.Repositories)
             {
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
+                repository.CodeBadgerOrchestrationMode = CodeBadgerOrchestrationModes.Normalize(repository.CodeBadgerOrchestrationMode);
                 repository.TicketSystem = TicketSystems.Normalize(repository.TicketSystem);
                 repository.TicketMcpServerName ??= string.Empty;
                 repository.TicketProjectKey ??= string.Empty;
@@ -99,6 +102,7 @@ public sealed class LauncherSettingsService
             foreach (var repository in settings.Repositories)
             {
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
+                repository.CodeBadgerOrchestrationMode = CodeBadgerOrchestrationModes.Normalize(repository.CodeBadgerOrchestrationMode);
                 repository.TicketSystem = TicketSystems.Normalize(repository.TicketSystem);
                 repository.TicketMcpServerName = repository.TicketMcpServerName?.Trim() ?? string.Empty;
                 repository.TicketProjectKey = repository.TicketProjectKey?.Trim() ?? string.Empty;
@@ -106,6 +110,8 @@ public sealed class LauncherSettingsService
                 repository.TaskStoryTemplate ??= RepositoryEntry.DefaultTaskStoryTemplate;
                 repository.AiCustomInstruction = repository.AiCustomInstruction?.Trim() ?? string.Empty;
             }
+            settings.CodeBadgerRolePreferences ??= CodeBadgerRoles.CreateDefaults();
+            CodeBadgerRoles.Normalize(settings.CodeBadgerRolePreferences);
             settings.NotificationChannel = settings.NotificationChannel is "Slack" or "Discord"
                 ? settings.NotificationChannel : "Slack";
             Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);

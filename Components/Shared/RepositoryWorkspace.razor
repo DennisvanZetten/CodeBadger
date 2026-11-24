@@ -1,10 +1,15 @@
 @implements IAsyncDisposable
+@using System.Text
 @using CodeBadger.Components.Pages
 @inject LocalizationService L
 @inject RepositoryDetachedWindowService DetachedWindows
 @inject AgentSessionNotificationService AgentSessionNotifications
 @inject Microsoft.Extensions.Logging.ILogger<RepositoryWorkspace> Logger
 @inject SandboxOpenCodeProviderService OpenCodeProviders
+@inject OpenCodeActivityService OpenCodeActivity
+@inject CodeBadgerTerminalStateService TerminalStateService
+@inject LauncherSettingsService SettingsService
+@inject ISnackbar Snackbar
 @inject IJSRuntime JS
 
 <MudPaper Outlined="true" Elevation="0" Class="repository-workspace" data-repository-id="@Repository.Id">
@@ -90,8 +95,23 @@
                                 <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add"
                                                aria-label="@L.T("New session")" OnClick="AddTerminalSession" />
                             </MudTooltip>
+                            @if (_terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is { } currentTerminalSession)
+                            {
+                                <MudStack Row="true" Spacing="1" Class="repository-codebadger-agent-links">
+                                    @foreach (var role in currentTerminalSession.State.AgentSessionIds.Keys
+                                        .Where(role => !role.StartsWith("ModelSelector:", StringComparison.Ordinal) &&
+                                            !role.StartsWith("Model:", StringComparison.Ordinal) && role != "SingleAgent")
+                                        .OrderBy(role => role, StringComparer.Ordinal)
+                                        .Concat(currentTerminalSession.IsBusy && !string.IsNullOrWhiteSpace(currentTerminalSession.State.ActiveAgentRole)
+                                            ? new[] { currentTerminalSession.State.ActiveAgentRole } : Array.Empty<string>())
+                                        .Distinct(StringComparer.Ordinal))
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@RoleDisplayName(role)</MudChip>
+                                    }
+                                </MudStack>
+                            }
                         </MudStack>
-                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("CodeBadger terminal")</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })</MudText>
                     </div>
                     <div class="repository-codebadger-session-content">
                         @foreach (var session in _terminalSessions)
@@ -110,34 +130,59 @@
                                     {
                                         @foreach (var message in session.Messages)
                                         {
-                                            <article class="repository-codebadger-message repository-codebadger-user-message">
-                                                <div class="repository-codebadger-message-author">@L.T("You")</div>
-                                                <div class="repository-codebadger-message-content">@message</div>
+                                            <article class="repository-codebadger-message @(message.Role == "user" ? "repository-codebadger-user-message" : "repository-codebadger-assistant-message")">
+                                                <div class="repository-codebadger-message-author">
+                                                    @if (message.Role == "assistant")
+                                                    {
+                                                        <img class="repository-agent-logo" src="@AgentLogoPath" alt="" />
+                                                        @L.T("Assistant")
+                                                        @if (!string.IsNullOrWhiteSpace(message.AgentRole))
+                                                        {
+                                                            <span>· @RoleDisplayName(message.AgentRole)</span>
+                                                        }
+                                                    }
+                                                    else
+                                                    {
+                                                        @L.T("You")
+                                                    }
+                                                    @if (!string.IsNullOrWhiteSpace(message.ModelReference))
+                                                    {
+                                                        <span>· @FormatModelReference(message.ModelReference)</span>
+                                                    }
+                                                </div>
+                                                <div class="repository-codebadger-message-content">@message.Text</div>
                                             </article>
                                         }
                                     }
-                                    <article class="repository-codebadger-message repository-codebadger-assistant-message">
-                                        <div class="repository-codebadger-message-author">
-                                            <img class="repository-agent-logo" src="@AgentLogoPath" alt="" />
-                                            @L.T("Assistant") · @SessionStatusLabel(session).Split('·', 2).Last().Trim()
-                                        </div>
-                                        <div class="repository-codebadger-message-content repository-codebadger-assistant-placeholder">
-                                            @L.T("Assistant responses will appear here when universal command routing is connected.")
-                                        </div>
-                                    </article>
+                                    @if (session.IsBusy)
+                                    {
+                                        <div class="repository-codebadger-working"><MudProgressCircular Indeterminate="true" Size="Size.Small" /> @L.T("Agents are working...")</div>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(session.Error))
+                                    {
+                                        <MudAlert Dense="true" Severity="Severity.Error" Variant="Variant.Outlined">@session.Error</MudAlert>
+                                    }
                                 </div>
                                 <div class="repository-codebadger-composer">
                                     <span class="repository-codebadger-prompt" aria-hidden="true">›</span>
                                     <input class="repository-codebadger-input" data-session-id="@session.Id" type="text" autocomplete="off" spellcheck="false"
                                            aria-label="@L.T("Universal command")" placeholder="@L.T("Type a universal command...")"
-                                           @bind="session.Input" @bind:event="oninput" @onkeydown="eventArgs => HandleInputKeyDown(session, eventArgs)" />
+                                           @bind="session.Input" @bind:event="oninput" @onkeydown="eventArgs => HandleInputKeyDownAsync(session, eventArgs)" />
                                 </div>
                                 <footer class="repository-codebadger-statusbar">
-                                    <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.SwapHoriz"
-                                               aria-label="@L.T("Switch between Plan and Build mode")"
-                                               OnClick="() => ToggleSessionMode(session)">
-                                        @SessionStatusLabel(session)
-                                    </MudButton>
+                                    @if (CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.Full)
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.SwapHoriz"
+                                                   aria-label="@L.T("Switch between Plan and Build mode")"
+                                                   OnClick="() => ToggleSessionMode(session)">
+                                            @L.T(session.Mode == TerminalMode.Plan ? "Plan" : "Build")
+                                        </MudButton>
+                                    }
+                                    else
+                                    {
+                                        <MudText Typo="Typo.button">@L.T("Full orchestration")</MudText>
+                                    }
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@SessionAgentModelLabel(session)</MudText>
                                 </footer>
                             </div>
                         }
@@ -225,6 +270,9 @@
     private IJSObjectReference? _splitterModule;
     private DotNetObjectReference<RepositoryWorkspace>? _selfReference;
     private readonly List<CodeBadgerTerminalSession> _terminalSessions = [];
+    private CodeBadgerTerminalState _terminalState = new();
+    private LauncherSettings _settings = new();
+    private IReadOnlyList<OpenCodeActivityService.AvailableModel> _availableOpenCodeModels = [];
     private Guid _selectedTerminalSessionId;
     private int _nextTerminalSessionNumber;
     private double _aiPanelHeight = 38;
@@ -264,14 +312,37 @@
             : char.ToUpperInvariant(word[0]) + word[1..]));
     }
 
+    private static string FormatModelReference(string modelReference) =>
+        $"{modelReference.Split('/').FirstOrDefault()} · {FormatModelName(modelReference.Split('/').Last())}";
+
     protected override async Task OnParametersSetAsync()
     {
         if (Repository.CodeBadgerTerminalEnabled && !_wasCodeBadgerTerminalEnabled)
             _aiPanelMode = AiPanelMode.Collapsed;
         _wasCodeBadgerTerminalEnabled = Repository.CodeBadgerTerminalEnabled;
 
-        if (Repository.CodeBadgerTerminalEnabled && _terminalSessions.Count == 0)
-            AddTerminalSession();
+        if (Repository.CodeBadgerTerminalEnabled && _terminalState.RepositoryId != Repository.Id)
+        {
+            _settings = await SettingsService.LoadAsync();
+            _terminalState = await TerminalStateService.LoadAsync(Repository.Id);
+            _terminalSessions.Clear();
+            foreach (var storedSession in _terminalState.Sessions)
+            {
+                var terminalSession = new CodeBadgerTerminalSession(storedSession)
+                {
+                    Mode = storedSession.Mode == "Build" ? TerminalMode.Build : TerminalMode.Plan
+                };
+                _terminalSessions.Add(terminalSession);
+                var digits = storedSession.Title.Where(char.IsAsciiDigit).ToArray();
+                if (int.TryParse(digits, out var number))
+                    _nextTerminalSessionNumber = Math.Max(_nextTerminalSessionNumber, number);
+            }
+            if (_terminalSessions.Count == 0)
+                await AddTerminalSessionAsync();
+            _selectedTerminalSessionId = _terminalState.SelectedSessionId != Guid.Empty &&
+                _terminalSessions.Any(session => session.Id == _terminalState.SelectedSessionId)
+                    ? _terminalState.SelectedSessionId : _terminalSessions[0].Id;
+        }
 
         var modelLookupKey = $"{Repository.Path}:{AgentTools.Normalize(Repository.AgentTool)}:{Repository.OpenCodeSandboxEnabled}:{Repository.OpenCodeSandboxModel}";
         if (!string.Equals(modelLookupKey, _agentModelLookupKey, StringComparison.Ordinal))
@@ -354,14 +425,30 @@
 
     private void ToggleAiPanelExpanded() => _aiPanelMode = _aiPanelMode == AiPanelMode.Expanded ? AiPanelMode.Split : AiPanelMode.Expanded;
 
-    private void AddTerminalSession()
+    private async Task AddTerminalSessionAsync()
     {
-        var session = new CodeBadgerTerminalSession(Guid.NewGuid(), L.T("Terminal session {0}", ++_nextTerminalSessionNumber));
+        var sessionState = new CodeBadgerTerminalSessionState
+        {
+            Id = Guid.NewGuid(),
+            Title = L.T("Terminal session {0}", ++_nextTerminalSessionNumber),
+            Mode = "Plan"
+        };
+        _terminalState.Sessions.Add(sessionState);
+        var session = new CodeBadgerTerminalSession(sessionState);
         _terminalSessions.Add(session);
         _selectedTerminalSessionId = session.Id;
+        _terminalState.SelectedSessionId = session.Id;
+        await PersistTerminalStateAsync();
     }
 
-    private void SelectTerminalSession(Guid id) => _selectedTerminalSessionId = id;
+    private Task AddTerminalSession() => AddTerminalSessionAsync();
+
+    private void SelectTerminalSession(Guid id)
+    {
+        _selectedTerminalSessionId = id;
+        _terminalState.SelectedSessionId = id;
+        _ = PersistTerminalStateAsync();
+    }
 
     private Task CloseTerminalSessionAsync(Guid id)
     {
@@ -371,20 +458,379 @@
         if (index < 0)
             return Task.CompletedTask;
         _terminalSessions.RemoveAt(index);
+        _terminalState.Sessions.RemoveAll(session => session.Id == id);
         if (_selectedTerminalSessionId == id)
             _selectedTerminalSessionId = _terminalSessions[Math.Min(index, _terminalSessions.Count - 1)].Id;
-        return Task.CompletedTask;
+        _terminalState.SelectedSessionId = _selectedTerminalSessionId;
+        return PersistTerminalStateAsync();
     }
 
-    private static void ToggleSessionMode(CodeBadgerTerminalSession session) =>
+    private async Task ToggleSessionMode(CodeBadgerTerminalSession session)
+    {
         session.Mode = session.Mode == TerminalMode.Plan ? TerminalMode.Build : TerminalMode.Plan;
+        session.State.Mode = session.Mode == TerminalMode.Plan ? "Plan" : "Build";
+        await PersistTerminalStateAsync();
+    }
 
-    private static void HandleInputKeyDown(CodeBadgerTerminalSession session, KeyboardEventArgs eventArgs)
+    private async Task HandleInputKeyDownAsync(CodeBadgerTerminalSession session, KeyboardEventArgs eventArgs)
     {
         if (eventArgs.Key != "Enter" || string.IsNullOrWhiteSpace(session.Input))
             return;
-        session.Messages.Add(session.Input.Trim());
+        var prompt = session.Input.Trim();
+        session.State.Mode = session.Mode == TerminalMode.Plan ? "Plan" : "Build";
+        session.State.Messages.Add(new CodeBadgerTerminalMessage { Role = "user", Text = prompt });
         session.Input = string.Empty;
+        await PersistTerminalStateAsync();
+        await InvokeAsync(StateHasChanged);
+        await RunPromptAsync(session, prompt);
+    }
+
+    private async Task RunPromptAsync(CodeBadgerTerminalSession session, string prompt)
+    {
+        session.IsBusy = true;
+        session.Error = null;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            if (AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode)
+                throw new NotSupportedException(L.T("The CodeBadger connector currently supports OpenCode. Other agent connectors will be added later."));
+
+            _availableOpenCodeModels = await OpenCodeActivity.GetAvailableModelsAsync(Repository.Path, CancellationToken.None);
+            if (_availableOpenCodeModels.Count == 0)
+                throw new InvalidOperationException(L.T("OpenCode did not return any available models for this repository."));
+            _settings = await SettingsService.LoadAsync();
+            var preferences = _settings.CodeBadgerRolePreferences;
+            switch (CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode))
+            {
+                case CodeBadgerOrchestrationModes.SingleAgent:
+                    await RunSingleAgentPromptAsync(session, prompt, preferences);
+                    break;
+                case CodeBadgerOrchestrationModes.PlanBuild:
+                    var requestedMode = session.Mode;
+                    var currentUserIndex = session.State.Messages.FindLastIndex(message => message.Role == "user");
+                    var priorPlan = currentUserIndex > 0
+                        ? session.State.Messages.Take(currentUserIndex)
+                            .LastOrDefault(message => message.Role == "assistant" && message.AgentRole == CodeBadgerRoles.Planner)?.Text
+                        : null;
+                    var plan = session.Mode == TerminalMode.Build && !string.IsNullOrWhiteSpace(priorPlan)
+                        ? priorPlan
+                        : await RunRoleAsync(session, CodeBadgerRoles.Planner,
+                            session.Mode == TerminalMode.Plan ? prompt : "First produce an actionable plan for this implementation request. Do not edit files yet.\n\n" + prompt,
+                            parentRole: null, preferences);
+                    if (requestedMode == TerminalMode.Plan)
+                        break;
+                    await RunRoleAsync(session, CodeBadgerRoles.Worker,
+                        $"Implement the following plan in this repository. Make the required code changes, run appropriate checks, and report the result.\n\nPlan:\n{plan}",
+                        CodeBadgerRoles.Planner, preferences);
+                    session.Mode = TerminalMode.Build;
+                    session.State.Mode = "Build";
+                    break;
+                case CodeBadgerOrchestrationModes.Full:
+                    await RunFullOrchestrationAsync(session, prompt, preferences);
+                    break;
+            }
+            if (CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.SingleAgent)
+            {
+                session.State.Mode = "Build";
+                session.Mode = TerminalMode.Build;
+            }
+        }
+        catch (Exception exception)
+        {
+            session.Error = exception.Message;
+            Snackbar.Add(L.T("The AI request failed: {0}", exception.Message), Severity.Error);
+        }
+        finally
+        {
+            session.IsBusy = false;
+            await PersistTerminalStateAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task RunSingleAgentPromptAsync(CodeBadgerTerminalSession session, string prompt,
+        IReadOnlyList<CodeBadgerRolePreference> preferences)
+    {
+        var availableAgents = await OpenCodeActivity.GetAvailableAgentsAsync(Repository.Path, CancellationToken.None);
+        var availableRoles = preferences.Where(preference => availableAgents.Contains(preference.AgentId, StringComparer.OrdinalIgnoreCase)).ToArray();
+        var role = session.Mode == TerminalMode.Plan ? CodeBadgerRoles.Planner : CodeBadgerRoles.Worker;
+        var preference = availableRoles.FirstOrDefault(item => item.Role == role)
+            ?? availableRoles.FirstOrDefault()
+            ?? new CodeBadgerRolePreference { Role = role, AgentId = availableAgents.FirstOrDefault() ?? "build" };
+        await RunRoleAsync(session, role, prompt, parentRole: null,
+            new[] { new CodeBadgerRolePreference
+            {
+                Role = role,
+                AgentId = preference.AgentId,
+                PreferredModels = preference.PreferredModels
+            } });
+    }
+
+    private async Task<string> RunRoleAsync(CodeBadgerTerminalSession session, string role, string prompt,
+        string? parentRole, IReadOnlyList<CodeBadgerRolePreference> preferences)
+    {
+        var preference = preferences.FirstOrDefault(item => item.Role == role)
+            ?? new CodeBadgerRolePreference { Role = role, AgentId = CodeBadgerRoles.DefaultAgent(role) };
+        var availableAgents = await OpenCodeActivity.GetAvailableAgentsAsync(Repository.Path, CancellationToken.None);
+        if (availableAgents.Count > 0 && !availableAgents.Contains(preference.AgentId, StringComparer.OrdinalIgnoreCase))
+            preference.AgentId = availableAgents.Contains(CodeBadgerRoles.DefaultAgent(role), StringComparer.OrdinalIgnoreCase)
+                ? CodeBadgerRoles.DefaultAgent(role) : availableAgents[0];
+        var model = await ResolveRoleModelAsync(session, preference, role, prompt, preferences);
+        var parentId = parentRole is not null && session.State.AgentSessionIds.TryGetValue(parentRole, out var existingParent)
+            ? existingParent : null;
+        var orchestrationMode = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode);
+        var sessionKey = orchestrationMode == CodeBadgerOrchestrationModes.SingleAgent
+            ? "SingleAgent" : role;
+        if (!session.State.AgentSessionIds.TryGetValue(sessionKey, out var agentSessionId))
+        {
+            var created = await OpenCodeActivity.CreateOrchestrationSessionAsync(Repository.Path, preference.AgentId,
+                $"{session.Title} · {RoleDisplayName(role)}", parentId, model, CancellationToken.None);
+            agentSessionId = created.Id;
+            session.State.AgentSessionIds[sessionKey] = agentSessionId;
+            await PersistTerminalStateAsync();
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(model))
+                await OpenCodeActivity.SwitchModelAsync(agentSessionId, Repository.Path, model, CancellationToken.None);
+            await OpenCodeActivity.SwitchAgentAsync(agentSessionId, Repository.Path, preference.AgentId, CancellationToken.None);
+        }
+        session.State.ActiveAgentRole = role;
+        var modelStateKey = orchestrationMode == CodeBadgerOrchestrationModes.SingleAgent
+            ? "Model:SingleAgent" : "Model:" + role;
+        if (!string.IsNullOrWhiteSpace(model))
+            session.State.AgentSessionIds[modelStateKey] = model;
+
+        var pendingMessage = new CodeBadgerTerminalMessage
+        {
+            Role = "assistant", AgentRole = role, ModelReference = model ?? string.Empty,
+            Text = L.T("Sending to {0}...", RoleDisplayName(role))
+        };
+        session.State.Messages.Add(pendingMessage);
+        await PersistTerminalStateAsync();
+        await InvokeAsync(StateHasChanged);
+        string response;
+        try
+        {
+            await OpenCodeActivity.SendPromptAsync(agentSessionId, Repository.Path, prompt, CancellationToken.None, preference.AgentId);
+            await OpenCodeActivity.WaitForSessionAsync(agentSessionId, Repository.Path, CancellationToken.None);
+            response = await OpenCodeActivity.GetLatestCompletedAnswerAsync(agentSessionId, Repository.Path, CancellationToken.None)
+                ?? L.T("The AI session completed without a text response.");
+        }
+        catch (Exception exception)
+        {
+            pendingMessage.Text = L.T("Agent request failed: {0}", exception.Message);
+            await PersistTerminalStateAsync();
+            await InvokeAsync(StateHasChanged);
+            throw;
+        }
+        pendingMessage.Text = response;
+        await PersistTerminalStateAsync();
+        await InvokeAsync(StateHasChanged);
+        return response;
+    }
+
+    private async Task RunFullOrchestrationAsync(CodeBadgerTerminalSession session, string prompt,
+        IReadOnlyList<CodeBadgerRolePreference> preferences)
+    {
+        var route = await RunRoleAsync(session, CodeBadgerRoles.Router,
+            "Classify this user request. Reply with concise JSON containing task_type, needs_research (boolean), needs_implementation (boolean), and summary. Do not perform the task yet.\n\nRequest:\n" + prompt,
+            null, preferences);
+        var assignments = await RunRoleAsync(session, CodeBadgerRoles.Orchestrator,
+            $"Act as manager. Break the task into subtasks for planning, research, implementation, and review. Return concise JSON listing subtasks and dependencies. Do not inspect or modify files; CodeBadger dispatches roles. Routing analysis: {route}\n\nRequest:\n{prompt}",
+            null, preferences);
+        var needsResearch = ReadBooleanField(route, "needs_research");
+        var needsImplementation = ReadBooleanField(route, "needs_implementation");
+        if (needsResearch)
+            await RunRoleAsync(session, CodeBadgerRoles.Rag,
+                "Research relevant repository context, files, and available knowledge sources. Report evidence and paths.\n\n" + prompt,
+                CodeBadgerRoles.Orchestrator, preferences);
+
+        var plan = await RunRoleAsync(session, CodeBadgerRoles.Planner,
+            $"Develop an actionable plan based on the manager's task breakdown. Manager breakdown: {assignments}\nRouting analysis: {route}\n\nRequest:\n{prompt}",
+            CodeBadgerRoles.Orchestrator, preferences);
+        var context = new StringBuilder().AppendLine("Request:").AppendLine(prompt).AppendLine().AppendLine("Plan:").AppendLine(plan);
+        if (session.State.Messages.LastOrDefault(message => message.AgentRole == CodeBadgerRoles.Rag) is { } research)
+            context.AppendLine().AppendLine("Research findings:").AppendLine(research.Text);
+        var build = needsImplementation
+            ? await RunRoleAsync(session, CodeBadgerRoles.Worker,
+                $"Execute this plan in the repository, update files, run relevant checks, then summarize changed files and test results.\n\n{context}",
+                CodeBadgerRoles.Orchestrator, preferences)
+            : L.T("No implementation was requested by the triage agent.");
+        var review = await RunRoleAsync(session, CodeBadgerRoles.Critic,
+            $"Review the plan and any implementation/test report. Reply only with JSON {{\"needs_changes\": boolean, \"findings\": [strings]}}. Do not edit files.\n\nRequest:\n{prompt}\n\nPlan:\n{plan}\n\nImplementation report:\n{build}",
+            CodeBadgerRoles.Orchestrator, preferences);
+        if (needsImplementation && ReadBooleanField(review, "needs_changes"))
+            await RunRoleAsync(session, CodeBadgerRoles.Worker,
+                "Address these review findings, run relevant checks, and report what changed:\n\n" + ReadStringField(review, "findings"),
+                CodeBadgerRoles.Orchestrator, preferences);
+        await RunRoleAsync(session, CodeBadgerRoles.Orchestrator,
+            "Provide a concise final user-facing summary based on the completed plan, implementation, and review.\n\nRequest:\n" + prompt,
+            null, preferences);
+    }
+
+    private static bool ReadBooleanField(string json, string field)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(json);
+            return document.RootElement.TryGetProperty(field, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.True;
+        }
+        catch (System.Text.Json.JsonException) { return false; }
+    }
+
+    private static string ReadStringField(string json, string field)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(json);
+            if (!document.RootElement.TryGetProperty(field, out var value)) return json;
+            return value.ValueKind == System.Text.Json.JsonValueKind.Array
+                ? string.Join("\n", value.EnumerateArray().Where(item => item.ValueKind == System.Text.Json.JsonValueKind.String)
+                    .Select(item => item.GetString()))
+                : value.ToString();
+        }
+        catch (System.Text.Json.JsonException) { return json; }
+    }
+
+    private string RoleDisplayName(string role) => role switch
+    {
+        CodeBadgerRoles.Orchestrator => L.T("Orchestrator / Manager"),
+        CodeBadgerRoles.Router => L.T("Router / Triage-agent"),
+        CodeBadgerRoles.Planner => L.T("Planner / Reasoning-agent"),
+        CodeBadgerRoles.Worker => L.T("Worker / Tool-use agent"),
+        CodeBadgerRoles.Rag => L.T("RAG / Knowledge-agent"),
+        CodeBadgerRoles.Critic => L.T("Critic / Evaluator-agent"),
+        _ => role
+    };
+
+    private async Task<string> ResolveRoleModelAsync(CodeBadgerTerminalSession session,
+        CodeBadgerRolePreference preference, string role, string taskDescription,
+        IReadOnlyList<CodeBadgerRolePreference> preferences)
+    {
+        var available = _availableOpenCodeModels.Where(model => model.Enabled && model.Status == "active").ToArray();
+        foreach (var preferred in preference.PreferredModels.Where(model => !string.IsNullOrWhiteSpace(model)))
+            if (available.Any(model => string.Equals(model.Reference, preferred, StringComparison.OrdinalIgnoreCase)))
+                return available.First(model => string.Equals(model.Reference, preferred, StringComparison.OrdinalIgnoreCase)).Reference;
+
+        if (available.Length > 0)
+        {
+            try
+            {
+                var routerPreference = preferences.FirstOrDefault(item => item.Role == CodeBadgerRoles.Router);
+                var routerAgent = routerPreference?.AgentId ?? "plan";
+                var routerModel = routerPreference?.PreferredModels.FirstOrDefault(value => available.Any(model =>
+                    string.Equals(model.Reference, value, StringComparison.OrdinalIgnoreCase)));
+                const string selectorRolePrefix = "ModelSelector:";
+                var selectorKey = selectorRolePrefix + role;
+                if (!session.State.AgentSessionIds.TryGetValue(selectorKey, out var selectorSessionId))
+                {
+                    var seedModel = !string.IsNullOrWhiteSpace(routerModel) ? routerModel :
+                        !string.IsNullOrWhiteSpace(_agentModelReference) && available.Any(model => model.Reference == _agentModelReference)
+                            ? _agentModelReference
+                            : available.OrderBy(model => EstimatedCost(model, CodeBadgerRoles.Router)).First().Reference;
+                    var agents = await OpenCodeActivity.GetAvailableAgentsAsync(Repository.Path, CancellationToken.None);
+                    if (agents.Count > 0 && !agents.Contains(routerAgent, StringComparer.OrdinalIgnoreCase))
+                        routerAgent = agents.Contains("plan", StringComparer.OrdinalIgnoreCase) ? "plan" : agents[0];
+                    var selector = await OpenCodeActivity.CreateOrchestrationSessionAsync(Repository.Path,
+                        routerAgent, $"{session.Title} · Model selector · {role}", null, seedModel, CancellationToken.None);
+                    selectorSessionId = selector.Id;
+                    session.State.AgentSessionIds[selectorKey] = selectorSessionId;
+                    await PersistTerminalStateAsync();
+                }
+
+                var candidates = available.Take(24).Select(model => new
+                {
+                    model.Reference, model.Name, model.Context, model.OutputLimit,
+                    model.InputCost, model.OutputCost, model.HasPublishedCost
+                });
+                var request = $"Choose the best model for the AI role '{RoleDisplayName(role)}' and the task below. Infer task suitability from model name/family and context/output limits. Treat price as a cost tradeoff, never assume an unpriced model is free. Prefer a priced model when quality looks comparable; choose an unpriced model only when its likely task quality is materially better. Choose exactly one Reference from the candidate JSON; if metadata cannot establish a quality advantage, choose the cheapest capable model with a published price. Return only JSON {{\"model\":\"provider/model\"}}.\nTask:\n{taskDescription}\nCandidates (prices USD per million tokens):\n{System.Text.Json.JsonSerializer.Serialize(candidates)}";
+                await OpenCodeActivity.SendPromptAsync(selectorSessionId, Repository.Path, request, CancellationToken.None,
+                    routerAgent is "build" or "plan" ? routerAgent : null);
+                await OpenCodeActivity.WaitForSessionAsync(selectorSessionId, Repository.Path, CancellationToken.None);
+                var result = await OpenCodeActivity.GetLatestCompletedAnswerAsync(selectorSessionId, Repository.Path, CancellationToken.None);
+                var selected = ReadStringField(result ?? string.Empty, "model");
+                var match = available.FirstOrDefault(model => string.Equals(model.Reference, selected, StringComparison.OrdinalIgnoreCase));
+                if (match is not null) return match.Reference;
+            }
+            catch (Exception exception)
+            {
+                Logger.LogWarning(exception, "AI model routing failed for role {Role}; use the capability/cost fallback.", role);
+            }
+        }
+
+        return ResolveRoleModelFallback(available, role);
+    }
+
+    private string ResolveRoleModelFallback(IReadOnlyList<OpenCodeActivityService.AvailableModel> available, string role)
+    {
+
+        var taskWords = role switch
+        {
+            CodeBadgerRoles.Orchestrator or CodeBadgerRoles.Router => new[] { "reason", "pro", "opus", "think" },
+            CodeBadgerRoles.Planner or CodeBadgerRoles.Critic => new[] { "reason", "opus", "pro", "think" },
+            CodeBadgerRoles.Worker => new[] { "code", "coder", "dev", "instruct" },
+            CodeBadgerRoles.Rag => new[] { "fast", "flash", "mini", "lite" },
+            _ => Array.Empty<string>()
+        };
+        return available
+            .OrderByDescending(model => TaskFit(model, taskWords))
+            .ThenBy(model => EstimatedCost(model, role))
+            .ThenByDescending(model => model.Context)
+            .FirstOrDefault()?.Reference
+            ?? _availableOpenCodeModels.FirstOrDefault(model => model.Enabled)?.Reference
+            ?? throw new InvalidOperationException(L.T("No enabled OpenCode model is available."));
+    }
+
+    private static int TaskFit(OpenCodeActivityService.AvailableModel model, IReadOnlyList<string> taskWords)
+    {
+        var name = model.Name + " " + model.Reference;
+        var affinity = taskWords.Count(word => name.Contains(word, StringComparison.OrdinalIgnoreCase));
+        if (model.OutputLimit >= 16000) affinity += 1;
+        if (model.Context >= 64000) affinity += 1;
+        return affinity;
+    }
+
+    private static double EstimatedCost(OpenCodeActivityService.AvailableModel model, string role)
+    {
+        // Rough screening estimate per million total tokens: give output more weight for reasoning roles.
+        if (!model.HasPublishedCost)
+            return double.PositiveInfinity;
+        var outputWeight = role is CodeBadgerRoles.Planner or CodeBadgerRoles.Orchestrator or CodeBadgerRoles.Critic ? 2.0 : 1.0;
+        return model.InputCost + model.OutputCost * outputWeight;
+    }
+
+    private string SessionAgentModelLabel(CodeBadgerTerminalSession session)
+    {
+        var role = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) switch
+        {
+            CodeBadgerOrchestrationModes.Full => session.IsBusy && !string.IsNullOrWhiteSpace(session.State.ActiveAgentRole)
+                ? session.State.ActiveAgentRole : CodeBadgerRoles.Orchestrator,
+            CodeBadgerOrchestrationModes.PlanBuild => session.Mode == TerminalMode.Plan ? CodeBadgerRoles.Planner : CodeBadgerRoles.Worker,
+            _ => session.Mode == TerminalMode.Plan ? CodeBadgerRoles.Planner : CodeBadgerRoles.Worker
+        };
+        var preference = _settings.CodeBadgerRolePreferences.FirstOrDefault(item => item.Role == role);
+        var selectedRole = role;
+        preference = _settings.CodeBadgerRolePreferences.FirstOrDefault(item => item.Role == selectedRole) ?? preference;
+        var modelStateKey = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) switch
+        {
+            CodeBadgerOrchestrationModes.SingleAgent => "Model:SingleAgent",
+            CodeBadgerOrchestrationModes.PlanBuild => "Model:" + (session.Mode == TerminalMode.Plan ? CodeBadgerRoles.Planner : CodeBadgerRoles.Worker),
+            _ => "Model:" + selectedRole
+        };
+        var storedModel = session.State.AgentSessionIds.TryGetValue(modelStateKey, out var activeModel)
+            ? activeModel : null;
+        var model = storedModel ?? preference?.PreferredModels.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? _agentModelReference;
+        var currentAgent = Repository.AgentTool == AgentTools.OpenCode ? "OpenCode" : AgentTools.GetDisplayName(Repository.AgentTool);
+        var agent = preference?.AgentId ?? "build";
+        return $"{currentAgent} · {RoleDisplayName(selectedRole)} · {agent}{(string.IsNullOrWhiteSpace(model) ? string.Empty : " · " + FormatModelName(model.Split('/').Last()))}";
+    }
+
+    private async Task PersistTerminalStateAsync()
+    {
+        if (_terminalState.RepositoryId == Guid.Empty) return;
+        try { await TerminalStateService.SaveAsync(_terminalState); }
+        catch (Exception exception) { Logger.LogWarning(exception, "Could not persist CodeBadger terminal state for repository {RepositoryId}.", Repository.Id); }
     }
 
     [JSInvokable]
@@ -412,13 +858,17 @@
     private enum AiPanelMode { Split, Collapsed, Expanded }
     private enum TerminalMode { Plan, Build }
 
-    private sealed class CodeBadgerTerminalSession(Guid id, string title)
+    private sealed class CodeBadgerTerminalSession
     {
-        public Guid Id { get; } = id;
-        public string Title { get; } = title;
+        public CodeBadgerTerminalSession(CodeBadgerTerminalSessionState state) => State = state;
+        public CodeBadgerTerminalSessionState State { get; }
+        public Guid Id => State.Id;
+        public string Title => State.Title;
         public string Input { get; set; } = string.Empty;
         public TerminalMode Mode { get; set; } = TerminalMode.Plan;
-        public List<string> Messages { get; } = [];
+        public List<CodeBadgerTerminalMessage> Messages => State.Messages;
+        public bool IsBusy { get; set; }
+        public string? Error { get; set; }
     }
 
 }

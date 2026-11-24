@@ -2359,11 +2359,38 @@ h1:focus {
     flex-direction: column;
 }
 
-.repository-codebadger-conversation {
+.repository-codebadger-conversation-shell {
+    position: relative;
     flex: 1 1 auto;
+    min-height: 0;
+}
+
+.repository-codebadger-conversation {
+    width: 100%;
+    height: 100%;
     min-height: 0;
     overflow: auto;
     padding: 1.25rem max(1rem, calc((100% - 54rem) / 2));
+}
+
+.repository-codebadger-scroll-latest {
+    position: absolute;
+    right: 1rem;
+    bottom: 0.85rem;
+    z-index: 2;
+    padding: 0.45rem 0.8rem;
+    border: 1px solid var(--mud-palette-primary);
+    border-radius: 999px;
+    background: var(--mud-palette-surface);
+    color: var(--mud-palette-primary);
+    box-shadow: var(--mud-elevation-4);
+    font: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.repository-codebadger-scroll-latest:hover {
+    background: color-mix(in srgb, var(--mud-palette-primary) 10%, var(--mud-palette-surface));
 }
 
 .repository-codebadger-empty-state {

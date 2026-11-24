@@ -89,6 +89,7 @@ public sealed class LocalizationService
         ["Loaded {0} OpenCode models and {1} agents."] = ["Loaded {0} OpenCode models and {1} agents.", "{0} OpenCode-modellen en {1} agents geladen.", "{0} OpenCode-Modelle und {1} Agenten geladen.", "{0} modèles OpenCode et {1} agents chargés."],
         ["Could not load OpenCode models: {0}"] = ["Could not load OpenCode models: {0}", "OpenCode-modellen laden mislukt: {0}", "OpenCode-Modelle konnten nicht geladen werden: {0}", "Impossible de charger les modèles OpenCode : {0}"],
         ["Agents are working..."] = ["Agents are working...", "Agents zijn aan het werk...", "Agenten arbeiten...", "Les agents travaillent..."],
+        ["Scroll to latest"] = ["Scroll to latest", "Scroll naar laatste", "Zum neuesten Eintrag", "Aller au plus récent"],
         ["Stop agent"] = ["Stop agent", "Agent afbreken", "Agent stoppen", "Arrêter l’agent"],
         ["The agent request was stopped."] = ["The agent request was stopped.", "De opdracht van de agent is afgebroken.", "Die Agentenanfrage wurde abgebrochen.", "La demande de l’agent a été arrêtée."],
         ["No implementation was requested by the triage agent."] = ["No implementation was requested by the triage agent.", "De triage-agent heeft geen implementatie aangevraagd.", "Der Triage-Agent hat keine Umsetzung angefordert.", "L’agent de triage n’a pas demandé d’implémentation."],

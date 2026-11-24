@@ -117,63 +117,68 @@
                         @foreach (var session in _terminalSessions)
                         {
                             <div @key="session.Id" class="repository-codebadger-terminal-view" style="display:@(session.Id == _selectedTerminalSessionId ? "flex" : "none")">
-                                <div class="repository-codebadger-conversation" aria-live="polite">
-                                    @if (session.Messages.Count == 0)
-                                    {
-                                        <div class="repository-codebadger-empty-state">
-                                            <MudText Typo="Typo.body2" Color="Color.Secondary">
-                                                @L.T("Your submitted commands will appear here, followed by the assistant response.")
-                                            </MudText>
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        @foreach (var message in session.Messages)
+                                <div class="repository-codebadger-conversation-shell">
+                                    <div class="repository-codebadger-conversation" aria-live="polite">
+                                        @if (session.Messages.Count == 0)
                                         {
-                                            <article class="repository-codebadger-message @(message.Role == "user" ? "repository-codebadger-user-message" : "repository-codebadger-assistant-message")">
-                                                <div class="repository-codebadger-message-author">
-                                                    @if (message.Role == "assistant")
-                                                    {
-                                                        <img class="repository-agent-logo" src="@AgentLogoPath" alt="" />
-                                                        @L.T("Assistant")
-                                                        @if (!string.IsNullOrWhiteSpace(message.AgentRole))
-                                                        {
-                                                            <span>· @RoleDisplayName(message.AgentRole)</span>
-                                                        }
-                                                    }
-                                                    else
-                                                    {
-                                                        @L.T("You")
-                                                    }
-                                                    @if (!string.IsNullOrWhiteSpace(message.ModelReference))
-                                                    {
-                                                        <span>· @FormatModelReference(message.ModelReference)</span>
-                                                    }
-                                                </div>
-                                                <div class="repository-codebadger-message-content">
-                                                    @if (message.Role == "assistant")
-                                                    {
-                                                        <MarkdownContent Content="@message.Text" Compact="true" />
-                                                    }
-                                                    else
-                                                    {
-                                                        @message.Text
-                                                    }
-                                                </div>
-                                            </article>
+                                            <div class="repository-codebadger-empty-state">
+                                                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                                    @L.T("Your submitted commands will appear here, followed by the assistant response.")
+                                                </MudText>
+                                            </div>
                                         }
-                                    }
-                                    @if (session.IsBusy)
-                                    {
-                                        <div class="repository-codebadger-working">
-                                            <span>@L.T("Agents are working...")</span>
-                                            <img class="repository-codebadger-working-logo" src="codebadger.svg" alt="" aria-hidden="true" />
-                                        </div>
-                                    }
-                                    @if (!string.IsNullOrWhiteSpace(session.Error))
-                                    {
-                                        <MudAlert Dense="true" Severity="Severity.Error" Variant="Variant.Outlined">@session.Error</MudAlert>
-                                    }
+                                        else
+                                        {
+                                            @foreach (var message in session.Messages)
+                                            {
+                                                <article class="repository-codebadger-message @(message.Role == "user" ? "repository-codebadger-user-message" : "repository-codebadger-assistant-message")">
+                                                    <div class="repository-codebadger-message-author">
+                                                        @if (message.Role == "assistant")
+                                                        {
+                                                            <img class="repository-agent-logo" src="@AgentLogoPath" alt="" />
+                                                            @L.T("Assistant")
+                                                            @if (!string.IsNullOrWhiteSpace(message.AgentRole))
+                                                            {
+                                                                <span>· @RoleDisplayName(message.AgentRole)</span>
+                                                            }
+                                                        }
+                                                        else
+                                                        {
+                                                            @L.T("You")
+                                                        }
+                                                        @if (!string.IsNullOrWhiteSpace(message.ModelReference))
+                                                        {
+                                                            <span>· @FormatModelReference(message.ModelReference)</span>
+                                                        }
+                                                    </div>
+                                                    <div class="repository-codebadger-message-content">
+                                                        @if (message.Role == "assistant")
+                                                        {
+                                                            <MarkdownContent Content="@message.Text" Compact="true" />
+                                                        }
+                                                        else
+                                                        {
+                                                            @message.Text
+                                                        }
+                                                    </div>
+                                                </article>
+                                            }
+                                        }
+                                        @if (session.IsBusy)
+                                        {
+                                            <div class="repository-codebadger-working">
+                                                <span>@L.T("Agents are working...")</span>
+                                                <img class="repository-codebadger-working-logo" src="codebadger.svg" alt="" aria-hidden="true" />
+                                            </div>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(session.Error))
+                                        {
+                                            <MudAlert Dense="true" Severity="Severity.Error" Variant="Variant.Outlined">@session.Error</MudAlert>
+                                        }
+                                    </div>
+                                    <button type="button" class="repository-codebadger-scroll-latest" hidden>
+                                        @L.T("Scroll to latest")
+                                    </button>
                                 </div>
                                 <div class="repository-codebadger-composer">
                                     <span class="repository-codebadger-prompt" aria-hidden="true">›</span>
@@ -287,6 +292,7 @@
     private string _agentCommand = "opencode";
     private ElementReference _terminalStack;
     private IJSObjectReference? _splitterModule;
+    private IJSObjectReference? _conversationScrollModule;
     private DotNetObjectReference<RepositoryWorkspace>? _selfReference;
     private readonly List<CodeBadgerTerminalSession> _terminalSessions = [];
     private CodeBadgerTerminalState _terminalState = new();
@@ -297,6 +303,7 @@
     private double _aiPanelHeight = 38;
     private AiPanelMode _aiPanelMode = AiPanelMode.Collapsed;
     private bool _splitterAttached;
+    private bool _conversationScrollAttached;
     private bool _wasCodeBadgerTerminalEnabled;
     private string? _agentModelReference;
     private string _agentModelLookupKey = string.Empty;
@@ -421,22 +428,42 @@
                 catch (JSDisconnectedException) { }
                 _splitterAttached = false;
             }
+            if (_conversationScrollAttached && _conversationScrollModule is not null)
+            {
+                try { await _conversationScrollModule.InvokeVoidAsync("detach", _terminalStack); }
+                catch (JSDisconnectedException) { }
+                _conversationScrollAttached = false;
+            }
             return;
         }
 
-        if (_splitterAttached)
-            return;
-
-        try
+        if (!_splitterAttached)
         {
-            _splitterModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./repository-terminal-splitter.js");
-            _selfReference ??= DotNetObjectReference.Create(this);
-            await _splitterModule.InvokeVoidAsync("attach", _terminalStack, _selfReference);
-            _splitterAttached = true;
+            try
+            {
+                _splitterModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./repository-terminal-splitter.js");
+                _selfReference ??= DotNetObjectReference.Create(this);
+                await _splitterModule.InvokeVoidAsync("attach", _terminalStack, _selfReference);
+                _splitterAttached = true;
+            }
+            catch (JSException exception)
+            {
+                Logger.LogWarning(exception, "Repository terminal splitter could not be initialized.");
+            }
         }
-        catch (JSException exception)
+
+        if (!_conversationScrollAttached)
         {
-            Logger.LogWarning(exception, "Repository terminal splitter could not be initialized.");
+            try
+            {
+                _conversationScrollModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./repository-codebadger-scroll.js");
+                await _conversationScrollModule.InvokeVoidAsync("attach", _terminalStack);
+                _conversationScrollAttached = true;
+            }
+            catch (JSException exception)
+            {
+                Logger.LogWarning(exception, "CodeBadger conversation scroll behavior could not be initialized.");
+            }
         }
     }
 
@@ -958,6 +985,12 @@
                 await _splitterModule.DisposeAsync();
             }
             catch (JSDisconnectedException) { }
+        }
+        if (_conversationScrollModule is not null)
+        {
+            try { await _conversationScrollModule.InvokeVoidAsync("detach", _terminalStack); }
+            catch (JSDisconnectedException) { }
+            await _conversationScrollModule.DisposeAsync();
         }
         _selfReference?.Dispose();
     }

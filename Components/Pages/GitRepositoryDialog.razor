@@ -327,7 +327,7 @@
                             </MudStack>
                         </MudPaper>
 
-                        <MudPaper Class="pa-3 git-dialog-panel git-maintenance-destructive" Outlined="true" Elevation="0">
+                        <MudPaper Class="pa-3 git-dialog-panel git-maintenance-destructive git-remote-maintenance-panel" Outlined="true" Elevation="0">
                             <MudStack Spacing="2">
                                 <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Warning">
                                     <MudText Typo="Typo.subtitle2">@L.T("Remote branch cleanup deletes branches from origin")</MudText>
@@ -379,7 +379,7 @@
                                         <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Showing {0} of {1}", FilteredRemoteMaintenanceBranches.Count, _remoteMaintenanceSnapshot.OldMergedBranches.Count)</MudText>
                                     </MudStack>
                                     <MudCheckBox T="bool" Value="@AreAllRemoteMaintenanceBranchesSelected" ValueChanged="SetAllRemoteMaintenanceBranchesSelected"
-                                                 Label="@L.T("Select all branches")" Disabled="@(_isOperating || _isLoadingRemoteMaintenance || FilteredRemoteMaintenanceBranches.Count == 0)" Size="Size.Small" />
+                                                 Label="@L.T("Select all branches")" Disabled="@(_isOperating || _isLoadingRemoteMaintenance || FilteredRemoteMaintenanceBranches.Count == 0)" Size="Size.Small" Class="git-remote-maintenance-select-all" />
                                     <MudList T="string" Dense="true">
                                         @foreach (var branch in FilteredRemoteMaintenanceBranches)
                                         {
@@ -388,7 +388,7 @@
                                                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                                                          <MudCheckBox T="bool" Value="@_selectedRemoteMaintenanceBranches.Contains(branch.Name)"
                                                                       ValueChanged="@(selected => SetRemoteMaintenanceBranchSelected(branch.Name, selected))"
-                                                                      Disabled="@(_isOperating || _isLoadingRemoteMaintenance)" Size="Size.Small" />
+                                                                      Disabled="@(_isOperating || _isLoadingRemoteMaintenance)" Size="Size.Small" Class="git-remote-maintenance-branch-checkbox" />
                                                         <MudStack Spacing="0">
                                                             <MudText>@branch.Name <MudText Inline="true" Typo="Typo.caption" Color="Color.Secondary">@L.T("Inactive for {0} days", branch.AgeDays)</MudText></MudText>
                                                             <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Last commit author: {0}", string.IsNullOrWhiteSpace(branch.Author) ? L.T("Unknown") : branch.Author)</MudText>

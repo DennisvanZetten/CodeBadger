@@ -241,6 +241,72 @@ public sealed class OpenCodeActivityService
         return null;
     }
 
+    public async Task<string?> GetCompletedAnswerForPromptAsync(string sessionId, string directory,
+        string promptMessageId, CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId) || !IsValidMessageId(promptMessageId))
+            return null;
+        using var response = await RequestAsync($"/api/session/{sessionId}/message?order=desc&limit=100", cancellationToken,
+            workingDirectory: directory);
+        if (response?.RootElement.TryGetProperty("data", out var messages) != true || messages.ValueKind != JsonValueKind.Array)
+            return null;
+
+        var answers = new List<(long Created, string Text)>();
+        foreach (var message in messages.EnumerateArray())
+        {
+            var info = message.TryGetProperty("info", out var infoValue) && infoValue.ValueKind == JsonValueKind.Object
+                ? infoValue : message.TryGetProperty("message", out var messageValue) && messageValue.ValueKind == JsonValueKind.Object
+                    ? messageValue : message;
+            if (!TryGetPropertyIgnoreCase(info, "role", out var role) || role.ValueKind != JsonValueKind.String ||
+                role.GetString() != "assistant" || !TryGetPropertyIgnoreCase(info, "parentID", out var parentId) ||
+                parentId.ValueKind != JsonValueKind.String || parentId.GetString() != promptMessageId)
+                continue;
+
+            if (TryGetPropertyIgnoreCase(info, "error", out var error) && error.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
+                continue;
+            var finish = GetStringIgnoreCase(info, "finish");
+            if (!string.IsNullOrEmpty(finish) && finish is not ("stop" or "length"))
+                continue;
+            if (TryGetPropertyIgnoreCase(info, "time", out var time) && time.ValueKind == JsonValueKind.Object &&
+                (!TryGetPropertyIgnoreCase(time, "completed", out var completed) ||
+                 completed.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined))
+                continue;
+
+            var parts = message.TryGetProperty("parts", out var partsValue) && partsValue.ValueKind == JsonValueKind.Array
+                ? partsValue
+                : TryGetPropertyIgnoreCase(info, "content", out var content) && content.ValueKind == JsonValueKind.Array
+                    ? content : default;
+            if (parts.ValueKind != JsonValueKind.Array)
+                continue;
+            var text = string.Join("\n", parts.EnumerateArray()
+                .Where(part => TryGetPropertyIgnoreCase(part, "type", out var type) && type.ValueKind == JsonValueKind.String &&
+                    type.GetString() == "text")
+                .Select(part => TryGetPropertyIgnoreCase(part, "text", out var value) && value.ValueKind == JsonValueKind.String
+                    ? value.GetString() : null)
+                .Where(value => !string.IsNullOrWhiteSpace(value))).Trim();
+            if (text.Length == 0)
+                continue;
+
+            var created = TryGetPropertyIgnoreCase(info, "time", out time) && time.ValueKind == JsonValueKind.Object &&
+                TryGetPropertyIgnoreCase(time, "created", out var createdValue) && createdValue.TryGetInt64(out var timestamp)
+                ? timestamp : 0;
+            answers.Add((created, text));
+        }
+
+        if (answers.Count == 0)
+            return null;
+        var combined = string.Join("\n\n", answers.OrderBy(answer => answer.Created).Select(answer => answer.Text));
+        return combined.Length > 20000 ? combined[..20000] + "\n…" : combined;
+    }
+
+    private static bool IsValidMessageId(string messageId) =>
+        messageId.StartsWith("msg_", StringComparison.Ordinal) &&
+        messageId.All(character => char.IsAsciiLetterOrDigit(character) || character == '_');
+
+    private static string GetStringIgnoreCase(JsonElement element, string property) =>
+        TryGetPropertyIgnoreCase(element, property, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? string.Empty : string.Empty;
+
     public async Task<IReadOnlyList<SessionTextMessage>> GetRecentUserMessagesAsync(string sessionId, string directory,
         CancellationToken cancellationToken)
     {
@@ -655,7 +721,7 @@ public sealed class OpenCodeActivityService
         response.RootElement.TryGetProperty("data", out var items) &&
         items.ValueKind == JsonValueKind.Array && items.GetArrayLength() > 0;
 
-    public async Task SendPromptAsync(string sessionId, string directory, string text, CancellationToken cancellationToken,
+    public async Task<string?> SendPromptAsync(string sessionId, string directory, string text, CancellationToken cancellationToken,
         string? agent = null, IReadOnlyList<string>? images = null)
     {
         if (!IsValidSessionId(sessionId))
@@ -695,6 +761,15 @@ public sealed class OpenCodeActivityService
                 HttpMethod.Post, payload, directory);
             if (response is null)
                 throw new InvalidOperationException("Could not submit the reply to the OpenCode session.");
+            var promptMessageId = response.RootElement.TryGetProperty("data", out var data) &&
+                data.ValueKind == JsonValueKind.Object && data.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String
+                    ? id.GetString()
+                    : response.RootElement.TryGetProperty("data", out data) && data.ValueKind == JsonValueKind.Object &&
+                      data.TryGetProperty("info", out var info) && info.ValueKind == JsonValueKind.Object &&
+                      info.TryGetProperty("id", out id) && id.ValueKind == JsonValueKind.String
+                        ? id.GetString() : null;
+            if (!string.IsNullOrWhiteSpace(promptMessageId) && !IsValidMessageId(promptMessageId))
+                promptMessageId = null;
             if (attachmentPaths.Count > 0)
             {
                 var pending = _promptAttachmentFiles.GetOrAdd(sessionId, _ => new ConcurrentBag<string>());
@@ -703,6 +778,7 @@ public sealed class OpenCodeActivityService
             }
             _logger.LogInformation("Prompt submitted to OpenCode session {SessionId}. Prompt content: {PromptContent}",
                 sessionId, ExtractPromptExcerpt(payload));
+            return promptMessageId;
         }
         catch
         {
@@ -810,6 +886,8 @@ public sealed class OpenCodeActivityService
             using var response = await RequestAsync($"/api/experimental/session/{sessionId}/wait", cancellationToken,
                 HttpMethod.Post, workingDirectory: directory, timeoutSeconds: 300);
             cancellationToken.ThrowIfCancellationRequested();
+            if (response is null)
+                throw new InvalidOperationException("OpenCode could not confirm that the agent session has finished.");
             // The opencode API CLI prints no JSON for this successful HTTP 204 response.
         }
         finally

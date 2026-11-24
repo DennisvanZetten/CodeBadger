@@ -760,10 +760,13 @@
         string response;
         try
         {
-            await OpenCodeActivity.SendPromptAsync(agentSessionId, Repository.Path, prompt, cancellationToken, preferenceAgent, images);
+            var promptMessageId = await OpenCodeActivity.SendPromptAsync(agentSessionId, Repository.Path, prompt,
+                cancellationToken, preferenceAgent, images);
+            if (string.IsNullOrWhiteSpace(promptMessageId))
+                throw new InvalidOperationException(L.T("OpenCode accepted the request but did not return a message ID, so its reply cannot be matched safely."));
             await OpenCodeActivity.WaitForSessionAsync(agentSessionId, Repository.Path, cancellationToken);
-            response = await OpenCodeActivity.GetLatestCompletedAnswerAsync(agentSessionId, Repository.Path, cancellationToken)
-                ?? L.T("The AI session completed without a text response.");
+            response = await WaitForPromptAnswerAsync(agentSessionId, promptMessageId, cancellationToken)
+                ?? throw new InvalidOperationException(L.T("The AI session finished without a completed text response for this request."));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -783,6 +786,24 @@
         await PersistTerminalStateAsync();
         await InvokeAsync(StateHasChanged);
         return response;
+    }
+
+    private async Task<string?> WaitForPromptAnswerAsync(string sessionId, string promptMessageId,
+        CancellationToken cancellationToken)
+    {
+        // Some OpenCode versions return from wait just before the completed message is
+        // visible through message.list. Only accept a reply correlated to this prompt.
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var answer = await OpenCodeActivity.GetCompletedAnswerForPromptAsync(
+                sessionId, Repository.Path, promptMessageId, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(answer))
+                return answer;
+            if (attempt < 9)
+                await Task.Delay(TimeSpan.FromMilliseconds(300), cancellationToken);
+        }
+        return null;
     }
 
     private async Task<string> ResolvePreferenceAgentAsync(CodeBadgerRolePreference preference, string role,
@@ -947,10 +968,12 @@
                     model.InputCost, model.OutputCost, model.HasPublishedCost
                 });
                 var request = $"Choose the best model for the AI role '{RoleDisplayName(role)}' and the task below. Infer task suitability from model name/family and context/output limits. Treat price as a cost tradeoff, never assume an unpriced model is free. Prefer a priced model when quality looks comparable; choose an unpriced model only when its likely task quality is materially better. Choose exactly one Reference from the candidate JSON; if metadata cannot establish a quality advantage, choose the cheapest capable model with a published price. Return only JSON {{\"model\":\"provider/model\"}}.\nTask:\n{taskDescription}\nCandidates (prices USD per million tokens):\n{System.Text.Json.JsonSerializer.Serialize(candidates)}";
-                await OpenCodeActivity.SendPromptAsync(selectorSessionId, Repository.Path, request, cancellationToken,
-                    routerAgent);
+                var selectorPromptId = await OpenCodeActivity.SendPromptAsync(selectorSessionId, Repository.Path,
+                    request, cancellationToken, routerAgent);
+                if (string.IsNullOrWhiteSpace(selectorPromptId))
+                    throw new InvalidOperationException("OpenCode did not return a message ID for model selection.");
                 await OpenCodeActivity.WaitForSessionAsync(selectorSessionId, Repository.Path, cancellationToken);
-                var result = await OpenCodeActivity.GetLatestCompletedAnswerAsync(selectorSessionId, Repository.Path, cancellationToken);
+                var result = await WaitForPromptAnswerAsync(selectorSessionId, selectorPromptId, cancellationToken);
                 var selected = ReadStringField(result ?? string.Empty, "model");
                 var match = available.FirstOrDefault(model => string.Equals(model.Reference, selected, StringComparison.OrdinalIgnoreCase));
                 if (match is not null) return match.Reference;

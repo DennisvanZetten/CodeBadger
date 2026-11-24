@@ -802,9 +802,7 @@ public sealed class OpenCodeActivityService
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            if (path.Equals("/api/session/active", StringComparison.Ordinal))
-                _activityEndpointFailed = true;
-            _logger.LogWarning("Managed OpenCode API request {ApiPath} timed out.", path);
+            _logger.LogWarning("Managed OpenCode API request {ApiPath} timed out; the next activity poll will retry.", path);
             return null;
         }
         catch (System.Net.Http.HttpRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound &&

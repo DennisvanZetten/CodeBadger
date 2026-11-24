@@ -7,7 +7,6 @@
 @inject ISnackbar Snackbar
 @inject StartupDetectionService StartupDetection
 @inject OpenCodeActivityService OpenCodeActivity
-@inject UpdateService UpdateService
 @inject AgentUpdateService AgentUpdates
 @inject WindowTitleBarService WindowTitleBar
 @inject RepositoryDetachedWindowService DetachedWindows
@@ -211,10 +210,6 @@ else
                 await InitializeDetachedWindowAsync();
             else
                 await RunStartupDetectionAsync();
-#if WINDOWS
-            if (!IsDetachedRepositoryRoute())
-                _ = RunUpdateChecksAsync();
-#endif
         }
 
         if (_appliedLanguage != L.CurrentLanguage)
@@ -234,19 +229,6 @@ else
             {
                 // Theme selection must never prevent the main page from rendering.
             }
-        }
-    }
-
-    private async Task CheckForAgentUpdatesAsync()
-    {
-        try
-        {
-            await AgentUpdates.CheckForUpdatesAsync();
-            WindowTitleBar.SetAgentUpdateAvailable(AgentUpdates.HasUpdates);
-        }
-        catch (Exception exception)
-        {
-            Logger.LogDebug(exception, "Could not check coding agent updates.");
         }
     }
 
@@ -294,12 +276,6 @@ else
             StartupDetection.RefreshOpenCodeStartupWarning("The OpenCode activity check failed again; activity polling remains disabled.");
         }
         await InvokeAsync(StateHasChanged);
-    }
-
-    private async Task RunUpdateChecksAsync()
-    {
-        await CheckForAgentUpdatesAsync();
-        await CheckForUpdatesAsync();
     }
 
     private async Task InitializeDetachedWindowAsync()
@@ -365,52 +341,6 @@ else
             _startupWarning = StartupDetection.OpenCodeHealth.Warning;
             WindowTitleBar.SetSettingsState(true, L.T("Open settings"));
             await InvokeAsync(StateHasChanged);
-        }
-    }
-
-    private async Task CheckForUpdatesAsync()
-    {
-        try
-        {
-            var update = await UpdateService.CheckForUpdateAsync();
-            if (update is null)
-                return;
-
-            var settings = await SettingsService.LoadAsync();
-            if (string.Equals(settings.DismissedUpdateVersion, update.Version, StringComparison.OrdinalIgnoreCase))
-                return;
-
-            await InvokeAsync(async () =>
-            {
-                var confirmed = await DialogService.ShowMessageBoxAsync(
-                    L.T("Update available"),
-                    L.T("CodeBadger {0} is available. The current app will close and the update installer will start. Continue?", update.Version) +
-                    "\n" + L.T("With the free self-signed certificate, Windows requires trusting the publisher certificate once on each device."),
-                    yesText: L.T("Download and install"),
-                    cancelText: L.T("Not now"),
-                    options: new DialogOptions { CloseOnEscapeKey = true });
-
-                if (confirmed != true)
-                {
-                    settings.DismissedUpdateVersion = update.Version;
-                    await SettingsService.SaveAsync(settings);
-                    return;
-                }
-
-                try
-                {
-                    await UpdateService.DownloadAndStartInstallAsync(update);
-                    Application.Current?.Quit();
-                }
-                catch (Exception ex)
-                {
-                    Snackbar.Add(L.T("Update failed: {0}", ex.Message), Severity.Error);
-                }
-            });
-        }
-        catch
-        {
-            // Update checks are best-effort and must not block application startup.
         }
     }
 

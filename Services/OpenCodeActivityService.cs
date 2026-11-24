@@ -15,7 +15,8 @@ public sealed class OpenCodeActivityService
 
     public OpenCodeActivityService(ILogger<OpenCodeActivityService> logger) => _logger = logger;
 
-    public sealed record ActiveSession(string Id, string Directory, string Agent, string Title);
+    public sealed record ActiveSession(string Id, string Directory, string Agent, string Title,
+        string RepositoryName = "");
     public sealed record ShareSession(string Id, string Title, bool IsTerminalSession = false,
         bool IsActive = false, long? LastViewedAt = null);
     public sealed record SessionTextMessage(string Id, string Role, string Text);

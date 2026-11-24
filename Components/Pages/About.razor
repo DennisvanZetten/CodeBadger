@@ -83,7 +83,11 @@
                 {
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L.T("Release information could not be loaded: {0}", _releaseError)</MudAlert>
                 }
-                else if (_release is null || string.IsNullOrWhiteSpace(_release.Notes))
+                else if (_release is null)
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("Select Check for updates to load release information.")</MudText>
+                }
+                else if (string.IsNullOrWhiteSpace(_release.Notes))
                 {
                     <MudText Typo="Typo.body2" Color="Color.Secondary">@L.T("No release notes are available.")</MudText>
                 }
@@ -107,7 +111,7 @@
     private readonly List<Integration> _integrations = [];
     private AppRelease? _release;
     private string _releaseError = string.Empty;
-    private bool _isLoadingRelease = true;
+    private bool _isLoadingRelease;
     private bool _isCheckingUpdate;
     private string _updateStatus = string.Empty;
     private string _updateVersion = string.Empty;
@@ -120,7 +124,6 @@
         L.LanguageChanged += HandleLanguageChanged;
         _appVersion = GetAppVersion();
         await LoadIntegrationsAsync();
-        await LoadReleaseAsync();
     }
 
     private async Task LoadIntegrationsAsync()
@@ -167,33 +170,17 @@
             notificationActive ? "Active" : "Inactive", notificationActive));
     }
 
-    private async Task LoadReleaseAsync()
+    private async Task CheckForUpdatesAsync()
     {
+        _isCheckingUpdate = true;
         _isLoadingRelease = true;
+        _updateStatus = string.Empty;
+        _updateVersion = string.Empty;
         _releaseError = string.Empty;
         try
         {
             _release = await Updates.GetLatestReleaseAsync();
-        }
-        catch (Exception exception)
-        {
-            _releaseError = exception.Message;
-        }
-        finally
-        {
-            _isLoadingRelease = false;
-        }
-    }
-
-    private async Task CheckForUpdatesAsync()
-    {
-        _isCheckingUpdate = true;
-        _updateStatus = string.Empty;
-        _updateVersion = string.Empty;
-        try
-        {
-            _release = await Updates.GetLatestReleaseAsync();
-            var update = await Updates.CheckForUpdateAsync();
+            var update = _release?.Update;
             if (update is not null)
             {
                 _updateStatus = "Update {0} is available.";
@@ -215,12 +202,14 @@
         }
         catch (Exception exception)
         {
+            _releaseError = exception.Message;
             _updateStatus = "Update check failed: {0}";
             _updateVersion = exception.Message;
             _updateSeverity = Severity.Error;
         }
         finally
         {
+            _isLoadingRelease = false;
             _isCheckingUpdate = false;
         }
     }

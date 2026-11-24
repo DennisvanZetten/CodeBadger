@@ -8,7 +8,7 @@ using System.Net.Http;
 namespace CodeBadger.Services;
 
 public sealed record AppUpdate(string Version, Uri PackageUri, Uri CertificateUri, Uri RuntimeDependencyUri);
-public sealed record AppRelease(string Version, string Name, string Notes, Uri Url);
+public sealed record AppRelease(string Version, string Name, string Notes, Uri Url, AppUpdate? Update = null);
 
 public sealed class UpdateService
 {
@@ -28,68 +28,7 @@ public sealed class UpdateService
             if (string.IsNullOrWhiteSpace(GetSigningThumbprint()))
                 return null;
 
-            var startedAt = Stopwatch.GetTimestamp();
-            _logger.LogInformation("Checking application updates at {Endpoint}.", LatestReleaseApi);
-            using var response = await UpdateCheckHttp.GetAsync(LatestReleaseApi, cancellationToken);
-            _logger.LogInformation("Application update check returned HTTP {StatusCode} in {ElapsedMilliseconds} ms.",
-                (int)response.StatusCode, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
-            _logger.LogInformation("Application update release response body: {ResponseBody}", await ReadLogExcerptAsync(response.Content));
-            if (!response.IsSuccessStatusCode)
-                return null;
-
-            if (response.Content.Headers.ContentLength is > 1024 * 1024)
-                return null;
-
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            using var releases = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-            if (releases.RootElement.ValueKind != JsonValueKind.Array)
-                return null;
-
-            var candidates = new List<(JsonElement Release, string Tag, Version Version)>();
-            foreach (var item in releases.RootElement.EnumerateArray())
-            {
-                if (!item.TryGetProperty("prerelease", out var prerelease) || prerelease.GetBoolean() ||
-                    !item.TryGetProperty("tag_name", out var tagName) ||
-                    !item.TryGetProperty("assets", out var assetsElement) || assetsElement.ValueKind != JsonValueKind.Array ||
-                    assetsElement.GetArrayLength() == 0)
-                    continue;
-
-                var tag = tagName.GetString();
-                if (!Version.TryParse(tag?.TrimStart('v', 'V'), out var version) || version.Build < 0)
-                    continue;
-
-                candidates.Add((item, tag!, version));
-            }
-
-            var release = candidates.OrderByDescending(item => item.Version).FirstOrDefault();
-
-            if (release.Release.ValueKind != JsonValueKind.Object)
-                return null;
-
-            var root = release.Release;
-            var latestVersion = release.Version;
-            var versionText = release.Tag!.TrimStart('v', 'V');
-
-            if ((root.TryGetProperty("draft", out var isDraft) && isDraft.GetBoolean()) ||
-                (root.TryGetProperty("assets", out var releaseAssets) && releaseAssets.GetArrayLength() == 0))
-                return null;
-
-            var installed = Windows.ApplicationModel.Package.Current.Id.Version;
-            var installedVersion = new Version(installed.Major, installed.Minor, installed.Build, installed.Revision);
-            var packageVersion = new Version(latestVersion.Major, latestVersion.Minor, latestVersion.Build, 0);
-            if (packageVersion <= installedVersion)
-                return null;
-
-            var assets = root.GetProperty("assets").EnumerateArray()
-                .Where(asset => asset.TryGetProperty("name", out _))
-                .ToDictionary(asset => asset.GetProperty("name").GetString() ?? string.Empty, StringComparer.Ordinal);
-
-            if (!TryGetGitHubAsset(assets, "CodeBadger.msix", out var packageUri) ||
-                !TryGetGitHubAsset(assets, "CodeBadger.cer", out var certificateUri) ||
-                !TryGetGitHubAsset(assets, "CodeBadger-WindowsAppRuntime-x64.msix", out var runtimeDependencyUri))
-                return null;
-
-            return new AppUpdate(versionText, packageUri, certificateUri, runtimeDependencyUri);
+            return (await GetLatestReleaseAsync(cancellationToken))?.Update;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -126,20 +65,57 @@ public sealed class UpdateService
             .Where(item => item.TryGetProperty("prerelease", out var prerelease) && !prerelease.GetBoolean() &&
                 item.TryGetProperty("draft", out var draft) && !draft.GetBoolean() &&
                 item.TryGetProperty("tag_name", out var tag) &&
-                Version.TryParse(tag.GetString()?.TrimStart('v', 'V'), out _))
+                Version.TryParse(tag.GetString()?.TrimStart('v', 'V'), out var version) && version.Build >= 0)
             .OrderByDescending(item => Version.Parse(item.GetProperty("tag_name").GetString()!.TrimStart('v', 'V')))
             .Select(item =>
             {
                 var urlText = item.TryGetProperty("html_url", out var htmlUrl) ? htmlUrl.GetString() : null;
+                var versionText = item.GetProperty("tag_name").GetString()!.TrimStart('v', 'V');
                 return Uri.TryCreate(urlText, UriKind.Absolute, out var url) && url.Host == "github.com"
                     ? new AppRelease(
-                        item.GetProperty("tag_name").GetString()!.TrimStart('v', 'V'),
+                        versionText,
                         item.TryGetProperty("name", out var name) ? name.GetString() ?? string.Empty : string.Empty,
                         item.TryGetProperty("body", out var body) ? body.GetString() ?? string.Empty : string.Empty,
-                        url)
+                        url,
+                        TryCreateAppUpdate(item, versionText))
                     : null;
             })
             .FirstOrDefault(release => release is not null);
+    }
+
+    private static AppUpdate? TryCreateAppUpdate(JsonElement release, string versionText)
+    {
+#if WINDOWS
+        try
+        {
+            if (string.IsNullOrWhiteSpace(GetSigningThumbprint()) ||
+                !Version.TryParse(versionText, out var latestVersion))
+                return null;
+
+            var installed = Windows.ApplicationModel.Package.Current.Id.Version;
+            var installedVersion = new Version(installed.Major, installed.Minor, installed.Build, installed.Revision);
+            var packageVersion = new Version(latestVersion.Major, latestVersion.Minor, latestVersion.Build, 0);
+            if (packageVersion <= installedVersion ||
+                !release.TryGetProperty("assets", out var releaseAssets) || releaseAssets.ValueKind != JsonValueKind.Array)
+                return null;
+
+            var assets = releaseAssets.EnumerateArray()
+                .Where(asset => asset.TryGetProperty("name", out _))
+                .ToDictionary(asset => asset.GetProperty("name").GetString() ?? string.Empty, StringComparer.Ordinal);
+
+            return TryGetGitHubAsset(assets, "CodeBadger.msix", out var packageUri) &&
+                TryGetGitHubAsset(assets, "CodeBadger.cer", out var certificateUri) &&
+                TryGetGitHubAsset(assets, "CodeBadger-WindowsAppRuntime-x64.msix", out var runtimeDependencyUri)
+                    ? new AppUpdate(versionText, packageUri, certificateUri, runtimeDependencyUri)
+                    : null;
+        }
+        catch
+        {
+            return null;
+        }
+#else
+        return null;
+#endif
     }
 
     public async Task DownloadAndStartInstallAsync(AppUpdate update, CancellationToken cancellationToken = default)

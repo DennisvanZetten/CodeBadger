@@ -757,11 +757,17 @@
                             OpenCodeActivityService.NormalizePath(repository.Path) is { } path && activity.QuestionDirectories.Contains(path))
                         .Select(repository => repository.Id).ToHashSet();
                     var activeOpenCodeSessions = activity.Sessions.Values
-                        .Where(session => _activeRepositories.Any(repository =>
-                            AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode &&
-                            !string.IsNullOrWhiteSpace(repository.Path) &&
-                            OpenCodeActivityService.NormalizePath(repository.Path) is { } path &&
-                            string.Equals(path, session.Directory, StringComparison.OrdinalIgnoreCase)))
+                        .Select(session =>
+                        {
+                            var repository = _activeRepositories.FirstOrDefault(candidate =>
+                                AgentTools.Normalize(candidate.AgentTool) == AgentTools.OpenCode &&
+                                !string.IsNullOrWhiteSpace(candidate.Path) &&
+                                string.Equals(OpenCodeActivityService.NormalizePath(candidate.Path), session.Directory,
+                                    StringComparison.OrdinalIgnoreCase));
+                            return repository is null
+                                ? session
+                                : session with { RepositoryName = RepositoryTitle(repository) };
+                        })
                         .ToDictionary(session => session.Id, StringComparer.Ordinal);
                     var completedSessions = _runningOpenCodeSessions
                         .Where(pair => !activeOpenCodeSessions.ContainsKey(pair.Key) &&

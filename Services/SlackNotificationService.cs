@@ -68,7 +68,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
     public sealed record SessionNotification(string Id, string Title, string Agent, string Directory, bool IsMuted);
     private sealed record ThreadLink(string ThreadTs, string ChannelId, string Directory, string Agent, string Title,
         DateTime CreatedAt, bool InitialPromptPublished = false, bool RootMessageIsTitle = false,
-        string Platform = "Slack", string RootMessageId = "");
+        string Platform = "Slack", string RootMessageId = "", string RepositoryName = "");
     private sealed class PendingNewSession(IReadOnlyList<RepositoryEntry> repositories, string rootMessageId = "")
     {
         public IReadOnlyList<RepositoryEntry> Repositories { get; } = repositories;
@@ -272,7 +272,8 @@ public sealed class SlackNotificationService : IAsyncDisposable
                 pair.Value.ChannelId == (_activePlatform == "Discord" ? _discordChannelId : _channelId) &&
                 string.Equals(OpenCodeActivityService.NormalizePath(pair.Value.Directory), normalized,
                 StringComparison.OrdinalIgnoreCase))
-            .Select(pair => new SessionNotification(pair.Key, pair.Value.Title, pair.Value.Agent, pair.Value.Directory,
+            .Select(pair => new SessionNotification(pair.Key,
+                FormatNotificationTitle(pair.Value.RepositoryName, pair.Value.Title), pair.Value.Agent, pair.Value.Directory,
                 IsSessionMuted(pair.Key)))
             .OrderByDescending(session => session.Id)
             .ToArray();
@@ -421,14 +422,23 @@ public sealed class SlackNotificationService : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         title = NormalizeTitle(title);
+        var notificationTitle = FormatNotificationTitle(session.RepositoryName, title);
         var selectedChannel = _activePlatform == "Discord" ? _discordChannelId : _channelId;
         if (_sessionThreads.TryGetValue(session.Id, out var existing) && existing.ChannelId == selectedChannel && existing.Platform == _activePlatform)
         {
             var updatedTitle = !string.IsNullOrWhiteSpace(title) && title != "OpenCode session" ? title : existing.Title;
-            if (!existing.RootMessageIsTitle || updatedTitle != existing.Title)
+            var repositoryName = string.IsNullOrWhiteSpace(session.RepositoryName)
+                ? existing.RepositoryName : session.RepositoryName;
+            notificationTitle = FormatNotificationTitle(repositoryName, updatedTitle);
+            if (!existing.RootMessageIsTitle || updatedTitle != existing.Title || repositoryName != existing.RepositoryName)
             {
-                await UpdateThreadTitleAsync(existing.ThreadTs, updatedTitle, cancellationToken);
-                existing = existing with { Title = updatedTitle, RootMessageIsTitle = true };
+                await UpdateThreadTitleAsync(existing.ThreadTs, notificationTitle, cancellationToken);
+                existing = existing with
+                {
+                    Title = updatedTitle,
+                    RepositoryName = repositoryName,
+                    RootMessageIsTitle = true
+                };
                 _sessionThreads[session.Id] = existing;
                 await SaveThreadLinksAsync();
                 SessionNotificationsChanged?.Invoke();
@@ -437,13 +447,13 @@ public sealed class SlackNotificationService : IAsyncDisposable
         }
 
         var rootMessageId = await PostMessageAsync(_botToken, _channelId,
-            _activePlatform == "Discord" ? $"**{title}**" : $"*{EscapeSlack(title)}*", null, cancellationToken);
+            _activePlatform == "Discord" ? $"**{EscapeSlack(notificationTitle)}**" : $"*{EscapeSlack(notificationTitle)}*", null, cancellationToken);
         var threadTs = rootMessageId;
         if (_activePlatform == "Discord")
-            threadTs = await CreateDiscordThreadAsync(threadTs, title, cancellationToken);
+            threadTs = await CreateDiscordThreadAsync(threadTs, notificationTitle, cancellationToken);
             var link = new ThreadLink(threadTs, _activePlatform == "Discord" ? _discordChannelId : _channelId,
             session.Directory, session.Agent, title, DateTime.UtcNow, RootMessageIsTitle: true,
-            Platform: _activePlatform, RootMessageId: rootMessageId);
+            Platform: _activePlatform, RootMessageId: rootMessageId, RepositoryName: session.RepositoryName);
         _sessionThreads[session.Id] = link;
         await SaveThreadLinksAsync();
         SessionNotificationsChanged?.Invoke();
@@ -451,9 +461,31 @@ public sealed class SlackNotificationService : IAsyncDisposable
         return link;
     }
 
+    private static string FormatNotificationTitle(string? repositoryName, string? title)
+    {
+        var normalizedTitle = NormalizeTitle(title);
+        return string.IsNullOrWhiteSpace(repositoryName)
+            ? normalizedTitle
+            : NormalizeTitle(repositoryName) + " — " + normalizedTitle;
+    }
+
     private async Task UpdateThreadTitleAsync(string threadTs, string title, CancellationToken cancellationToken)
     {
         await UpdateRootMessageAsync(threadTs, title, cancellationToken);
+        if (_activePlatform != "Discord")
+            return;
+
+        var threadName = NormalizeTitle(title);
+        if (threadName.Length > 100)
+            threadName = threadName[..100];
+        using var request = new HttpRequestMessage(HttpMethod.Patch,
+            $"channels/{Uri.EscapeDataString(threadTs)}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bot", _discordBotToken);
+        request.Content = JsonContent.Create(new { name = threadName });
+        await LogHttpRequestAsync(request);
+        using var response = await DiscordHttp.SendAsync(request, cancellationToken);
+        await LogHttpResponseAsync(response);
+        using var json = await ReadDiscordResponseAsync(response, cancellationToken);
     }
 
     private async Task UpdateRootMessageAsync(string threadTs, string title, CancellationToken cancellationToken)
@@ -1375,11 +1407,11 @@ public sealed class SlackNotificationService : IAsyncDisposable
             }
 
             pending.SelectedRepository = pending.Repositories[selection - 1];
-            var repositoryName = string.IsNullOrWhiteSpace(pending.SelectedRepository.Name)
+            var selectedRepositoryName = string.IsNullOrWhiteSpace(pending.SelectedRepository.Name)
                 ? Path.GetFileName(Path.TrimEndingDirectorySeparator(pending.SelectedRepository.Path))
                 : pending.SelectedRepository.Name;
             await PostMessageAsync(_botToken, _channelId,
-                $"Selected *{EscapeSlack(repositoryName)}*. Reply in this thread with the task for OpenCode.",
+                $"Selected *{EscapeSlack(selectedRepositoryName)}*. Reply in this thread with the task for OpenCode.",
                 threadTs, cancellationToken);
             return;
         }
@@ -1417,15 +1449,17 @@ public sealed class SlackNotificationService : IAsyncDisposable
         var title = IsGenericTitle(session.Title)
             ? GetTitleFromPrompt(text) : session.Title;
         var rootMessageId = string.IsNullOrWhiteSpace(pending.RootMessageId) ? threadTs : pending.RootMessageId;
+        var repositoryName = string.IsNullOrWhiteSpace(repository.Name)
+            ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path)) : repository.Name;
         _sessionThreads[session.Id] = new ThreadLink(threadTs,
             _activePlatform == "Discord" ? _discordChannelId : _channelId, session.Directory, session.Agent, title,
             DateTime.UtcNow, InitialPromptPublished: true, RootMessageIsTitle: true,
-            Platform: _activePlatform, RootMessageId: rootMessageId);
+            Platform: _activePlatform, RootMessageId: rootMessageId, RepositoryName: repositoryName);
         RememberSlackSubmittedMessage(session.Id, text);
         await SaveThreadLinksAsync();
         SessionNotificationsChanged?.Invoke();
         SessionStarted?.Invoke(session with { Title = title });
-        await UpdateRootMessageAsync(threadTs, title, cancellationToken);
+        await UpdateThreadTitleAsync(threadTs, FormatNotificationTitle(repositoryName, title), cancellationToken);
         await SaveThreadLinksAsync();
         var selectedName = string.IsNullOrWhiteSpace(repository.Name)
             ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path)) : repository.Name;

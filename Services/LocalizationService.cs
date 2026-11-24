@@ -17,6 +17,7 @@ public sealed class LocalizationService
         ["Open GitHub"] = ["Open GitHub", "GitHub openen", "GitHub öffnen", "Ouvrir GitHub"],
         ["Configured integrations"] = ["Configured integrations", "Ingestelde koppelingen", "Konfigurierte Integrationen", "Intégrations configurées"],
         ["Current release"] = ["Current release", "Huidige release", "Aktuelle Version", "Version actuelle"],
+        ["Select Check for updates to load release information."] = ["Select Check for updates to load release information.", "Kies ‘Controleren op updates’ om release-informatie te laden.", "Wählen Sie „Nach Updates suchen“, um Versionsinformationen zu laden.", "Sélectionnez « Rechercher des mises à jour » pour charger les informations de version."],
         ["Release information could not be loaded: {0}"] = ["Release information could not be loaded: {0}", "Release-informatie laden is mislukt: {0}", "Release-Informationen konnten nicht geladen werden: {0}", "Impossible de charger les informations de la version : {0}"],
         ["No release notes are available."] = ["No release notes are available.", "Er zijn geen release-opmerkingen beschikbaar.", "Keine Versionshinweise verfügbar.", "Aucune note de version disponible."],
         ["Update {0} is available."] = ["Update {0} is available.", "Update {0} is beschikbaar.", "Update {0} ist verfügbar.", "La mise à jour {0} est disponible."],

@@ -1363,16 +1363,17 @@ h1:focus {
 }
 
 .git-remote-maintenance-filters {
-    display: flex !important;
-    flex-direction: row !important;
-    justify-content: flex-start !important;
-    align-items: flex-start !important;
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: flex-start;
+    flex-wrap: wrap;
     gap: 0.5rem;
     width: 100%;
 }
 
 .git-remote-maintenance-author-filter {
-    flex: 0 1 15rem;
+    flex: 0 0 15rem;
     width: 15rem;
     max-width: 100%;
 }
@@ -1383,10 +1384,21 @@ h1:focus {
     max-width: 100%;
 }
 
-.git-remote-maintenance-panel .git-remote-maintenance-filters > .mud-input-control,
+.git-remote-maintenance-panel .git-remote-maintenance-filters > .mud-select {
+    flex: 0 0 15rem !important;
+    width: 15rem !important;
+    margin: 0 !important;
+}
+
+.git-remote-maintenance-panel .git-remote-maintenance-filters > .mud-numeric-field {
+    flex: 0 0 8rem !important;
+    width: 8rem !important;
+    margin: 0 !important;
+}
+
 .git-remote-maintenance-panel .git-remote-maintenance-filters > .mud-typography {
-    flex: 0 0 auto !important;
-    margin-inline: 0 !important;
+    flex: 0 0 auto;
+    margin: 0.5rem 0 0 !important;
 }
 
 .git-remote-maintenance-panel .git-remote-maintenance-filters .mud-input-label,
@@ -1397,7 +1409,7 @@ h1:focus {
     font-size: 0.75rem !important;
 }
 
-.git-remote-maintenance-panel .git-remote-maintenance-author-filter .mud-select-input {
+.git-remote-maintenance-panel .git-remote-maintenance-author-filter .mud-input-slot {
     text-align: center !important;
 }
 

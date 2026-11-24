@@ -364,9 +364,9 @@
                                 }
                                 else if (_remoteMaintenanceSnapshot?.DefaultBranchName is not null && _remoteMaintenanceSnapshot.OldMergedBranches.Count > 0)
                                 {
-                                    <MudStack Row="true" AlignItems="AlignItems.Center" Class="git-remote-maintenance-filters flex-wrap">
+                                    <div class="git-remote-maintenance-filters">
                                         <MudSelect T="string" Value="@_remoteMaintenanceAuthorFilter" ValueChanged="SetRemoteMaintenanceAuthorFilter"
-                                                   Label="@L.T("Last commit author")" Dense="true" Variant="Variant.Outlined" Clearable="true"
+                                                   Placeholder="@L.T("Last commit author")" Dense="true" Variant="Variant.Outlined" Clearable="true"
                                                    Disabled="@(_isOperating || _isLoadingRemoteMaintenance)" Class="git-remote-maintenance-author-filter">
                                             @foreach (var author in RemoteMaintenanceAuthors)
                                             {
@@ -377,7 +377,7 @@
                                                          Label="@L.T("Minimum age (days)")" Min="90" Max="36500" Step="1" Variant="Variant.Outlined"
                                                          Disabled="@(_isOperating || _isLoadingRemoteMaintenance)" Class="git-remote-maintenance-age-filter" />
                                         <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Showing {0} of {1}", FilteredRemoteMaintenanceBranches.Count, _remoteMaintenanceSnapshot.OldMergedBranches.Count)</MudText>
-                                    </MudStack>
+                                    </div>
                                     <MudCheckBox T="bool" Value="@AreAllRemoteMaintenanceBranchesSelected" ValueChanged="SetAllRemoteMaintenanceBranchesSelected"
                                                  Label="@L.T("Select all branches")" Disabled="@(_isOperating || _isLoadingRemoteMaintenance || FilteredRemoteMaintenanceBranches.Count == 0)" Size="Size.Small" Class="git-remote-maintenance-select-all" />
                                     <MudList T="string" Dense="true">

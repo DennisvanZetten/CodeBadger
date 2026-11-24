@@ -243,7 +243,7 @@ public sealed class OpenCodeActivityService
     }
 
     public async Task<string?> GetCompletedAnswerForPromptAsync(string sessionId, string directory,
-        string promptMessageId, CancellationToken cancellationToken)
+        string promptMessageId, IReadOnlySet<string> previousMessageIds, CancellationToken cancellationToken)
     {
         if (!IsValidSessionId(sessionId) || !IsValidMessageId(promptMessageId))
             return null;
@@ -258,9 +258,17 @@ public sealed class OpenCodeActivityService
             var info = message.TryGetProperty("info", out var infoValue) && infoValue.ValueKind == JsonValueKind.Object
                 ? infoValue : message.TryGetProperty("message", out var messageValue) && messageValue.ValueKind == JsonValueKind.Object
                     ? messageValue : message;
-            if (!TryGetPropertyIgnoreCase(info, "role", out var role) || role.ValueKind != JsonValueKind.String ||
-                role.GetString() != "assistant" || !TryGetPropertyIgnoreCase(info, "parentID", out var parentId) ||
-                parentId.ValueKind != JsonValueKind.String || parentId.GetString() != promptMessageId)
+            if (!string.Equals(ReadRole(info, message), "assistant", StringComparison.Ordinal))
+                continue;
+
+            var id = GetStringIgnoreCase(info, "id");
+            if (id.Length == 0)
+                id = GetStringIgnoreCase(message, "id");
+            var hasParentId = TryGetPropertyIgnoreCase(info, "parentID", out var parentId) &&
+                parentId.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(parentId.GetString());
+            var parentMatchesPrompt = hasParentId && parentId.GetString() == promptMessageId;
+            var isNewMessage = id.Length > 0 && !previousMessageIds.Contains(id);
+            if (hasParentId ? !parentMatchesPrompt : !isNewMessage)
                 continue;
 
             if (TryGetPropertyIgnoreCase(info, "error", out var error) && error.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
@@ -298,6 +306,31 @@ public sealed class OpenCodeActivityService
             return null;
         var combined = string.Join("\n\n", answers.OrderBy(answer => answer.Created).Select(answer => answer.Text));
         return combined.Length > 20000 ? combined[..20000] + "\n…" : combined;
+    }
+
+    public async Task<HashSet<string>?> GetSessionMessageIdsAsync(string sessionId, string directory,
+        CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId))
+            return null;
+        using var response = await RequestAsync($"/api/session/{sessionId}/message?order=desc&limit=100", cancellationToken,
+            workingDirectory: directory);
+        if (response?.RootElement.TryGetProperty("data", out var messages) != true || messages.ValueKind != JsonValueKind.Array)
+            return null;
+
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var message in messages.EnumerateArray())
+        {
+            var info = TryGetPropertyIgnoreCase(message, "info", out var infoValue) && infoValue.ValueKind == JsonValueKind.Object
+                ? infoValue : TryGetPropertyIgnoreCase(message, "message", out var messageValue) && messageValue.ValueKind == JsonValueKind.Object
+                    ? messageValue : message;
+            var id = GetStringIgnoreCase(info, "id");
+            if (id.Length == 0)
+                id = GetStringIgnoreCase(message, "id");
+            if (id.Length > 0)
+                ids.Add(id);
+        }
+        return ids;
     }
 
     public async Task<SessionContextUsage?> GetLatestContextUsageAsync(string sessionId, string directory,

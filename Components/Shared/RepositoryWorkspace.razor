@@ -937,12 +937,14 @@
         string response;
         try
         {
+            var previousMessageIds = await OpenCodeActivity.GetSessionMessageIdsAsync(agentSessionId, Repository.Path, cancellationToken)
+                ?? throw new InvalidOperationException(L.T("Could not read the existing OpenCode session messages before sending the request."));
             var promptMessageId = await OpenCodeActivity.SendPromptAsync(agentSessionId, Repository.Path, prompt,
                 cancellationToken, preferenceAgent, images);
             if (string.IsNullOrWhiteSpace(promptMessageId))
                 throw new InvalidOperationException(L.T("OpenCode accepted the request but did not return a message ID, so its reply cannot be matched safely."));
             await OpenCodeActivity.WaitForSessionAsync(agentSessionId, Repository.Path, cancellationToken);
-            response = await WaitForPromptAnswerAsync(agentSessionId, promptMessageId, cancellationToken)
+            response = await WaitForPromptAnswerAsync(agentSessionId, promptMessageId, previousMessageIds, cancellationToken)
                 ?? throw new InvalidOperationException(L.T("The AI session finished without a completed text response for this request."));
             await RefreshAgentContextAsync(session, role, sessionKey, agentSessionId, cancellationToken);
         }
@@ -967,6 +969,7 @@
     }
 
     private async Task<string?> WaitForPromptAnswerAsync(string sessionId, string promptMessageId,
+        IReadOnlySet<string> previousMessageIds,
         CancellationToken cancellationToken)
     {
         // Some OpenCode versions return from wait just before the completed message is
@@ -975,7 +978,7 @@
         {
             cancellationToken.ThrowIfCancellationRequested();
             var answer = await OpenCodeActivity.GetCompletedAnswerForPromptAsync(
-                sessionId, Repository.Path, promptMessageId, cancellationToken);
+                sessionId, Repository.Path, promptMessageId, previousMessageIds, cancellationToken);
             if (!string.IsNullOrWhiteSpace(answer))
                 return answer;
             if (attempt < 9)
@@ -1140,6 +1143,11 @@
                 }
                 session.ActiveOpenCodeSessionId = selectorSessionId;
 
+                var previousMessageIds = await OpenCodeActivity.GetSessionMessageIdsAsync(
+                    selectorSessionId, Repository.Path, cancellationToken);
+                if (previousMessageIds is null)
+                    throw new InvalidOperationException("Could not read the existing OpenCode model selector messages.");
+
                 var candidates = available.Take(24).Select(model => new
                 {
                     model.Reference, model.Name, model.Context, model.OutputLimit,
@@ -1151,7 +1159,7 @@
                 if (string.IsNullOrWhiteSpace(selectorPromptId))
                     throw new InvalidOperationException("OpenCode did not return a message ID for model selection.");
                 await OpenCodeActivity.WaitForSessionAsync(selectorSessionId, Repository.Path, cancellationToken);
-                var result = await WaitForPromptAnswerAsync(selectorSessionId, selectorPromptId, cancellationToken);
+                var result = await WaitForPromptAnswerAsync(selectorSessionId, selectorPromptId, previousMessageIds, cancellationToken);
                 var selected = ReadStringField(result ?? string.Empty, "model");
                 var match = available.FirstOrDefault(model => string.Equals(model.Reference, selected, StringComparison.OrdinalIgnoreCase));
                 if (match is not null) return match.Reference;

@@ -158,7 +158,16 @@
                                                         }
                                                         else
                                                         {
-                                                            @message.Text
+                                                            <div class="repository-codebadger-user-text">@message.Text</div>
+                                                            @if (message.Images.Count > 0)
+                                                            {
+                                                                <div class="repository-codebadger-message-images">
+                                                                    @foreach (var image in message.Images)
+                                                                    {
+                                                                        <img src="@image" alt="@L.T("Pasted image")" />
+                                                                    }
+                                                                </div>
+                                                            }
                                                         }
                                                     </div>
                                                 </article>
@@ -182,9 +191,26 @@
                                 </div>
                                 <div class="repository-codebadger-composer">
                                     <span class="repository-codebadger-prompt" aria-hidden="true">›</span>
-                                    <input class="repository-codebadger-input" data-session-id="@session.Id" type="text" autocomplete="off" spellcheck="false"
-                                           aria-label="@L.T("Universal command")" placeholder="@L.T("Type a universal command...")"
-                                           @bind="session.Input" @bind:event="oninput" @onkeydown="eventArgs => HandleInputKeyDownAsync(session, eventArgs)" />
+                                    <div class="repository-codebadger-composer-body">
+                                        @if (session.InputImages.Count > 0)
+                                        {
+                                            <div class="repository-codebadger-image-drafts">
+                                                @for (var imageIndex = 0; imageIndex < session.InputImages.Count; imageIndex++)
+                                                {
+                                                    var capturedIndex = imageIndex;
+                                                    <div class="repository-codebadger-image-draft">
+                                                        <img src="@session.InputImages[capturedIndex]" alt="@L.T("Pasted image")" />
+                                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close"
+                                                                       aria-label="@L.T("Remove image")"
+                                                                       OnClick="() => RemoveDraftImage(session, capturedIndex)" />
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                        <textarea class="repository-codebadger-input" data-session-id="@session.Id" rows="1" autocomplete="off" spellcheck="false"
+                                                  aria-label="@L.T("Universal command")" placeholder="@L.T("Type a universal command...")"
+                                                  @bind="session.Input" @bind:event="oninput"></textarea>
+                                    </div>
                                 </div>
                                 <footer class="repository-codebadger-statusbar">
                                     @if (CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.Full)
@@ -293,6 +319,7 @@
     private ElementReference _terminalStack;
     private IJSObjectReference? _splitterModule;
     private IJSObjectReference? _conversationScrollModule;
+    private IJSObjectReference? _composerModule;
     private DotNetObjectReference<RepositoryWorkspace>? _selfReference;
     private readonly List<CodeBadgerTerminalSession> _terminalSessions = [];
     private CodeBadgerTerminalState _terminalState = new();
@@ -304,6 +331,7 @@
     private AiPanelMode _aiPanelMode = AiPanelMode.Collapsed;
     private bool _splitterAttached;
     private bool _conversationScrollAttached;
+    private bool _composerAttached;
     private bool _wasCodeBadgerTerminalEnabled;
     private string? _agentModelReference;
     private string _agentModelLookupKey = string.Empty;
@@ -434,6 +462,12 @@
                 catch (JSDisconnectedException) { }
                 _conversationScrollAttached = false;
             }
+            if (_composerAttached && _composerModule is not null)
+            {
+                try { await _composerModule.InvokeVoidAsync("detach", _terminalStack); }
+                catch (JSDisconnectedException) { }
+                _composerAttached = false;
+            }
             return;
         }
 
@@ -463,6 +497,21 @@
             catch (JSException exception)
             {
                 Logger.LogWarning(exception, "CodeBadger conversation scroll behavior could not be initialized.");
+            }
+        }
+
+        if (!_composerAttached)
+        {
+            try
+            {
+                _selfReference ??= DotNetObjectReference.Create(this);
+                _composerModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./repository-codebadger-composer.js");
+                await _composerModule.InvokeVoidAsync("attach", _terminalStack, _selfReference);
+                _composerAttached = true;
+            }
+            catch (JSException exception)
+            {
+                Logger.LogWarning(exception, "CodeBadger composer behavior could not be initialized.");
             }
         }
     }
@@ -518,20 +567,51 @@
         await PersistTerminalStateAsync();
     }
 
-    private async Task HandleInputKeyDownAsync(CodeBadgerTerminalSession session, KeyboardEventArgs eventArgs)
+    [JSInvokable]
+    public async Task SubmitTerminalInputAsync(string sessionId)
     {
-        if (eventArgs.Key != "Enter" || string.IsNullOrWhiteSpace(session.Input))
+        if (!Guid.TryParse(sessionId, out var id) || _terminalSessions.FirstOrDefault(candidate => candidate.Id == id) is not { } session ||
+            session.IsBusy || session.IsSubmitting || string.IsNullOrWhiteSpace(session.Input) && session.InputImages.Count == 0)
             return;
+        session.IsSubmitting = true;
         var prompt = session.Input.Trim();
+        var images = session.InputImages.ToArray();
+        if (string.IsNullOrWhiteSpace(prompt))
+            prompt = L.T("Please inspect the attached image and help me with it.");
         session.State.Mode = session.Mode == TerminalMode.Plan ? "Plan" : "Build";
-        session.State.Messages.Add(new CodeBadgerTerminalMessage { Role = "user", Text = prompt });
+        session.State.Messages.Add(new CodeBadgerTerminalMessage { Role = "user", Text = prompt, Images = images.ToList() });
         session.Input = string.Empty;
+        session.InputImages.Clear();
+        session.IsSubmitting = false;
         await PersistTerminalStateAsync();
         await InvokeAsync(StateHasChanged);
-        await RunPromptAsync(session, prompt);
+        _ = RunPromptAsync(session, prompt, images);
+        if (_composerModule is not null)
+            await _composerModule.InvokeVoidAsync("clear", _terminalStack, sessionId);
     }
 
-    private async Task RunPromptAsync(CodeBadgerTerminalSession session, string prompt)
+    [JSInvokable]
+    public async Task AddClipboardImageAsync(string sessionId, string dataUrl)
+    {
+        if (!Guid.TryParse(sessionId, out var id) || _terminalSessions.FirstOrDefault(candidate => candidate.Id == id) is not { } session)
+            return;
+        if (session.InputImages.Count >= 3 || dataUrl.Length > 160_000 ||
+            !dataUrl.StartsWith("data:image/jpeg;base64,", StringComparison.OrdinalIgnoreCase))
+        {
+            Snackbar.Add(L.T("Could not add image. Use up to three smaller images."), Severity.Warning);
+            return;
+        }
+        session.InputImages.Add(dataUrl);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void RemoveDraftImage(CodeBadgerTerminalSession session, int index)
+    {
+        if (index >= 0 && index < session.InputImages.Count)
+            session.InputImages.RemoveAt(index);
+    }
+
+    private async Task RunPromptAsync(CodeBadgerTerminalSession session, string prompt, IReadOnlyList<string> images)
     {
         session.IsBusy = true;
         session.Error = null;
@@ -553,7 +633,7 @@
             switch (CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode))
             {
                 case CodeBadgerOrchestrationModes.SingleAgent:
-                    await RunSingleAgentPromptAsync(session, prompt, preferences, cancellationToken);
+                    await RunSingleAgentPromptAsync(session, prompt, preferences, cancellationToken, images);
                     break;
                 case CodeBadgerOrchestrationModes.PlanBuild:
                     var requestedMode = session.Mode;
@@ -566,17 +646,17 @@
                         ? priorPlan
                         : await RunRoleAsync(session, CodeBadgerRoles.Planner,
                             session.Mode == TerminalMode.Plan ? prompt : "First produce an actionable plan for this implementation request. Do not edit files yet.\n\n" + prompt,
-                            parentRole: null, preferences, cancellationToken);
+                            parentRole: null, preferences, cancellationToken, images);
                     if (requestedMode == TerminalMode.Plan)
                         break;
                     await RunRoleAsync(session, CodeBadgerRoles.Worker,
                         $"Implement the following plan in this repository. Make the required code changes, run appropriate checks, and report the result.\n\nPlan:\n{plan}",
-                        CodeBadgerRoles.Planner, preferences, cancellationToken);
+                        CodeBadgerRoles.Planner, preferences, cancellationToken, images);
                     session.Mode = TerminalMode.Build;
                     session.State.Mode = "Build";
                     break;
                 case CodeBadgerOrchestrationModes.Full:
-                    await RunFullOrchestrationAsync(session, prompt, preferences, cancellationToken);
+                    await RunFullOrchestrationAsync(session, prompt, preferences, cancellationToken, images);
                     break;
             }
             if (CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.SingleAgent)
@@ -626,14 +706,15 @@
     }
 
     private async Task RunSingleAgentPromptAsync(CodeBadgerTerminalSession session, string prompt,
-        IReadOnlyList<CodeBadgerRolePreference> preferences, CancellationToken cancellationToken)
+        IReadOnlyList<CodeBadgerRolePreference> preferences, CancellationToken cancellationToken, IReadOnlyList<string> images)
     {
         var role = session.Mode == TerminalMode.Plan ? CodeBadgerRoles.Planner : CodeBadgerRoles.Worker;
-        await RunRoleAsync(session, role, prompt, parentRole: null, preferences, cancellationToken);
+        await RunRoleAsync(session, role, prompt, parentRole: null, preferences, cancellationToken, images);
     }
 
     private async Task<string> RunRoleAsync(CodeBadgerTerminalSession session, string role, string prompt,
-        string? parentRole, IReadOnlyList<CodeBadgerRolePreference> preferences, CancellationToken cancellationToken)
+        string? parentRole, IReadOnlyList<CodeBadgerRolePreference> preferences, CancellationToken cancellationToken,
+        IReadOnlyList<string>? images = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var preference = preferences.FirstOrDefault(item => item.Role == role)
@@ -679,7 +760,7 @@
         string response;
         try
         {
-            await OpenCodeActivity.SendPromptAsync(agentSessionId, Repository.Path, prompt, cancellationToken, preferenceAgent);
+            await OpenCodeActivity.SendPromptAsync(agentSessionId, Repository.Path, prompt, cancellationToken, preferenceAgent, images);
             await OpenCodeActivity.WaitForSessionAsync(agentSessionId, Repository.Path, cancellationToken);
             response = await OpenCodeActivity.GetLatestCompletedAnswerAsync(agentSessionId, Repository.Path, cancellationToken)
                 ?? L.T("The AI session completed without a text response.");
@@ -753,42 +834,42 @@
     }
 
     private async Task RunFullOrchestrationAsync(CodeBadgerTerminalSession session, string prompt,
-        IReadOnlyList<CodeBadgerRolePreference> preferences, CancellationToken cancellationToken)
+        IReadOnlyList<CodeBadgerRolePreference> preferences, CancellationToken cancellationToken, IReadOnlyList<string> images)
     {
         var route = await RunRoleAsync(session, CodeBadgerRoles.Router,
             "Classify this user request. Reply with concise JSON containing task_type, needs_research (boolean), needs_implementation (boolean), and summary. Do not perform the task yet.\n\nRequest:\n" + prompt,
-            null, preferences, cancellationToken);
+            null, preferences, cancellationToken, images);
         var assignments = await RunRoleAsync(session, CodeBadgerRoles.Orchestrator,
             $"Act as manager. Break the task into subtasks for planning, research, implementation, and review. Return concise JSON listing subtasks and dependencies. Do not inspect or modify files; CodeBadger dispatches roles. Routing analysis: {route}\n\nRequest:\n{prompt}",
-            null, preferences, cancellationToken);
+            null, preferences, cancellationToken, images);
         var needsResearch = ReadBooleanField(route, "needs_research");
         var needsImplementation = ReadBooleanField(route, "needs_implementation");
         if (needsResearch)
             await RunRoleAsync(session, CodeBadgerRoles.Rag,
                 "Research relevant repository context, files, and available knowledge sources. Report evidence and paths.\n\n" + prompt,
-                CodeBadgerRoles.Orchestrator, preferences, cancellationToken);
+                CodeBadgerRoles.Orchestrator, preferences, cancellationToken, images);
 
         var plan = await RunRoleAsync(session, CodeBadgerRoles.Planner,
             $"Develop an actionable plan based on the manager's task breakdown. Manager breakdown: {assignments}\nRouting analysis: {route}\n\nRequest:\n{prompt}",
-            CodeBadgerRoles.Orchestrator, preferences, cancellationToken);
+            CodeBadgerRoles.Orchestrator, preferences, cancellationToken, images);
         var context = new StringBuilder().AppendLine("Request:").AppendLine(prompt).AppendLine().AppendLine("Plan:").AppendLine(plan);
         if (session.State.Messages.LastOrDefault(message => message.AgentRole == CodeBadgerRoles.Rag) is { } research)
             context.AppendLine().AppendLine("Research findings:").AppendLine(research.Text);
         var build = needsImplementation
             ? await RunRoleAsync(session, CodeBadgerRoles.Worker,
                 $"Execute this plan in the repository, update files, run relevant checks, then summarize changed files and test results.\n\n{context}",
-                CodeBadgerRoles.Orchestrator, preferences, cancellationToken)
+                CodeBadgerRoles.Orchestrator, preferences, cancellationToken, images)
             : L.T("No implementation was requested by the triage agent.");
         var review = await RunRoleAsync(session, CodeBadgerRoles.Critic,
             $"Review the plan and any implementation/test report. Reply only with JSON {{\"needs_changes\": boolean, \"findings\": [strings]}}. Do not edit files.\n\nRequest:\n{prompt}\n\nPlan:\n{plan}\n\nImplementation report:\n{build}",
-            CodeBadgerRoles.Orchestrator, preferences, cancellationToken);
+            CodeBadgerRoles.Orchestrator, preferences, cancellationToken, images);
         if (needsImplementation && ReadBooleanField(review, "needs_changes"))
             await RunRoleAsync(session, CodeBadgerRoles.Worker,
                 "Address these review findings, run relevant checks, and report what changed:\n\n" + ReadStringField(review, "findings"),
-                CodeBadgerRoles.Orchestrator, preferences, cancellationToken);
+                CodeBadgerRoles.Orchestrator, preferences, cancellationToken, images);
         await RunRoleAsync(session, CodeBadgerRoles.Orchestrator,
             "Provide a concise final user-facing summary based on the completed plan, implementation, and review.\n\nRequest:\n" + prompt,
-            null, preferences, cancellationToken);
+            null, preferences, cancellationToken, images);
     }
 
     private static bool ReadBooleanField(string json, string field)
@@ -992,6 +1073,12 @@
             catch (JSDisconnectedException) { }
             await _conversationScrollModule.DisposeAsync();
         }
+        if (_composerModule is not null)
+        {
+            try { await _composerModule.InvokeVoidAsync("detach", _terminalStack); }
+            catch (JSDisconnectedException) { }
+            await _composerModule.DisposeAsync();
+        }
         _selfReference?.Dispose();
     }
 
@@ -1005,9 +1092,11 @@
         public Guid Id => State.Id;
         public string Title => State.Title;
         public string Input { get; set; } = string.Empty;
+        public List<string> InputImages { get; } = [];
         public TerminalMode Mode { get; set; } = TerminalMode.Plan;
         public List<CodeBadgerTerminalMessage> Messages => State.Messages;
         public bool IsBusy { get; set; }
+        public bool IsSubmitting { get; set; }
         public string? Error { get; set; }
         public CancellationTokenSource? RunCancellation { get; set; }
         public string? ActiveOpenCodeSessionId { get; set; }

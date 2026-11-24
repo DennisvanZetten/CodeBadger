@@ -1,5 +1,8 @@
 @using Markdig
 @using Markdig.Extensions
+@using System.Net
+@using System.Text.RegularExpressions
+@inject CodeBadger.Services.LocalizationService L
 
 <article class="markdown-content @(Compact ? "markdown-content-terminal" : string.Empty)">
     @((MarkupString)RenderedHtml)
@@ -14,5 +17,26 @@
     [Parameter] public string Content { get; set; } = string.Empty;
     [Parameter] public bool Compact { get; set; }
 
-    private string RenderedHtml => Markdown.ToHtml(Content ?? string.Empty, Pipeline);
+    private string RenderedHtml
+    {
+        get
+        {
+            var html = Markdown.ToHtml(Content ?? string.Empty, Pipeline);
+            if (!Compact)
+                return html;
+
+            return Regex.Replace(html, "<pre><code(?<attributes>[^>]*)>(?<code>.*?)</code></pre>", match =>
+            {
+                var code = match.Groups["code"].Value;
+                var plainText = WebUtility.HtmlDecode(Regex.Replace(code, "<[^>]+>", string.Empty));
+                var lineCount = Math.Max(1, plainText.TrimEnd('\r', '\n').Count(character => character == '\n') + 1);
+                var language = Regex.Match(match.Groups["attributes"].Value, "language-([a-zA-Z0-9_+#.-]+)")
+                    .Groups[1].Value;
+                var label = string.IsNullOrWhiteSpace(language) ? L.T("Code") : language;
+                var linesLabel = lineCount == 1 ? L.T("{0} line", lineCount) : L.T("{0} lines", lineCount);
+                var summary = $"<summary title=\"{WebUtility.HtmlEncode(L.T("Show code"))}\"><span class=\"markdown-code-eye\" aria-hidden=\"true\">◉</span><span>{WebUtility.HtmlEncode(label)}</span><span class=\"markdown-code-lines\">{WebUtility.HtmlEncode(linesLabel)}</span></summary>";
+                return $"<details class=\"markdown-code-fold\">{summary}<pre><code{match.Groups["attributes"].Value}>{code}</code></pre></details>";
+            }, RegexOptions.Singleline | RegexOptions.CultureInvariant);
+        }
+    }
 }

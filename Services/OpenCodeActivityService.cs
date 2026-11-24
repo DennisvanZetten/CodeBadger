@@ -10,6 +10,7 @@ public sealed class OpenCodeActivityService
 {
     private readonly ILogger<OpenCodeActivityService> _logger;
     private readonly ConcurrentDictionary<string, byte> _shareShapeWarnings = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, ConcurrentBag<string>> _promptAttachmentFiles = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _activityRequestGate = new(1, 1);
     private volatile bool _activityEndpointFailed;
 
@@ -655,7 +656,7 @@ public sealed class OpenCodeActivityService
         items.ValueKind == JsonValueKind.Array && items.GetArrayLength() > 0;
 
     public async Task SendPromptAsync(string sessionId, string directory, string text, CancellationToken cancellationToken,
-        string? agent = null)
+        string? agent = null, IReadOnlyList<string>? images = null)
     {
         if (!IsValidSessionId(sessionId))
             throw new ArgumentException("Invalid OpenCode session ID.", nameof(sessionId));
@@ -665,14 +666,53 @@ public sealed class OpenCodeActivityService
             sessionId, agent ?? "current", CreateLogExcerpt(text));
         if (!string.IsNullOrWhiteSpace(agent))
             await SwitchAgentAsync(sessionId, directory, agent, cancellationToken);
-        var payload = JsonSerializer.Serialize(new { text, delivery = "steer" });
-        using var response = await RequestAsync($"/api/session/{sessionId}/prompt", cancellationToken,
-            HttpMethod.Post, payload, directory);
-        if (response is null)
-            throw new InvalidOperationException("Could not submit the reply to the OpenCode session.");
-        _logger.LogInformation("Prompt submitted to OpenCode session {SessionId}. Prompt content: {PromptContent}",
-            sessionId, ExtractPromptExcerpt(payload));
+        var attachmentPaths = new List<string>();
+        var files = new List<object>();
+        try
+        {
+            foreach (var (image, index) in (images ?? []).Where(IsSupportedImageDataUrl).Select((image, index) => (image, index)))
+            {
+                var comma = image.IndexOf(',');
+                var bytes = Convert.FromBase64String(image[(comma + 1)..]);
+                var filePath = Path.Combine(Path.GetTempPath(), $"codebadger-clipboard-{Guid.NewGuid():N}.jpg");
+                await File.WriteAllBytesAsync(filePath, bytes, cancellationToken);
+                attachmentPaths.Add(filePath);
+                files.Add(new { uri = new Uri(filePath).AbsoluteUri, name = $"clipboard-image-{index + 1}.jpg" });
+            }
+        }
+        catch
+        {
+            DeleteTemporaryAttachments(attachmentPaths);
+            throw;
+        }
+
+        var payload = JsonSerializer.Serialize(files.Count > 0
+            ? (object)new { text, delivery = "steer", files = files.ToArray() }
+            : new { text, delivery = "steer" });
+        try
+        {
+            using var response = await RequestAsync($"/api/session/{sessionId}/prompt", cancellationToken,
+                HttpMethod.Post, payload, directory);
+            if (response is null)
+                throw new InvalidOperationException("Could not submit the reply to the OpenCode session.");
+            if (attachmentPaths.Count > 0)
+            {
+                var pending = _promptAttachmentFiles.GetOrAdd(sessionId, _ => new ConcurrentBag<string>());
+                foreach (var path in attachmentPaths)
+                    pending.Add(path);
+            }
+            _logger.LogInformation("Prompt submitted to OpenCode session {SessionId}. Prompt content: {PromptContent}",
+                sessionId, ExtractPromptExcerpt(payload));
+        }
+        catch
+        {
+            DeleteTemporaryAttachments(attachmentPaths);
+            throw;
+        }
     }
+
+    private static bool IsSupportedImageDataUrl(string image) =>
+        image.StartsWith("data:image/jpeg;base64,", StringComparison.OrdinalIgnoreCase) && image.Length <= 160_000;
 
     public async Task<IReadOnlyList<AvailableModel>> GetAvailableModelsAsync(string directory, CancellationToken cancellationToken)
     {
@@ -765,10 +805,28 @@ public sealed class OpenCodeActivityService
     {
         if (!IsValidSessionId(sessionId))
             throw new ArgumentException("Invalid OpenCode session ID.", nameof(sessionId));
-        using var response = await RequestAsync($"/api/experimental/session/{sessionId}/wait", cancellationToken,
-            HttpMethod.Post, workingDirectory: directory, timeoutSeconds: 300);
-        cancellationToken.ThrowIfCancellationRequested();
-        // The opencode API CLI prints no JSON for this successful HTTP 204 response.
+        try
+        {
+            using var response = await RequestAsync($"/api/experimental/session/{sessionId}/wait", cancellationToken,
+                HttpMethod.Post, workingDirectory: directory, timeoutSeconds: 300);
+            cancellationToken.ThrowIfCancellationRequested();
+            // The opencode API CLI prints no JSON for this successful HTTP 204 response.
+        }
+        finally
+        {
+            if (_promptAttachmentFiles.TryRemove(sessionId, out var attachments))
+                DeleteTemporaryAttachments(attachments);
+        }
+    }
+
+    private static void DeleteTemporaryAttachments(IEnumerable<string> attachments)
+    {
+        foreach (var path in attachments)
+        {
+            try { File.Delete(path); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
     }
 
     public async Task InterruptSessionAsync(string sessionId, string directory, CancellationToken cancellationToken)

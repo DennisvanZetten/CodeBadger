@@ -26,6 +26,8 @@ public sealed class CodeBadgerTerminalStateService
             {
                 session.AgentSessionIds ??= new Dictionary<string, string>(StringComparer.Ordinal);
                 session.Messages ??= [];
+                foreach (var message in session.Messages)
+                    message.Images ??= [];
                 session.Mode = session.Mode == "Build" ? "Build" : "Plan";
                 session.ActiveAgentRole ??= string.Empty;
             }

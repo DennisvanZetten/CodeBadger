@@ -3,7 +3,7 @@ const attached = new WeakMap();
 export function attach(stack, dotnet) {
     detach(stack);
 
-    const splitter = stack.querySelector('.repository-terminal-splitter');
+    const splitter = stack.querySelector('.repository-terminal-splitter-grip');
     if (!splitter) return;
 
     let dragging = false;
@@ -35,7 +35,7 @@ export function attach(stack, dotnet) {
     };
 
     const start = event => {
-        if (event.button !== 0 || event.target.closest('button')) return;
+        if (event.button !== 0) return;
         event.preventDefault();
         dragging = true;
         document.body.classList.add('repository-terminal-resizing');

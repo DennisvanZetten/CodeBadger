@@ -2227,7 +2227,7 @@ h1:focus {
 
 .repository-terminal-stack {
     display: grid;
-    grid-template-rows: minmax(120px, var(--ai-terminal-height, 38%)) 1.85rem minmax(120px, 1fr);
+    grid-template-rows: minmax(120px, var(--ai-terminal-height, 38%)) 2.25rem minmax(120px, 1fr);
     gap: 0;
     height: 100%;
     min-height: 0;
@@ -2236,11 +2236,11 @@ h1:focus {
 }
 
 .repository-terminal-stack.ai-pane-collapsed {
-    grid-template-rows: 0 1.85rem minmax(0, 1fr);
+    grid-template-rows: 0 2.25rem minmax(0, 1fr);
 }
 
 .repository-terminal-stack.ai-pane-expanded {
-    grid-template-rows: minmax(0, 1fr) 1.85rem 0;
+    grid-template-rows: minmax(0, 1fr) 2.25rem 0;
 }
 
 .repository-ai-pane,
@@ -2271,14 +2271,12 @@ h1:focus {
     min-height: 0;
     padding: 0 0.4rem;
     border-top: 1px solid var(--mud-palette-divider);
-    cursor: ns-resize;
-    touch-action: none;
-    outline: none;
+    cursor: default;
     background: var(--mud-palette-background);
 }
 
-.repository-terminal-splitter:focus-visible,
-.repository-terminal-splitter:hover {
+.repository-terminal-splitter:has(.repository-terminal-splitter-grip:focus-visible),
+.repository-terminal-splitter:has(.repository-terminal-splitter-grip:hover) {
     border-top-color: var(--mud-palette-primary);
 }
 
@@ -2287,10 +2285,14 @@ h1:focus {
     inset: -4px 0 auto;
     height: 9px;
     cursor: ns-resize;
+    touch-action: none;
+    outline: none;
 }
 
 .repository-terminal-splitter > .repository-codebadger-session-tabs {
     flex: 0 1 auto;
+    align-self: stretch;
+    min-height: 0;
     max-width: min(48%, 42rem);
 }
 
@@ -2313,6 +2315,7 @@ h1:focus {
 }
 
 .repository-codebadger-session-tabs {
+    align-items: stretch !important;
     min-width: 0;
     overflow-x: auto;
     scrollbar-width: thin;
@@ -2323,20 +2326,25 @@ h1:focus {
     align-items: center;
     gap: 0;
     flex: 0 1 auto;
+    align-self: stretch;
     min-width: 0;
-    max-width: 7.5rem;
-    border-bottom: 2px solid transparent;
+    max-width: 9rem;
+    padding-left: 0.5rem;
+    border: 0;
+    border-radius: 0.25rem 0.25rem 0 0;
 }
 
 .repository-codebadger-session-tab.selected {
-    border-bottom-color: color-mix(in srgb, var(--mud-palette-primary) 72%, transparent);
+    background: color-mix(in srgb, var(--mud-palette-text-primary) 8%, var(--mud-palette-background));
 }
 
 .repository-codebadger-session-select {
+    align-self: stretch;
+    flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
-    max-width: 6.25rem;
-    padding: 0.1rem 0.3rem;
+    max-width: 8rem;
+    padding: 0.25rem 0.5rem 0.25rem 0;
     border: 0;
     background: transparent;
     color: var(--mud-palette-text-secondary);
@@ -2371,10 +2379,10 @@ h1:focus {
 
 .repository-codebadger-agent-context {
     display: flex;
-    flex: 0 1 8rem;
+    flex: 0 0 auto;
     flex-direction: column;
     gap: 0.1rem;
-    min-width: 5.5rem;
+    min-width: 7rem;
 }
 
 .repository-codebadger-agent-context-label {
@@ -2389,15 +2397,10 @@ h1:focus {
 }
 
 .repository-codebadger-agent-context-label > span:first-child {
-    overflow: hidden;
+    flex: 0 0 auto;
     color: var(--mud-palette-text-primary);
     font-weight: 600;
-    text-overflow: ellipsis;
-}
-
-.repository-codebadger-agent-context-label > span:nth-child(2) {
-    margin-left: auto;
-    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 
 .repository-codebadger-agent-context-label .mud-icon-button {
@@ -2427,6 +2430,7 @@ h1:focus {
 .repository-codebadger-agent-context-track.unavailable > span { width: 30%; background: var(--mud-palette-text-disabled); }
 
 .repository-codebadger-session-tab .mud-icon-button {
+    align-self: center;
     width: 1.1rem;
     height: 1.1rem;
     min-width: 1.1rem;
@@ -2454,8 +2458,7 @@ h1:focus {
     }
 
     .repository-codebadger-agent-context {
-        min-width: 4.5rem;
-        flex-basis: 5rem;
+        min-width: 5.5rem;
     }
 }
 
@@ -2722,7 +2725,7 @@ h1:focus {
 .repository-codebadger-composer {
     display: flex;
     flex: 0 0 auto;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.65rem;
     min-height: 3.5rem;
     margin: 0.5rem 0.75rem;
@@ -2735,14 +2738,24 @@ h1:focus {
 
 .repository-codebadger-composer-body { flex: 1 1 auto; min-width: 0; }
 
+.repository-codebadger-input-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+}
+
 .repository-codebadger-prompt {
     flex: 0 0 auto;
+    line-height: 1.45rem;
+    margin-top: 0.55rem;
     color: var(--mud-palette-primary);
     font-family: Consolas, "Cascadia Mono", monospace;
     font-size: 1.25rem;
 }
 
 .repository-codebadger-input {
+    display: block;
+    flex: 1 1 auto;
     width: 100%;
     min-width: 0;
     min-height: 2.5rem;
@@ -2754,7 +2767,7 @@ h1:focus {
     color: var(--mud-palette-text-primary);
     caret-color: var(--mud-palette-primary);
     font: inherit;
-    line-height: 1.45;
+    line-height: 1.45rem;
     resize: none;
     overflow-y: auto;
     white-space: pre-wrap;
@@ -2770,10 +2783,17 @@ h1:focus {
     flex: 0 0 auto;
     align-items: center;
     justify-content: flex-start;
+    gap: 0.35rem;
+    flex-wrap: wrap;
     min-height: 2.5rem;
     padding: 0 0.6rem;
     border-top: 1px solid var(--mud-palette-divider);
     color: var(--mud-palette-text-secondary);
+}
+
+.repository-codebadger-statusbar > .mud-typography {
+    margin-left: auto;
+    text-align: right;
 }
 
 body.repository-terminal-resizing,

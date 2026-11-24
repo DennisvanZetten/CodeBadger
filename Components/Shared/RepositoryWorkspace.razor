@@ -57,8 +57,7 @@
                     </div>
                 </section>
 
-                <div class="repository-terminal-splitter" role="separator" aria-orientation="horizontal"
-                     aria-label="@L.T("Resize terminal panels")" tabindex="0">
+                <div class="repository-terminal-splitter">
                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="repository-codebadger-session-tabs">
                         @foreach (var session in _terminalSessions)
                         {
@@ -88,15 +87,11 @@
                                     {
                                         var contextUsage = GetContextUsage(currentTerminalSession, roleSessionKey, agentSessionId);
                                         var progress = contextUsage?.Percent ?? 0;
-                                        <div class="repository-codebadger-agent-context" title="@(contextUsage is not { Limit: > 0 }
-                                            ? L.T("Context usage unavailable")
-                                            : L.T("{0}% of {1} tokens", progress, contextUsage.Limit.ToString("N0")))">
+                                            <div class="repository-codebadger-agent-context" title="@(contextUsage is not { Limit: > 0 }
+                                                ? L.T("Context usage unavailable")
+                                                : L.T("{0}% used: {1} of {2} tokens", progress, contextUsage.Used.ToString("N0"), contextUsage.Limit.ToString("N0")))">
                                             <div class="repository-codebadger-agent-context-label">
                                                 <span>@RoleDisplayName(role)</span>
-                                                @if (contextUsage is { Limit: > 0 })
-                                                {
-                                                    <span>@contextUsage.Used.ToString("N0") / @contextUsage.Limit.ToString("N0")</span>
-                                                }
                                                 @if (!IsAgentRoleBusy(currentTerminalSession, role) && !currentTerminalSession.IsRotatingAgentRole)
                                                 {
                                                     <MudTooltip Text="@L.T("Continue in a new session with a summary")">
@@ -123,7 +118,8 @@
                             </div>
                         }
                     </MudStack>
-                    <span class="repository-terminal-splitter-grip" aria-hidden="true"></span>
+                    <div class="repository-terminal-splitter-grip" role="separator" aria-orientation="horizontal"
+                         aria-label="@L.T("Resize terminal panels")" tabindex="0"></div>
                     <div class="repository-terminal-splitter-actions">
                         <MudText Typo="Typo.caption" Color="Color.Secondary" Class="repository-codebadger-mode-label"
                                  title="@L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })">
@@ -220,7 +216,6 @@
                                     </button>
                                 </div>
                                 <div class="repository-codebadger-composer">
-                                    <span class="repository-codebadger-prompt" aria-hidden="true">›</span>
                                     <div class="repository-codebadger-composer-body">
                                         @if (session.InputImages.Count > 0)
                                         {
@@ -237,10 +232,13 @@
                                                 }
                                             </div>
                                         }
-                                        <textarea class="repository-codebadger-input" data-session-id="@session.Id" rows="1" autocomplete="off" spellcheck="false"
-                                                  disabled="@session.IsRotatingAgentRole"
-                                                  aria-label="@L.T("Universal command")" placeholder="@L.T("Type a universal command...")"
-                                                  @bind="session.Input" @bind:event="oninput"></textarea>
+                                        <div class="repository-codebadger-input-row">
+                                            <span class="repository-codebadger-prompt" aria-hidden="true">›</span>
+                                            <textarea class="repository-codebadger-input" data-session-id="@session.Id" rows="1" autocomplete="off" spellcheck="false"
+                                                      disabled="@session.IsRotatingAgentRole"
+                                                      aria-label="@L.T("Universal command")" placeholder="@L.T("Type a universal command...")"
+                                                      @bind="session.Input" @bind:event="oninput"></textarea>
+                                        </div>
                                     </div>
                                 </div>
                                 <footer class="repository-codebadger-statusbar">
@@ -258,7 +256,7 @@
                                     }
                                     @if (session.IsBusy)
                                     {
-                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error"
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error"
                                                    StartIcon="@Icons.Material.Filled.StopCircle" OnClick="() => CancelPromptAsync(session)">
                                             @L.T("Stop agent")
                                         </MudButton>

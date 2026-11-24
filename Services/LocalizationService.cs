@@ -98,6 +98,7 @@ public sealed class LocalizationService
         ["Show code"] = ["Show code", "Code tonen", "Code anzeigen", "Afficher le code"],
         ["Context usage unavailable"] = ["Context usage unavailable", "Contextgebruik niet beschikbaar", "Kontextverbrauch nicht verfügbar", "Utilisation du contexte indisponible"],
         ["{0}% of {1} tokens"] = ["{0}% of {1} tokens", "{0}% van {1} tokens", "{0}% von {1} Token", "{0}% de {1} jetons"],
+        ["{0}% used: {1} of {2} tokens"] = ["{0}% used: {1} of {2} tokens", "{0}% gebruikt: {1} van {2} tokens", "{0}% verwendet: {1} von {2} Token", "{0}% utilisés : {1} sur {2} jetons"],
         ["Continue in a new session with a summary"] = ["Continue in a new session with a summary", "Doorgaan in een nieuwe sessie met samenvatting", "In neuer Sitzung mit Zusammenfassung fortfahren", "Continuer dans une nouvelle session avec un résumé"],
         ["A new agent session is ready with a handoff summary."] = ["A new agent session is ready with a handoff summary.", "Er staat een nieuwe agentsessie klaar met een overdrachtssamenvatting.", "Eine neue Agentsitzung mit Übergabezusammenfassung ist bereit.", "Une nouvelle session d’agent avec un résumé de passation est prête."],
         ["Could not start a new agent session: {0}"] = ["Could not start a new agent session: {0}", "Nieuwe agentsessie starten mislukt: {0}", "Neue Agentsitzung konnte nicht gestartet werden: {0}", "Impossible de démarrer une nouvelle session d’agent : {0}"],

@@ -145,6 +145,7 @@
     private List<RepositoryEntry> _activeRepositories = [];
     private readonly Dictionary<RepositoryEntry, GitBranchInfo> _branches = [];
     private readonly Dictionary<RepositoryEntry, GitRepositorySnapshot> _gitSnapshots = [];
+    private readonly Dictionary<Guid, DateTime> _lastInvalidSnapshotRetry = [];
     private readonly HashSet<Guid> _runningSessions = [];
     private readonly HashSet<Guid> _questionSessions = [];
     private readonly Dictionary<string, OpenCodeActivityService.ActiveSession> _runningOpenCodeSessions = new(StringComparer.Ordinal);
@@ -480,6 +481,8 @@
             _branches.Remove(repository);
         foreach (var repository in _gitSnapshots.Keys.Where(repository => !_settings.Repositories.Contains(repository)).ToList())
             _gitSnapshots.Remove(repository);
+        foreach (var repositoryId in _lastInvalidSnapshotRetry.Keys.Where(repositoryId => !_settings.Repositories.Any(repository => repository.Id == repositoryId)).ToList())
+            _lastInvalidSnapshotRetry.Remove(repositoryId);
         var validRepositoryIds = _activeRepositories.Select(repository => repository.Id).ToHashSet();
         _repositoriesLoading.RemoveWhere(repositoryId => !validRepositoryIds.Contains(repositoryId));
     }
@@ -532,6 +535,8 @@
             {
                 _branches[repository] = result.Branch;
                 _gitSnapshots[repository] = result.Snapshot;
+                if (result.Snapshot.IsValid)
+                    _lastInvalidSnapshotRetry.Remove(repository.Id);
                 StateHasChanged();
             });
         }
@@ -620,21 +625,40 @@
                 try
                 {
                     var dockedRepositories = DockedRepositories;
-                    if (_isRefreshingBranches || _activeTabIndex < 0 || _activeTabIndex >= dockedRepositories.Count)
+                    if (_activeTabIndex < 0 || _activeTabIndex >= dockedRepositories.Count)
                         continue;
 
                     var repository = dockedRepositories[_activeTabIndex];
                     if (!Directory.Exists(repository.Path))
                         continue;
 
+                    if (_isRefreshingBranches || _repositoriesLoading.Contains(repository.Id))
+                        continue;
+
+                    if (!_gitSnapshots.TryGetValue(repository, out var currentSnapshot) || !currentSnapshot.IsValid)
+                    {
+                        await RetryInvalidRepositorySnapshotAsync(repository, cancellationToken);
+                        continue;
+                    }
+
                     var status = await GitBranchService.GetRepositoryStatusAsync(repository.Path);
                     if (!status.IsValid)
+                    {
+                        Logger.LogWarning("Periodic Git status refresh failed for active repository {RepositoryPath}: {Error}",
+                            repository.Path, status.Error);
+                        await RetryInvalidRepositorySnapshotAsync(repository, cancellationToken);
                         continue;
+                    }
 
                     await InvokeAsync(() =>
                     {
-                        if (_isRefreshingBranches || !_gitSnapshots.TryGetValue(repository, out var snapshot) || !snapshot.IsValid)
+                        if (_isRefreshingBranches || _repositoriesLoading.Contains(repository.Id))
                             return;
+
+                        if (!_gitSnapshots.TryGetValue(repository, out var snapshot) || !snapshot.IsValid)
+                        {
+                            return;
+                        }
 
                         _branches[repository] = status.Branch;
                         _gitSnapshots[repository] = snapshot with
@@ -657,6 +681,28 @@
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (ObjectDisposedException) { }
+    }
+
+    private async Task RetryInvalidRepositorySnapshotAsync(RepositoryEntry repository, CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        await InvokeAsync(async () =>
+        {
+            if (_isRefreshingBranches || _repositoriesLoading.Contains(repository.Id) ||
+                cancellationToken.IsCancellationRequested)
+                return;
+
+            var now = DateTime.UtcNow;
+            if (_lastInvalidSnapshotRetry.TryGetValue(repository.Id, out var lastAttempt) &&
+                now - lastAttempt < TimeSpan.FromSeconds(30))
+                return;
+
+            _lastInvalidSnapshotRetry[repository.Id] = now;
+            Logger.LogInformation("Retrying an invalid Git snapshot for active repository {RepositoryPath}.", repository.Path);
+            await LoadRepositoryStatusAsync(repository, cancellationToken);
+        });
     }
 
     private readonly SemaphoreSlim _activityCheckGate = new(1, 1);

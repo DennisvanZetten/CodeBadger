@@ -2355,6 +2355,66 @@ h1:focus {
     min-height: 0;
 }
 
+.repository-codebadger-terminal-view {
+    flex-direction: column;
+}
+
+.repository-codebadger-conversation {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 1rem;
+}
+
+.repository-codebadger-composer {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.65rem;
+    min-height: 3.25rem;
+    margin: 0.5rem 0.75rem;
+    padding: 0 0.8rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 0.65rem;
+    background: var(--mud-palette-background);
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--mud-palette-text-primary) 8%, transparent);
+}
+
+.repository-codebadger-prompt {
+    flex: 0 0 auto;
+    color: var(--mud-palette-primary);
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 1.25rem;
+}
+
+.repository-codebadger-input {
+    width: 100%;
+    min-width: 0;
+    height: 2.6rem;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--mud-palette-text-primary);
+    caret-color: var(--mud-palette-primary);
+    font: inherit;
+}
+
+.repository-codebadger-input::placeholder {
+    color: var(--mud-palette-text-disabled);
+}
+
+.repository-codebadger-statusbar {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: flex-start;
+    min-height: 2.5rem;
+    padding: 0 0.6rem;
+    border-top: 1px solid var(--mud-palette-divider);
+    color: var(--mud-palette-text-secondary);
+}
+
 body.repository-terminal-resizing,
 body.repository-terminal-resizing * {
     cursor: ns-resize !important;

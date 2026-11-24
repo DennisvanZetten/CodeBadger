@@ -4,7 +4,7 @@
 @inject RepositoryDetachedWindowService DetachedWindows
 @inject AgentSessionNotificationService AgentSessionNotifications
 @inject Microsoft.Extensions.Logging.ILogger<RepositoryWorkspace> Logger
-@inject WindowsTerminalSessionService TerminalSessions
+@inject SandboxOpenCodeProviderService OpenCodeProviders
 @inject IJSRuntime JS
 
 <MudPaper Outlined="true" Elevation="0" Class="repository-workspace" data-repository-id="@Repository.Id">
@@ -96,9 +96,25 @@
                     <div class="repository-codebadger-session-content">
                         @foreach (var session in _terminalSessions)
                         {
-                            <div class="repository-codebadger-terminal-view" style="display:@(session.Id == _selectedTerminalSessionId ? "block" : "none")">
-                                <RepositoryTerminal @key="session.Id" SessionId="session.Id" RepositoryPath="@Repository.Path"
-                                                    Command="" UsePowerShell="true" IsVisible="@(IsVisible && session.Id == _selectedTerminalSessionId)" />
+                            <div @key="session.Id" class="repository-codebadger-terminal-view" style="display:@(session.Id == _selectedTerminalSessionId ? "flex" : "none")">
+                                <div class="repository-codebadger-conversation" aria-live="polite">
+                                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                        @L.T("Universal commands for {0} will be available in a future update.", AgentTools.GetDisplayName(Repository.AgentTool))
+                                    </MudText>
+                                </div>
+                                <div class="repository-codebadger-composer">
+                                    <span class="repository-codebadger-prompt" aria-hidden="true">›</span>
+                                    <input class="repository-codebadger-input" data-session-id="@session.Id" type="text" autocomplete="off" spellcheck="false"
+                                           aria-label="@L.T("Universal command")" placeholder="@L.T("Type a universal command...")"
+                                           @bind="session.Input" @bind:event="oninput" />
+                                </div>
+                                <footer class="repository-codebadger-statusbar">
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.SwapHoriz"
+                                               aria-label="@L.T("Switch between Plan and Build mode")"
+                                               OnClick="() => ToggleSessionMode(session)">
+                                        @SessionStatusLabel(session)
+                                    </MudButton>
+                                </footer>
                             </div>
                         }
                     </div>
@@ -191,6 +207,8 @@
     private AiPanelMode _aiPanelMode = AiPanelMode.Collapsed;
     private bool _splitterAttached;
     private bool _wasCodeBadgerTerminalEnabled;
+    private string? _agentModelReference;
+    private string _agentModelLookupKey = string.Empty;
 
     private string AiPaneModeClass => _aiPanelMode switch
     {
@@ -198,6 +216,22 @@
         AiPanelMode.Expanded => "ai-pane-expanded",
         _ => string.Empty
     };
+    private string SessionStatusLabel(CodeBadgerTerminalSession session)
+    {
+        var mode = L.T(session.Mode == TerminalMode.Plan ? "Plan" : "Build");
+        var agent = AgentTools.GetDisplayName(Repository.AgentTool);
+        if (!string.IsNullOrWhiteSpace(_agentModelReference))
+            agent += "-" + FormatModelName(_agentModelReference.Split('/').Last());
+        return $"{mode} · {agent}";
+    }
+
+    private static string FormatModelName(string model)
+    {
+        var words = model.Split(['-', '_', '.'], StringSplitOptions.RemoveEmptyEntries);
+        return string.Join(' ', words.Select(word => string.Equals(word, "gpt", StringComparison.OrdinalIgnoreCase)
+            ? "GPT"
+            : char.ToUpperInvariant(word[0]) + word[1..]));
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -208,7 +242,27 @@
         if (Repository.CodeBadgerTerminalEnabled && _terminalSessions.Count == 0)
             AddTerminalSession();
 
-        var terminalAlreadyStarted = TerminalSessions.IsRunning(Repository.Id);
+        var modelLookupKey = $"{Repository.Path}:{AgentTools.Normalize(Repository.AgentTool)}:{Repository.OpenCodeSandboxEnabled}:{Repository.OpenCodeSandboxModel}";
+        if (!string.Equals(modelLookupKey, _agentModelLookupKey, StringComparison.Ordinal))
+        {
+            _agentModelLookupKey = modelLookupKey;
+            _agentModelReference = null;
+            if (AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode)
+            {
+                try
+                {
+                    _agentModelReference = Repository.OpenCodeSandboxEnabled
+                        ? Repository.OpenCodeSandboxModel
+                        : await OpenCodeProviders.GetDefaultModelAsync(Repository.Path);
+                }
+                catch (Exception exception)
+                {
+                    Logger.LogDebug(exception, "Could not resolve the OpenCode model for the CodeBadger terminal status bar.");
+                }
+            }
+        }
+
+        var terminalAlreadyStarted = false;
         _agentCommand = AgentTools.GetCommand(Repository.AgentTool);
         if (!terminalAlreadyStarted &&
             (AgentTools.Normalize(Repository.AgentTool) is AgentTools.ClaudeCode or AgentTools.Hermes))
@@ -278,18 +332,21 @@
 
     private void SelectTerminalSession(Guid id) => _selectedTerminalSessionId = id;
 
-    private async Task CloseTerminalSessionAsync(Guid id)
+    private Task CloseTerminalSessionAsync(Guid id)
     {
         if (_terminalSessions.Count <= 1)
-            return;
+            return Task.CompletedTask;
         var index = _terminalSessions.FindIndex(session => session.Id == id);
         if (index < 0)
-            return;
-        await TerminalSessions.StopAsync(id);
+            return Task.CompletedTask;
         _terminalSessions.RemoveAt(index);
         if (_selectedTerminalSessionId == id)
             _selectedTerminalSessionId = _terminalSessions[Math.Min(index, _terminalSessions.Count - 1)].Id;
+        return Task.CompletedTask;
     }
+
+    private static void ToggleSessionMode(CodeBadgerTerminalSession session) =>
+        session.Mode = session.Mode == TerminalMode.Plan ? TerminalMode.Build : TerminalMode.Plan;
 
     [JSInvokable]
     public Task SetAiPanelSize(double percent) => InvokeAsync(() =>
@@ -301,12 +358,6 @@
 
     public async ValueTask DisposeAsync()
     {
-        foreach (var session in _terminalSessions)
-        {
-            await TerminalSessions.StopAsync(session.Id);
-            TerminalSessions.ClearRecentOutput(session.Id);
-        }
-
         if (_splitterModule is not null)
         {
             try
@@ -320,6 +371,14 @@
     }
 
     private enum AiPanelMode { Split, Collapsed, Expanded }
-    private sealed record CodeBadgerTerminalSession(Guid Id, string Title);
+    private enum TerminalMode { Plan, Build }
+
+    private sealed class CodeBadgerTerminalSession(Guid id, string title)
+    {
+        public Guid Id { get; } = id;
+        public string Title { get; } = title;
+        public string Input { get; set; } = string.Empty;
+        public TerminalMode Mode { get; set; } = TerminalMode.Plan;
+    }
 
 }

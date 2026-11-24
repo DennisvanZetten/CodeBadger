@@ -97,18 +97,47 @@
                             </MudTooltip>
                             @if (_terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is { } currentTerminalSession)
                             {
-                                <MudStack Row="true" Spacing="1" Class="repository-codebadger-agent-links">
-                                    @foreach (var role in currentTerminalSession.State.AgentSessionIds.Keys
-                                        .Where(role => !role.StartsWith("ModelSelector:", StringComparison.Ordinal) &&
-                                            !role.StartsWith("Model:", StringComparison.Ordinal) && role != "SingleAgent")
-                                        .OrderBy(role => role, StringComparer.Ordinal)
-                                        .Concat(currentTerminalSession.IsBusy && !string.IsNullOrWhiteSpace(currentTerminalSession.State.ActiveAgentRole)
-                                            ? new[] { currentTerminalSession.State.ActiveAgentRole } : Array.Empty<string>())
-                                        .Distinct(StringComparer.Ordinal))
+                                <div class="repository-codebadger-agent-links">
+                                    @foreach (var role in GetTrackedAgentRoles(currentTerminalSession))
                                     {
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@RoleDisplayName(role)</MudChip>
+                                        var roleSessionKey = GetRoleSessionKey(currentTerminalSession, role);
+                                        if (currentTerminalSession.State.AgentSessionIds.TryGetValue(roleSessionKey, out var agentSessionId))
+                                        {
+                                            var contextUsage = GetContextUsage(currentTerminalSession, roleSessionKey, agentSessionId);
+                                            var progress = contextUsage?.Percent ?? 0;
+                                            <div class="repository-codebadger-agent-context" title="@(contextUsage is not { Limit: > 0 }
+                                                ? L.T("Context usage unavailable")
+                                                : L.T("{0}% of {1} tokens", progress, contextUsage.Limit.ToString("N0")))">
+                                                <div class="repository-codebadger-agent-context-label">
+                                                    <span>@RoleDisplayName(role)</span>
+                                                    @if (contextUsage is { Limit: > 0 })
+                                                    {
+                                                        <span>@contextUsage.Used.ToString("N0") / @contextUsage.Limit.ToString("N0")</span>
+                                                    }
+                                                    @if (!IsAgentRoleBusy(currentTerminalSession, role) && !currentTerminalSession.IsRotatingAgentRole)
+                                                    {
+                                                        <MudTooltip Text="@L.T("Continue in a new session with a summary")">
+                                                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.AutoAwesome"
+                                                                           Color="Color.Primary" aria-label="@L.T("Continue in a new session with a summary")"
+                                                                           OnClick="() => RotateAgentSessionAsync(currentTerminalSession, role)" />
+                                                        </MudTooltip>
+                                                    }
+                                                </div>
+                                                @if (contextUsage is not { Limit: > 0 })
+                                                {
+                                                    <div class="repository-codebadger-agent-context-track unavailable"><span></span></div>
+                                                }
+                                                else
+                                                {
+                                                    var level = progress >= 85 ? "high" : progress >= 70 ? "medium" : "low";
+                                                    <div class="repository-codebadger-agent-context-track @level">
+                                                        <span style="width:@(progress)%"></span>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
                                     }
-                                </MudStack>
+                                </div>
                             }
                         </MudStack>
                         <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })</MudText>
@@ -208,6 +237,7 @@
                                             </div>
                                         }
                                         <textarea class="repository-codebadger-input" data-session-id="@session.Id" rows="1" autocomplete="off" spellcheck="false"
+                                                  disabled="@session.IsRotatingAgentRole"
                                                   aria-label="@L.T("Universal command")" placeholder="@L.T("Type a universal command...")"
                                                   @bind="session.Input" @bind:event="oninput"></textarea>
                                     </div>
@@ -335,6 +365,8 @@
     private bool _wasCodeBadgerTerminalEnabled;
     private string? _agentModelReference;
     private string _agentModelLookupKey = string.Empty;
+    private string _contextModelLookupKey = string.Empty;
+    private readonly Dictionary<string, AgentContextSnapshot> _agentContextSnapshots = new(StringComparer.Ordinal);
 
     private string AiPaneModeClass => _aiPanelMode switch
     {
@@ -368,6 +400,133 @@
 
     private static string FormatModelReference(string modelReference) =>
         $"{modelReference.Split('/').FirstOrDefault()} · {FormatModelName(modelReference.Split('/').Last())}";
+
+    private IEnumerable<string> GetTrackedAgentRoles(CodeBadgerTerminalSession session)
+    {
+        if (CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) == CodeBadgerOrchestrationModes.SingleAgent)
+        {
+            if (session.State.AgentSessionIds.ContainsKey("SingleAgent"))
+                return new[] { session.Mode == TerminalMode.Plan ? CodeBadgerRoles.Planner : CodeBadgerRoles.Worker };
+            return Array.Empty<string>();
+        }
+        return session.State.AgentSessionIds.Keys
+        .Where(role => !role.StartsWith("ModelSelector:", StringComparison.Ordinal) &&
+            !role.StartsWith("Model:", StringComparison.Ordinal) && role != "SingleAgent")
+        .OrderBy(role => role, StringComparer.Ordinal)
+        .Concat(session.IsBusy && !string.IsNullOrWhiteSpace(session.State.ActiveAgentRole)
+            ? new[] { session.State.ActiveAgentRole } : Array.Empty<string>())
+        .Distinct(StringComparer.Ordinal);
+    }
+
+    private string GetRoleSessionKey(CodeBadgerTerminalSession session, string role) =>
+        CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) == CodeBadgerOrchestrationModes.SingleAgent
+            ? "SingleAgent" : role;
+
+    private bool IsAgentRoleBusy(CodeBadgerTerminalSession session, string role)
+    {
+        var activeRole = session.State.ActiveAgentRole;
+        if (!session.IsBusy || string.IsNullOrWhiteSpace(activeRole))
+            return false;
+        return CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) == CodeBadgerOrchestrationModes.SingleAgent
+            ? true
+            : string.Equals(activeRole, role, StringComparison.Ordinal);
+    }
+
+    private AgentContextSnapshot? GetContextUsage(CodeBadgerTerminalSession session, string sessionKey, string sessionId)
+    {
+        var model = session.State.AgentContextModels.TryGetValue(sessionKey, out var modelReference)
+            ? modelReference
+            : session.State.AgentSessionIds.TryGetValue("Model:" + sessionKey, out var storedModel) ? storedModel : string.Empty;
+        if (session.State.AgentContextTokens.TryGetValue(sessionKey, out var tokens) &&
+            !string.IsNullOrWhiteSpace(model) && GetModelContextLimit(model) is var limit && limit > 0)
+            return new AgentContextSnapshot(tokens, limit, model);
+        if (_agentContextSnapshots.TryGetValue(sessionId, out var snapshot))
+            return snapshot;
+        return null;
+    }
+
+    private long GetModelContextLimit(string modelReference) =>
+        _availableOpenCodeModels.FirstOrDefault(model =>
+            string.Equals(model.Reference, modelReference, StringComparison.OrdinalIgnoreCase))?.Context ?? 0;
+
+    private async Task RefreshAgentContextAsync(CodeBadgerTerminalSession session, string role, string sessionKey,
+        string sessionId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var usage = await OpenCodeActivity.GetLatestContextUsageAsync(sessionId, Repository.Path, cancellationToken);
+            if (usage is null)
+                return;
+            var model = string.IsNullOrWhiteSpace(usage.ModelReference) && session.State.AgentContextModels.TryGetValue(sessionKey, out var previousModel)
+                ? previousModel : usage.ModelReference;
+            if (string.IsNullOrWhiteSpace(model))
+                return;
+            session.State.AgentContextTokens[sessionKey] = usage.Tokens;
+            session.State.AgentContextModels[sessionKey] = model;
+            var limit = GetModelContextLimit(model);
+            if (limit > 0)
+                _agentContextSnapshots[sessionId] = new AgentContextSnapshot(usage.Tokens, limit, model);
+            await PersistTerminalStateAsync();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            Logger.LogDebug(exception, "Could not refresh context usage for CodeBadger role {Role}.", role);
+        }
+    }
+
+    private async Task RotateAgentSessionAsync(CodeBadgerTerminalSession session, string role)
+    {
+        if (IsAgentRoleBusy(session, role) || session.IsRotatingAgentRole)
+            return;
+        var preference = _settings.CodeBadgerRolePreferences.FirstOrDefault(item => item.Role == role)
+            ?? new CodeBadgerRolePreference { Role = role, AgentType = CodeBadgerRoles.DefaultAgentType(role) };
+        if (!session.State.AgentSessionIds.TryGetValue(GetRoleSessionKey(session, role), out var oldSessionId))
+            return;
+
+        session.IsRotatingAgentRole = true;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            var summary = await OpenCodeActivity.GenerateSessionHandoffSummaryAsync(oldSessionId, Repository.Path, cancellation.Token);
+            var agent = await ResolvePreferenceAgentAsync(preference, role, cancellation.Token);
+            var modelKey = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) == CodeBadgerOrchestrationModes.SingleAgent
+                ? "Model:SingleAgent" : "Model:" + role;
+            var model = session.State.AgentSessionIds.TryGetValue(modelKey, out var storedModel) ? storedModel : null;
+            var roleSessionKey = GetRoleSessionKey(session, role);
+            var title = $"{session.Title} · {RoleDisplayName(role)} · {L.T("Session {0}", session.State.AgentSessionGenerations.GetValueOrDefault(roleSessionKey) + 2)}";
+            var created = await OpenCodeActivity.CreateOrchestrationSessionAsync(Repository.Path, agent, title,
+                parentSessionId: null, modelReference: model, cancellationToken: cancellation.Token);
+            await OpenCodeActivity.AddSessionHandoffSummaryAsync(created.Id, Repository.Path, summary, cancellation.Token);
+            session.State.AgentSessionIds[roleSessionKey] = created.Id;
+            session.State.AgentSessionGenerations[roleSessionKey] = session.State.AgentSessionGenerations.GetValueOrDefault(roleSessionKey) + 1;
+            if (CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) == CodeBadgerOrchestrationModes.SingleAgent)
+            {
+                var handoffRole = session.Mode == TerminalMode.Plan ? CodeBadgerRoles.Planner : CodeBadgerRoles.Worker;
+                session.State.AgentSessionGenerations[handoffRole] = session.State.AgentSessionGenerations.GetValueOrDefault(handoffRole) + 1;
+            }
+            session.State.AgentContextTokens.Remove(GetRoleSessionKey(session, role));
+            session.State.AgentContextModels.Remove(GetRoleSessionKey(session, role));
+            _agentContextSnapshots.Remove(oldSessionId);
+            await PersistTerminalStateAsync();
+            Snackbar.Add(L.T("A new agent session is ready with a handoff summary."), Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not start a new agent session: {0}", exception.Message), Severity.Error);
+        }
+        finally
+        {
+            session.IsRotatingAgentRole = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private sealed record AgentContextSnapshot(long Used, long Limit, string ModelReference)
+    {
+        public int Percent => (int)Math.Clamp(Math.Round(Used * 100d / Limit), 0, 100);
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -415,6 +574,20 @@
                 {
                     Logger.LogDebug(exception, "Could not resolve the OpenCode model for the CodeBadger terminal status bar.");
                 }
+            }
+        }
+
+        if (Repository.CodeBadgerTerminalEnabled && AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode &&
+            !string.Equals(modelLookupKey, _contextModelLookupKey, StringComparison.Ordinal))
+        {
+            _contextModelLookupKey = modelLookupKey;
+            try
+            {
+                _availableOpenCodeModels = await OpenCodeActivity.GetAvailableModelsAsync(Repository.Path, CancellationToken.None);
+            }
+            catch (Exception exception)
+            {
+                Logger.LogDebug(exception, "Could not load OpenCode model limits for CodeBadger context meters.");
             }
         }
 
@@ -571,7 +744,8 @@
     public async Task SubmitTerminalInputAsync(string sessionId)
     {
         if (!Guid.TryParse(sessionId, out var id) || _terminalSessions.FirstOrDefault(candidate => candidate.Id == id) is not { } session ||
-            session.IsBusy || session.IsSubmitting || string.IsNullOrWhiteSpace(session.Input) && session.InputImages.Count == 0)
+            session.IsBusy || session.IsSubmitting || session.IsRotatingAgentRole ||
+            string.IsNullOrWhiteSpace(session.Input) && session.InputImages.Count == 0)
             return;
         session.IsSubmitting = true;
         var prompt = session.Input.Trim();
@@ -747,7 +921,10 @@
         var modelStateKey = orchestrationMode == CodeBadgerOrchestrationModes.SingleAgent
             ? "Model:SingleAgent" : "Model:" + role;
         if (!string.IsNullOrWhiteSpace(model))
+        {
             session.State.AgentSessionIds[modelStateKey] = model;
+            session.State.AgentContextModels[sessionKey] = model;
+        }
 
         var pendingMessage = new CodeBadgerTerminalMessage
         {
@@ -767,6 +944,7 @@
             await OpenCodeActivity.WaitForSessionAsync(agentSessionId, Repository.Path, cancellationToken);
             response = await WaitForPromptAnswerAsync(agentSessionId, promptMessageId, cancellationToken)
                 ?? throw new InvalidOperationException(L.T("The AI session finished without a completed text response for this request."));
+            await RefreshAgentContextAsync(session, role, sessionKey, agentSessionId, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -1119,6 +1297,7 @@
         public TerminalMode Mode { get; set; } = TerminalMode.Plan;
         public List<CodeBadgerTerminalMessage> Messages => State.Messages;
         public bool IsBusy { get; set; }
+        public bool IsRotatingAgentRole { get; set; }
         public bool IsSubmitting { get; set; }
         public string? Error { get; set; }
         public CancellationTokenSource? RunCancellation { get; set; }

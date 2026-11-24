@@ -2337,6 +2337,71 @@ h1:focus {
     cursor: pointer;
 }
 
+.repository-codebadger-agent-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.55rem;
+    max-width: min(58vw, 46rem);
+}
+
+.repository-codebadger-agent-context {
+    display: flex;
+    flex: 0 1 11rem;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 8.5rem;
+}
+
+.repository-codebadger-agent-context-label {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    min-width: 0;
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.68rem;
+    line-height: 1.1;
+    white-space: nowrap;
+}
+
+.repository-codebadger-agent-context-label > span:first-child {
+    overflow: hidden;
+    color: var(--mud-palette-text-primary);
+    font-weight: 600;
+    text-overflow: ellipsis;
+}
+
+.repository-codebadger-agent-context-label > span:nth-child(2) {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+}
+
+.repository-codebadger-agent-context-label .mud-icon-button {
+    width: 1.35rem;
+    height: 1.35rem;
+    min-width: 1.35rem;
+}
+
+.repository-codebadger-agent-context-track {
+    height: 0.32rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--mud-palette-text-secondary) 18%, transparent);
+}
+
+.repository-codebadger-agent-context-track > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--mud-palette-success);
+    transition: width 220ms ease, background-color 220ms ease;
+}
+
+.repository-codebadger-agent-context-track.medium > span { background: var(--mud-palette-warning); }
+.repository-codebadger-agent-context-track.high > span { background: var(--mud-palette-error); }
+.repository-codebadger-agent-context-track.unavailable { background: color-mix(in srgb, var(--mud-palette-text-secondary) 12%, transparent); }
+.repository-codebadger-agent-context-track.unavailable > span { width: 30%; background: var(--mud-palette-text-disabled); }
+
 .repository-codebadger-session-tab .mud-icon-button {
     width: 1.6rem;
     height: 1.6rem;

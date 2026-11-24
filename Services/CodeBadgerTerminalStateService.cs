@@ -25,6 +25,9 @@ public sealed class CodeBadgerTerminalStateService
             foreach (var session in state.Sessions)
             {
                 session.AgentSessionIds ??= new Dictionary<string, string>(StringComparer.Ordinal);
+                session.AgentSessionGenerations ??= new Dictionary<string, int>(StringComparer.Ordinal);
+                session.AgentContextTokens ??= new Dictionary<string, long>(StringComparer.Ordinal);
+                session.AgentContextModels ??= new Dictionary<string, string>(StringComparer.Ordinal);
                 session.Messages ??= [];
                 foreach (var message in session.Messages)
                     message.Images ??= [];

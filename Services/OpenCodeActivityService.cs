@@ -21,6 +21,7 @@ public sealed class OpenCodeActivityService
     public sealed record AvailableModel(string Reference, string Name, string Status, bool Enabled,
         double InputCost, double OutputCost, bool HasPublishedCost, int Context, int OutputLimit);
     public sealed record AvailableAgent(string Id, string Name, string Mode);
+    public sealed record SessionContextUsage(long Tokens, string ModelReference);
     public sealed record ShareSession(string Id, string Title, bool IsTerminalSession = false,
         bool IsActive = false, long? LastViewedAt = null);
     public sealed record SessionTextMessage(string Id, string Role, string Text);
@@ -299,6 +300,92 @@ public sealed class OpenCodeActivityService
         return combined.Length > 20000 ? combined[..20000] + "\n…" : combined;
     }
 
+    public async Task<SessionContextUsage?> GetLatestContextUsageAsync(string sessionId, string directory,
+        CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId))
+            return null;
+        using var response = await RequestAsync($"/api/session/{sessionId}/message?order=desc&limit=100", cancellationToken,
+            workingDirectory: directory);
+        if (response?.RootElement.TryGetProperty("data", out var messages) != true || messages.ValueKind != JsonValueKind.Array)
+            return null;
+
+        foreach (var message in messages.EnumerateArray())
+        {
+            var info = message.TryGetProperty("info", out var infoValue) && infoValue.ValueKind == JsonValueKind.Object
+                ? infoValue : message.TryGetProperty("message", out var messageValue) && messageValue.ValueKind == JsonValueKind.Object
+                    ? messageValue : message;
+            if ((!TryGetPropertyIgnoreCase(info, "role", out var role) && !TryGetPropertyIgnoreCase(info, "type", out role)) ||
+                role.ValueKind != JsonValueKind.String || role.GetString() is not ("assistant"))
+                continue;
+            if (TryGetPropertyIgnoreCase(info, "error", out var error) && error.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
+                continue;
+            if (TryGetPropertyIgnoreCase(info, "time", out var time) && time.ValueKind == JsonValueKind.Object &&
+                TryGetPropertyIgnoreCase(time, "completed", out var completed) && completed.ValueKind == JsonValueKind.Null)
+                continue;
+            if (!TryGetPropertyIgnoreCase(info, "tokens", out var tokens) || tokens.ValueKind != JsonValueKind.Object)
+                continue;
+
+            var total = GetInt64(tokens, "input") + GetInt64(tokens, "output") + GetInt64(tokens, "reasoning");
+            if (TryGetPropertyIgnoreCase(tokens, "cache", out var cache) && cache.ValueKind == JsonValueKind.Object)
+                total += GetInt64(cache, "read") + GetInt64(cache, "write");
+            if (total <= 0)
+                continue;
+
+            var provider = GetStringIgnoreCase(info, "providerID");
+            var model = GetStringIgnoreCase(info, "modelID");
+            if ((provider.Length == 0 || model.Length == 0) &&
+                TryGetPropertyIgnoreCase(info, "model", out var modelInfo) && modelInfo.ValueKind == JsonValueKind.Object)
+            {
+                if (provider.Length == 0) provider = GetStringIgnoreCase(modelInfo, "providerID");
+                if (model.Length == 0) model = GetStringIgnoreCase(modelInfo, "id");
+            }
+            return new SessionContextUsage(total,
+                provider.Length > 0 && model.Length > 0 ? $"{provider}/{model}" : string.Empty);
+        }
+        return null;
+    }
+
+    public async Task<string> GenerateSessionHandoffSummaryAsync(string sessionId, string directory,
+        CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId))
+            throw new ArgumentException("Invalid OpenCode session ID.", nameof(sessionId));
+        if (await IsSessionActiveAsync(sessionId, directory, cancellationToken) != false)
+            throw new InvalidOperationException("OpenCode could not confirm that the agent is idle before creating a handoff summary.");
+        var request = new
+        {
+            prompt = "Create a concise handoff summary for continuing this task in a fresh agent session. " +
+                "Preserve the user's goal, important decisions and constraints, relevant files, completed work, " +
+                "remaining steps, and unresolved questions. Do not claim work is complete unless the session confirms it. " +
+                "Use clear Markdown and keep only information needed to continue."
+        };
+        using var response = await RequestAsync($"/api/session/{sessionId}/generate", cancellationToken,
+            HttpMethod.Post, JsonSerializer.Serialize(request), directory, timeoutSeconds: 120);
+        if (response?.RootElement.TryGetProperty("data", out var data) != true ||
+            !data.TryGetProperty("text", out var text) || text.ValueKind != JsonValueKind.String ||
+            string.IsNullOrWhiteSpace(text.GetString()))
+            throw new InvalidOperationException("OpenCode could not generate a handoff summary for the session.");
+        return text.GetString()!;
+    }
+
+    public async Task AddSessionHandoffSummaryAsync(string sessionId, string directory, string summary,
+        CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId) || string.IsNullOrWhiteSpace(summary))
+            throw new ArgumentException("A valid session and non-empty handoff summary are required.");
+        var payload = JsonSerializer.Serialize(new
+        {
+            text = "Session handoff summary from the previous agent session:\n\n" + summary,
+            description = "CodeBadger session handoff",
+            resume = false
+        });
+        using var response = await RequestAsync($"/api/session/{sessionId}/synthetic", cancellationToken,
+            HttpMethod.Post, payload, directory);
+        if (response is null)
+            throw new InvalidOperationException("OpenCode could not add the handoff summary to the new session.");
+    }
+
     private static bool IsValidMessageId(string messageId) =>
         messageId.StartsWith("msg_", StringComparison.Ordinal) &&
         messageId.All(character => char.IsAsciiLetterOrDigit(character) || character == '_');
@@ -306,6 +393,10 @@ public sealed class OpenCodeActivityService
     private static string GetStringIgnoreCase(JsonElement element, string property) =>
         TryGetPropertyIgnoreCase(element, property, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? string.Empty : string.Empty;
+
+    private static long GetInt64(JsonElement element, string property) =>
+        TryGetPropertyIgnoreCase(element, property, out var value) && value.ValueKind == JsonValueKind.Number &&
+        value.TryGetInt64(out var number) && number > 0 ? number : 0;
 
     public async Task<IReadOnlyList<SessionTextMessage>> GetRecentUserMessagesAsync(string sessionId, string directory,
         CancellationToken cancellationToken)

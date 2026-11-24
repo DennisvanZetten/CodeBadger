@@ -767,7 +767,18 @@ public sealed class OpenCodeActivityService
             throw new ArgumentException("Invalid OpenCode session ID.", nameof(sessionId));
         using var response = await RequestAsync($"/api/experimental/session/{sessionId}/wait", cancellationToken,
             HttpMethod.Post, workingDirectory: directory, timeoutSeconds: 300);
+        cancellationToken.ThrowIfCancellationRequested();
         // The opencode API CLI prints no JSON for this successful HTTP 204 response.
+    }
+
+    public async Task InterruptSessionAsync(string sessionId, string directory, CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId))
+            throw new ArgumentException("Invalid OpenCode session ID.", nameof(sessionId));
+        using var response = await RequestAsync($"/api/session/{sessionId}/interrupt", cancellationToken,
+            HttpMethod.Post, workingDirectory: directory);
+        if (response is null)
+            throw new InvalidOperationException("Could not interrupt the OpenCode session.");
     }
 
     public async Task SwitchModelAsync(string sessionId, string directory, string modelReference,

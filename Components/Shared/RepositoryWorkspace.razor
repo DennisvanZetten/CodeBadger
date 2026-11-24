@@ -191,6 +191,13 @@
                                     {
                                         <MudText Typo="Typo.button">@L.T("Full orchestration")</MudText>
                                     }
+                                    @if (session.IsBusy)
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error"
+                                                   StartIcon="@Icons.Material.Filled.StopCircle" OnClick="() => CancelPromptAsync(session)">
+                                            @L.T("Stop agent")
+                                        </MudButton>
+                                    }
                                     <MudText Typo="Typo.caption" Color="Color.Secondary">@SessionAgentModelLabel(session)</MudText>
                                 </footer>
                             </div>
@@ -498,21 +505,25 @@
     {
         session.IsBusy = true;
         session.Error = null;
+        session.RunCancellation?.Dispose();
+        session.RunCancellation = new CancellationTokenSource();
+        var cancellationToken = session.RunCancellation.Token;
         await InvokeAsync(StateHasChanged);
         try
         {
             if (AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode)
                 throw new NotSupportedException(L.T("The CodeBadger connector currently supports OpenCode. Other agent connectors will be added later."));
 
-            _availableOpenCodeModels = await OpenCodeActivity.GetAvailableModelsAsync(Repository.Path, CancellationToken.None);
+            _availableOpenCodeModels = await OpenCodeActivity.GetAvailableModelsAsync(Repository.Path, cancellationToken);
             if (_availableOpenCodeModels.Count == 0)
                 throw new InvalidOperationException(L.T("OpenCode did not return any available models for this repository."));
+            cancellationToken.ThrowIfCancellationRequested();
             _settings = await SettingsService.LoadAsync();
             var preferences = _settings.CodeBadgerRolePreferences;
             switch (CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode))
             {
                 case CodeBadgerOrchestrationModes.SingleAgent:
-                    await RunSingleAgentPromptAsync(session, prompt, preferences);
+                    await RunSingleAgentPromptAsync(session, prompt, preferences, cancellationToken);
                     break;
                 case CodeBadgerOrchestrationModes.PlanBuild:
                     var requestedMode = session.Mode;
@@ -525,17 +536,17 @@
                         ? priorPlan
                         : await RunRoleAsync(session, CodeBadgerRoles.Planner,
                             session.Mode == TerminalMode.Plan ? prompt : "First produce an actionable plan for this implementation request. Do not edit files yet.\n\n" + prompt,
-                            parentRole: null, preferences);
+                            parentRole: null, preferences, cancellationToken);
                     if (requestedMode == TerminalMode.Plan)
                         break;
                     await RunRoleAsync(session, CodeBadgerRoles.Worker,
                         $"Implement the following plan in this repository. Make the required code changes, run appropriate checks, and report the result.\n\nPlan:\n{plan}",
-                        CodeBadgerRoles.Planner, preferences);
+                        CodeBadgerRoles.Planner, preferences, cancellationToken);
                     session.Mode = TerminalMode.Build;
                     session.State.Mode = "Build";
                     break;
                 case CodeBadgerOrchestrationModes.Full:
-                    await RunFullOrchestrationAsync(session, prompt, preferences);
+                    await RunFullOrchestrationAsync(session, prompt, preferences, cancellationToken);
                     break;
             }
             if (CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.SingleAgent)
@@ -543,6 +554,10 @@
                 session.State.Mode = "Build";
                 session.Mode = TerminalMode.Build;
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            Snackbar.Add(L.T("The agent request was stopped."), Severity.Info);
         }
         catch (Exception exception)
         {
@@ -552,25 +567,50 @@
         finally
         {
             session.IsBusy = false;
+            session.ActiveOpenCodeSessionId = null;
+            session.RunCancellation?.Dispose();
+            session.RunCancellation = null;
             await PersistTerminalStateAsync();
             await InvokeAsync(StateHasChanged);
         }
     }
 
+    private async Task CancelPromptAsync(CodeBadgerTerminalSession session)
+    {
+        var cancellation = session.RunCancellation;
+        if (cancellation is null || !session.IsBusy)
+            return;
+
+        cancellation.Cancel();
+        if (session.ActiveOpenCodeSessionId is { } sessionId)
+        {
+            try
+            {
+                await OpenCodeActivity.InterruptSessionAsync(sessionId, Repository.Path, CancellationToken.None);
+            }
+            catch (Exception exception)
+            {
+                Logger.LogWarning(exception, "Could not interrupt OpenCode session {SessionId} after a terminal stop request.", sessionId);
+            }
+        }
+    }
+
     private async Task RunSingleAgentPromptAsync(CodeBadgerTerminalSession session, string prompt,
-        IReadOnlyList<CodeBadgerRolePreference> preferences)
+        IReadOnlyList<CodeBadgerRolePreference> preferences, CancellationToken cancellationToken)
     {
         var role = session.Mode == TerminalMode.Plan ? CodeBadgerRoles.Planner : CodeBadgerRoles.Worker;
-        await RunRoleAsync(session, role, prompt, parentRole: null, preferences);
+        await RunRoleAsync(session, role, prompt, parentRole: null, preferences, cancellationToken);
     }
 
     private async Task<string> RunRoleAsync(CodeBadgerTerminalSession session, string role, string prompt,
-        string? parentRole, IReadOnlyList<CodeBadgerRolePreference> preferences)
+        string? parentRole, IReadOnlyList<CodeBadgerRolePreference> preferences, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var preference = preferences.FirstOrDefault(item => item.Role == role)
             ?? new CodeBadgerRolePreference { Role = role, AgentType = CodeBadgerRoles.DefaultAgentType(role) };
-        var preferenceAgent = await ResolvePreferenceAgentAsync(preference, role);
-        var model = await ResolveRoleModelAsync(session, preference, role, prompt, preferences);
+        var preferenceAgent = await ResolvePreferenceAgentAsync(preference, role, cancellationToken);
+        var model = await ResolveRoleModelAsync(session, preference, role, prompt, preferences, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         var parentId = parentRole is not null && session.State.AgentSessionIds.TryGetValue(parentRole, out var existingParent)
             ? existingParent : null;
         var orchestrationMode = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode);
@@ -579,7 +619,7 @@
         if (!session.State.AgentSessionIds.TryGetValue(sessionKey, out var agentSessionId))
         {
             var created = await OpenCodeActivity.CreateOrchestrationSessionAsync(Repository.Path, preferenceAgent,
-                $"{session.Title} · {RoleDisplayName(role)}", parentId, model, CancellationToken.None);
+                $"{session.Title} · {RoleDisplayName(role)}", parentId, model, cancellationToken);
             agentSessionId = created.Id;
             session.State.AgentSessionIds[sessionKey] = agentSessionId;
             await PersistTerminalStateAsync();
@@ -587,9 +627,11 @@
         else
         {
             if (!string.IsNullOrWhiteSpace(model))
-                await OpenCodeActivity.SwitchModelAsync(agentSessionId, Repository.Path, model, CancellationToken.None);
-            await OpenCodeActivity.SwitchAgentAsync(agentSessionId, Repository.Path, preferenceAgent, CancellationToken.None);
+                await OpenCodeActivity.SwitchModelAsync(agentSessionId, Repository.Path, model, cancellationToken);
+            await OpenCodeActivity.SwitchAgentAsync(agentSessionId, Repository.Path, preferenceAgent, cancellationToken);
         }
+        cancellationToken.ThrowIfCancellationRequested();
+        session.ActiveOpenCodeSessionId = agentSessionId;
         session.State.ActiveAgentRole = role;
         var modelStateKey = orchestrationMode == CodeBadgerOrchestrationModes.SingleAgent
             ? "Model:SingleAgent" : "Model:" + role;
@@ -607,10 +649,17 @@
         string response;
         try
         {
-            await OpenCodeActivity.SendPromptAsync(agentSessionId, Repository.Path, prompt, CancellationToken.None, preferenceAgent);
-            await OpenCodeActivity.WaitForSessionAsync(agentSessionId, Repository.Path, CancellationToken.None);
-            response = await OpenCodeActivity.GetLatestCompletedAnswerAsync(agentSessionId, Repository.Path, CancellationToken.None)
+            await OpenCodeActivity.SendPromptAsync(agentSessionId, Repository.Path, prompt, cancellationToken, preferenceAgent);
+            await OpenCodeActivity.WaitForSessionAsync(agentSessionId, Repository.Path, cancellationToken);
+            response = await OpenCodeActivity.GetLatestCompletedAnswerAsync(agentSessionId, Repository.Path, cancellationToken)
                 ?? L.T("The AI session completed without a text response.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            pendingMessage.Text = L.T("The agent request was stopped.");
+            await PersistTerminalStateAsync();
+            await InvokeAsync(StateHasChanged);
+            throw;
         }
         catch (Exception exception)
         {
@@ -625,9 +674,10 @@
         return response;
     }
 
-    private async Task<string> ResolvePreferenceAgentAsync(CodeBadgerRolePreference preference, string role)
+    private async Task<string> ResolvePreferenceAgentAsync(CodeBadgerRolePreference preference, string role,
+        CancellationToken cancellationToken)
     {
-        var agents = await OpenCodeActivity.GetAvailableAgentOptionsAsync(Repository.Path, CancellationToken.None);
+        var agents = await OpenCodeActivity.GetAvailableAgentOptionsAsync(Repository.Path, cancellationToken);
         string? requestedId = preference.AgentType switch
         {
             "Plan" => "plan",
@@ -673,42 +723,42 @@
     }
 
     private async Task RunFullOrchestrationAsync(CodeBadgerTerminalSession session, string prompt,
-        IReadOnlyList<CodeBadgerRolePreference> preferences)
+        IReadOnlyList<CodeBadgerRolePreference> preferences, CancellationToken cancellationToken)
     {
         var route = await RunRoleAsync(session, CodeBadgerRoles.Router,
             "Classify this user request. Reply with concise JSON containing task_type, needs_research (boolean), needs_implementation (boolean), and summary. Do not perform the task yet.\n\nRequest:\n" + prompt,
-            null, preferences);
+            null, preferences, cancellationToken);
         var assignments = await RunRoleAsync(session, CodeBadgerRoles.Orchestrator,
             $"Act as manager. Break the task into subtasks for planning, research, implementation, and review. Return concise JSON listing subtasks and dependencies. Do not inspect or modify files; CodeBadger dispatches roles. Routing analysis: {route}\n\nRequest:\n{prompt}",
-            null, preferences);
+            null, preferences, cancellationToken);
         var needsResearch = ReadBooleanField(route, "needs_research");
         var needsImplementation = ReadBooleanField(route, "needs_implementation");
         if (needsResearch)
             await RunRoleAsync(session, CodeBadgerRoles.Rag,
                 "Research relevant repository context, files, and available knowledge sources. Report evidence and paths.\n\n" + prompt,
-                CodeBadgerRoles.Orchestrator, preferences);
+                CodeBadgerRoles.Orchestrator, preferences, cancellationToken);
 
         var plan = await RunRoleAsync(session, CodeBadgerRoles.Planner,
             $"Develop an actionable plan based on the manager's task breakdown. Manager breakdown: {assignments}\nRouting analysis: {route}\n\nRequest:\n{prompt}",
-            CodeBadgerRoles.Orchestrator, preferences);
+            CodeBadgerRoles.Orchestrator, preferences, cancellationToken);
         var context = new StringBuilder().AppendLine("Request:").AppendLine(prompt).AppendLine().AppendLine("Plan:").AppendLine(plan);
         if (session.State.Messages.LastOrDefault(message => message.AgentRole == CodeBadgerRoles.Rag) is { } research)
             context.AppendLine().AppendLine("Research findings:").AppendLine(research.Text);
         var build = needsImplementation
             ? await RunRoleAsync(session, CodeBadgerRoles.Worker,
                 $"Execute this plan in the repository, update files, run relevant checks, then summarize changed files and test results.\n\n{context}",
-                CodeBadgerRoles.Orchestrator, preferences)
+                CodeBadgerRoles.Orchestrator, preferences, cancellationToken)
             : L.T("No implementation was requested by the triage agent.");
         var review = await RunRoleAsync(session, CodeBadgerRoles.Critic,
             $"Review the plan and any implementation/test report. Reply only with JSON {{\"needs_changes\": boolean, \"findings\": [strings]}}. Do not edit files.\n\nRequest:\n{prompt}\n\nPlan:\n{plan}\n\nImplementation report:\n{build}",
-            CodeBadgerRoles.Orchestrator, preferences);
+            CodeBadgerRoles.Orchestrator, preferences, cancellationToken);
         if (needsImplementation && ReadBooleanField(review, "needs_changes"))
             await RunRoleAsync(session, CodeBadgerRoles.Worker,
                 "Address these review findings, run relevant checks, and report what changed:\n\n" + ReadStringField(review, "findings"),
-                CodeBadgerRoles.Orchestrator, preferences);
+                CodeBadgerRoles.Orchestrator, preferences, cancellationToken);
         await RunRoleAsync(session, CodeBadgerRoles.Orchestrator,
             "Provide a concise final user-facing summary based on the completed plan, implementation, and review.\n\nRequest:\n" + prompt,
-            null, preferences);
+            null, preferences, cancellationToken);
     }
 
     private static bool ReadBooleanField(string json, string field)
@@ -748,7 +798,7 @@
 
     private async Task<string> ResolveRoleModelAsync(CodeBadgerTerminalSession session,
         CodeBadgerRolePreference preference, string role, string taskDescription,
-        IReadOnlyList<CodeBadgerRolePreference> preferences)
+        IReadOnlyList<CodeBadgerRolePreference> preferences, CancellationToken cancellationToken)
     {
         var available = _availableOpenCodeModels.Where(model => model.Enabled && model.Status == "active").ToArray();
         foreach (var preferred in preference.PreferredModels.Where(model => !string.IsNullOrWhiteSpace(model)))
@@ -761,7 +811,7 @@
             {
                 var routerPreference = preferences.FirstOrDefault(item => item.Role == CodeBadgerRoles.Router)
                     ?? new CodeBadgerRolePreference { Role = CodeBadgerRoles.Router, AgentType = "Plan" };
-                var routerAgent = await ResolvePreferenceAgentAsync(routerPreference, CodeBadgerRoles.Router);
+                var routerAgent = await ResolvePreferenceAgentAsync(routerPreference, CodeBadgerRoles.Router, cancellationToken);
                 var routerModel = routerPreference?.PreferredModels.FirstOrDefault(value => available.Any(model =>
                     string.Equals(model.Reference, value, StringComparison.OrdinalIgnoreCase)));
                 const string selectorRolePrefix = "ModelSelector:";
@@ -773,11 +823,12 @@
                             ? _agentModelReference
                             : available.OrderBy(model => EstimatedCost(model, CodeBadgerRoles.Router)).First().Reference;
                     var selector = await OpenCodeActivity.CreateOrchestrationSessionAsync(Repository.Path,
-                        routerAgent, $"{session.Title} · Model selector · {role}", null, seedModel, CancellationToken.None);
+                        routerAgent, $"{session.Title} · Model selector · {role}", null, seedModel, cancellationToken);
                     selectorSessionId = selector.Id;
                     session.State.AgentSessionIds[selectorKey] = selectorSessionId;
                     await PersistTerminalStateAsync();
                 }
+                session.ActiveOpenCodeSessionId = selectorSessionId;
 
                 var candidates = available.Take(24).Select(model => new
                 {
@@ -785,13 +836,17 @@
                     model.InputCost, model.OutputCost, model.HasPublishedCost
                 });
                 var request = $"Choose the best model for the AI role '{RoleDisplayName(role)}' and the task below. Infer task suitability from model name/family and context/output limits. Treat price as a cost tradeoff, never assume an unpriced model is free. Prefer a priced model when quality looks comparable; choose an unpriced model only when its likely task quality is materially better. Choose exactly one Reference from the candidate JSON; if metadata cannot establish a quality advantage, choose the cheapest capable model with a published price. Return only JSON {{\"model\":\"provider/model\"}}.\nTask:\n{taskDescription}\nCandidates (prices USD per million tokens):\n{System.Text.Json.JsonSerializer.Serialize(candidates)}";
-                await OpenCodeActivity.SendPromptAsync(selectorSessionId, Repository.Path, request, CancellationToken.None,
+                await OpenCodeActivity.SendPromptAsync(selectorSessionId, Repository.Path, request, cancellationToken,
                     routerAgent);
-                await OpenCodeActivity.WaitForSessionAsync(selectorSessionId, Repository.Path, CancellationToken.None);
-                var result = await OpenCodeActivity.GetLatestCompletedAnswerAsync(selectorSessionId, Repository.Path, CancellationToken.None);
+                await OpenCodeActivity.WaitForSessionAsync(selectorSessionId, Repository.Path, cancellationToken);
+                var result = await OpenCodeActivity.GetLatestCompletedAnswerAsync(selectorSessionId, Repository.Path, cancellationToken);
                 var selected = ReadStringField(result ?? string.Empty, "model");
                 var match = available.FirstOrDefault(model => string.Equals(model.Reference, selected, StringComparison.OrdinalIgnoreCase));
                 if (match is not null) return match.Reference;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception exception)
             {
@@ -918,6 +973,8 @@
         public List<CodeBadgerTerminalMessage> Messages => State.Messages;
         public bool IsBusy { get; set; }
         public string? Error { get; set; }
+        public CancellationTokenSource? RunCancellation { get; set; }
+        public string? ActiveOpenCodeSessionId { get; set; }
     }
 
 }

@@ -165,7 +165,10 @@
                                     }
                                     @if (session.IsBusy)
                                     {
-                                        <div class="repository-codebadger-working"><MudProgressCircular Indeterminate="true" Size="Size.Small" /> @L.T("Agents are working...")</div>
+                                        <div class="repository-codebadger-working">
+                                            <span>@L.T("Agents are working...")</span>
+                                            <img class="repository-codebadger-working-logo" src="codebadger.svg" alt="" aria-hidden="true" />
+                                        </div>
                                     }
                                     @if (!string.IsNullOrWhiteSpace(session.Error))
                                     {

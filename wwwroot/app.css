@@ -2400,6 +2400,37 @@ h1:focus {
     height: 1rem;
 }
 
+.repository-codebadger-working {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin: 0.25rem 0 0.75rem;
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.875rem;
+}
+
+.repository-codebadger-working-logo {
+    width: 1.45rem;
+    height: 1.45rem;
+    object-fit: contain;
+    animation: codebadger-working-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes codebadger-working-pulse {
+    0%, 100% {
+        transform: scale(0.92);
+        filter: drop-shadow(0 0 0 color-mix(in srgb, var(--mud-palette-primary) 0%, transparent));
+    }
+    50% {
+        transform: scale(1.08);
+        filter: drop-shadow(0 0 0.42rem color-mix(in srgb, var(--mud-palette-primary) 82%, transparent));
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .repository-codebadger-working-logo { animation: none; }
+}
+
 .repository-codebadger-message-content {
     color: var(--mud-palette-text-primary);
     white-space: pre-wrap;

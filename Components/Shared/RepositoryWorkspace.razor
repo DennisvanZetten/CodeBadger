@@ -59,6 +59,70 @@
 
                 <div class="repository-terminal-splitter" role="separator" aria-orientation="horizontal"
                      aria-label="@L.T("Resize terminal panels")" tabindex="0">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="repository-codebadger-session-tabs">
+                        @foreach (var session in _terminalSessions)
+                        {
+                            <div class="repository-codebadger-session-tab @(session.Id == _selectedTerminalSessionId ? "selected" : string.Empty)">
+                                <button type="button" class="repository-codebadger-session-select" @onclick="() => SelectTerminalSession(session.Id)">
+                                    @session.Title
+                                </button>
+                                @if (_terminalSessions.Count > 1)
+                                {
+                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close"
+                                                   aria-label="@L.T("Close session {0}", session.Title)"
+                                                   OnClick="@(() => CloseTerminalSessionAsync(session.Id))" />
+                                }
+                            </div>
+                        }
+                        <MudTooltip Text="@L.T("New session")">
+                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add"
+                                           aria-label="@L.T("New session")" OnClick="AddTerminalSession" />
+                        </MudTooltip>
+                        @if (_terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is { } currentTerminalSession)
+                        {
+                            <div class="repository-codebadger-agent-links">
+                                @foreach (var role in GetTrackedAgentRoles(currentTerminalSession))
+                                {
+                                    var roleSessionKey = GetRoleSessionKey(currentTerminalSession, role);
+                                    if (currentTerminalSession.State.AgentSessionIds.TryGetValue(roleSessionKey, out var agentSessionId))
+                                    {
+                                        var contextUsage = GetContextUsage(currentTerminalSession, roleSessionKey, agentSessionId);
+                                        var progress = contextUsage?.Percent ?? 0;
+                                        <div class="repository-codebadger-agent-context" title="@(contextUsage is not { Limit: > 0 }
+                                            ? L.T("Context usage unavailable")
+                                            : L.T("{0}% of {1} tokens", progress, contextUsage.Limit.ToString("N0")))">
+                                            <div class="repository-codebadger-agent-context-label">
+                                                <span>@RoleDisplayName(role)</span>
+                                                @if (contextUsage is { Limit: > 0 })
+                                                {
+                                                    <span>@contextUsage.Used.ToString("N0") / @contextUsage.Limit.ToString("N0")</span>
+                                                }
+                                                @if (!IsAgentRoleBusy(currentTerminalSession, role) && !currentTerminalSession.IsRotatingAgentRole)
+                                                {
+                                                    <MudTooltip Text="@L.T("Continue in a new session with a summary")">
+                                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.AutoAwesome"
+                                                                       Color="Color.Primary" aria-label="@L.T("Continue in a new session with a summary")"
+                                                                       OnClick="() => RotateAgentSessionAsync(currentTerminalSession, role)" />
+                                                    </MudTooltip>
+                                                }
+                                            </div>
+                                            @if (contextUsage is not { Limit: > 0 })
+                                            {
+                                                <div class="repository-codebadger-agent-context-track unavailable"><span></span></div>
+                                            }
+                                            else
+                                            {
+                                                var level = progress >= 85 ? "high" : progress >= 70 ? "medium" : "low";
+                                                <div class="repository-codebadger-agent-context-track @level">
+                                                    <span style="width:@(progress)%"></span>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        }
+                    </MudStack>
                     <span class="repository-terminal-splitter-grip" aria-hidden="true"></span>
                     <div class="repository-terminal-splitter-actions">
                         <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal" : "Hide AI terminal")">
@@ -75,73 +139,6 @@
                 </div>
 
                 <section class="repository-codebadger-pane" aria-label="@L.T("CodeBadger terminal")">
-                    <div class="repository-codebadger-terminal-header">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="repository-codebadger-session-tabs">
-                            @foreach (var session in _terminalSessions)
-                            {
-                                <div class="repository-codebadger-session-tab @(session.Id == _selectedTerminalSessionId ? "selected" : string.Empty)">
-                                    <button type="button" class="repository-codebadger-session-select" @onclick="() => SelectTerminalSession(session.Id)">
-                                        @session.Title
-                                    </button>
-                                    @if (_terminalSessions.Count > 1)
-                                    {
-                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close"
-                                                       aria-label="@L.T("Close session {0}", session.Title)"
-                                                       OnClick="@(() => CloseTerminalSessionAsync(session.Id))" />
-                                    }
-                                </div>
-                            }
-                            <MudTooltip Text="@L.T("New session")">
-                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add"
-                                               aria-label="@L.T("New session")" OnClick="AddTerminalSession" />
-                            </MudTooltip>
-                            @if (_terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is { } currentTerminalSession)
-                            {
-                                <div class="repository-codebadger-agent-links">
-                                    @foreach (var role in GetTrackedAgentRoles(currentTerminalSession))
-                                    {
-                                        var roleSessionKey = GetRoleSessionKey(currentTerminalSession, role);
-                                        if (currentTerminalSession.State.AgentSessionIds.TryGetValue(roleSessionKey, out var agentSessionId))
-                                        {
-                                            var contextUsage = GetContextUsage(currentTerminalSession, roleSessionKey, agentSessionId);
-                                            var progress = contextUsage?.Percent ?? 0;
-                                            <div class="repository-codebadger-agent-context" title="@(contextUsage is not { Limit: > 0 }
-                                                ? L.T("Context usage unavailable")
-                                                : L.T("{0}% of {1} tokens", progress, contextUsage.Limit.ToString("N0")))">
-                                                <div class="repository-codebadger-agent-context-label">
-                                                    <span>@RoleDisplayName(role)</span>
-                                                    @if (contextUsage is { Limit: > 0 })
-                                                    {
-                                                        <span>@contextUsage.Used.ToString("N0") / @contextUsage.Limit.ToString("N0")</span>
-                                                    }
-                                                    @if (!IsAgentRoleBusy(currentTerminalSession, role) && !currentTerminalSession.IsRotatingAgentRole)
-                                                    {
-                                                        <MudTooltip Text="@L.T("Continue in a new session with a summary")">
-                                                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.AutoAwesome"
-                                                                           Color="Color.Primary" aria-label="@L.T("Continue in a new session with a summary")"
-                                                                           OnClick="() => RotateAgentSessionAsync(currentTerminalSession, role)" />
-                                                        </MudTooltip>
-                                                    }
-                                                </div>
-                                                @if (contextUsage is not { Limit: > 0 })
-                                                {
-                                                    <div class="repository-codebadger-agent-context-track unavailable"><span></span></div>
-                                                }
-                                                else
-                                                {
-                                                    var level = progress >= 85 ? "high" : progress >= 70 ? "medium" : "low";
-                                                    <div class="repository-codebadger-agent-context-track @level">
-                                                        <span style="width:@(progress)%"></span>
-                                                    </div>
-                                                }
-                                            </div>
-                                        }
-                                    }
-                                </div>
-                            }
-                        </MudStack>
-                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })</MudText>
-                    </div>
                     <div class="repository-codebadger-session-content">
                         @foreach (var session in _terminalSessions)
                         {

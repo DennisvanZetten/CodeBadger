@@ -2227,7 +2227,7 @@ h1:focus {
 
 .repository-terminal-stack {
     display: grid;
-    grid-template-rows: minmax(120px, var(--ai-terminal-height, 38%)) 2rem minmax(120px, 1fr);
+    grid-template-rows: minmax(120px, var(--ai-terminal-height, 38%)) 2.25rem minmax(120px, 1fr);
     gap: 0.2rem;
     height: 100%;
     min-height: 0;
@@ -2236,11 +2236,11 @@ h1:focus {
 }
 
 .repository-terminal-stack.ai-pane-collapsed {
-    grid-template-rows: 0 2rem minmax(0, 1fr);
+    grid-template-rows: 0 2.25rem minmax(0, 1fr);
 }
 
 .repository-terminal-stack.ai-pane-expanded {
-    grid-template-rows: minmax(0, 1fr) 2rem 0;
+    grid-template-rows: minmax(0, 1fr) 2.25rem 0;
 }
 
 .repository-ai-pane,
@@ -2265,8 +2265,11 @@ h1:focus {
     z-index: 2;
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    min-width: 0;
     min-height: 0;
+    padding: 0 0.5rem;
     cursor: ns-resize;
     touch-action: none;
     outline: none;
@@ -2279,15 +2282,20 @@ h1:focus {
 }
 
 .repository-terminal-splitter-grip {
-    width: 2.5rem;
+    flex: 1 1 auto;
+    min-width: 1.5rem;
     height: 3px;
     border-radius: 2px;
     background: var(--mud-palette-divider);
 }
 
+.repository-terminal-splitter > .repository-codebadger-session-tabs {
+    flex: 0 1 auto;
+    max-width: min(55%, 54rem);
+}
+
 .repository-terminal-splitter-actions {
-    position: absolute;
-    right: 0.35rem;
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
     gap: 0.1rem;
@@ -2297,25 +2305,18 @@ h1:focus {
     background: var(--mud-palette-background);
 }
 
-.repository-codebadger-terminal-header {
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: space-between;
-    min-height: 2.5rem;
-    padding: 0 0.5rem;
-    border-bottom: 1px solid var(--mud-palette-divider);
-}
-
 .repository-codebadger-session-tabs {
     min-width: 0;
     overflow-x: auto;
+    scrollbar-width: thin;
 }
 
 .repository-codebadger-session-tab {
     display: flex;
     align-items: center;
     gap: 0.1rem;
+    flex: 0 1 auto;
+    min-width: 0;
     max-width: 13rem;
     border: 1px solid var(--mud-palette-divider);
     border-radius: var(--mud-default-borderradius);
@@ -2327,8 +2328,9 @@ h1:focus {
 }
 
 .repository-codebadger-session-select {
+    min-width: 0;
     overflow: hidden;
-    padding: 0.25rem 0.45rem;
+    padding: 0.15rem 0.35rem;
     border: 0;
     background: transparent;
     color: var(--mud-palette-text-primary);
@@ -2339,18 +2341,22 @@ h1:focus {
 
 .repository-codebadger-agent-links {
     display: flex;
-    flex-wrap: wrap;
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
     align-items: center;
-    gap: 0.55rem;
-    max-width: min(58vw, 46rem);
+    gap: 0.35rem;
+    min-width: 0;
+    max-width: min(42vw, 36rem);
+    overflow-x: auto;
+    scrollbar-width: none;
 }
 
 .repository-codebadger-agent-context {
     display: flex;
-    flex: 0 1 11rem;
+    flex: 0 1 8rem;
     flex-direction: column;
-    gap: 0.15rem;
-    min-width: 8.5rem;
+    gap: 0.1rem;
+    min-width: 5.5rem;
 }
 
 .repository-codebadger-agent-context-label {
@@ -2403,8 +2409,45 @@ h1:focus {
 .repository-codebadger-agent-context-track.unavailable > span { width: 30%; background: var(--mud-palette-text-disabled); }
 
 .repository-codebadger-session-tab .mud-icon-button {
-    width: 1.6rem;
-    height: 1.6rem;
+    width: 1.45rem;
+    height: 1.45rem;
+    min-width: 1.45rem;
+}
+
+.repository-terminal-splitter-actions .mud-icon-button {
+    width: 1.65rem;
+    height: 1.65rem;
+    min-width: 1.65rem;
+}
+
+@media (max-width: 900px) {
+    .repository-terminal-splitter {
+        gap: 0.25rem;
+        padding: 0 0.25rem;
+    }
+
+    .repository-terminal-splitter > .repository-codebadger-session-tabs {
+        max-width: 48%;
+    }
+
+    .repository-codebadger-agent-links {
+        max-width: 30vw;
+    }
+
+    .repository-codebadger-agent-context {
+        min-width: 4.5rem;
+        flex-basis: 5rem;
+    }
+}
+
+@media (max-width: 600px) {
+    .repository-terminal-splitter > .repository-codebadger-session-tabs {
+        max-width: 55%;
+    }
+
+    .repository-codebadger-agent-links {
+        display: none;
+    }
 }
 
 .repository-codebadger-session-content,

@@ -36,7 +36,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
     public bool IsInteractiveAgentWorking(Guid id) =>
         _interactiveAgentSessions.ContainsKey(id) &&
         _interactiveAgentLastInput.TryGetValue(id, out var lastInput) &&
-        DateTime.UtcNow - lastInput < TimeSpan.FromMinutes(10) &&
+        DateTime.UtcNow - lastInput < TimeSpan.FromHours(8) &&
         _interactiveAgentLastActivity.TryGetValue(id, out var lastActivity) &&
         (lastActivity <= lastInput
             ? DateTime.UtcNow - lastInput < TimeSpan.FromSeconds(90)
@@ -272,7 +272,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         OutputReceived?.Invoke(id, text);
         if (_interactiveAgentSessions.ContainsKey(id) &&
             _interactiveAgentLastInput.TryGetValue(id, out var lastInput) &&
-            DateTime.UtcNow - lastInput < TimeSpan.FromMinutes(10))
+            DateTime.UtcNow - lastInput < TimeSpan.FromHours(8))
             _interactiveAgentLastActivity[id] = DateTime.UtcNow;
     }
 

@@ -45,6 +45,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<OpenCodeActivityService>();
 		builder.Services.AddSingleton<SessionShareService>();
 		builder.Services.AddSingleton<SlackNotificationService>();
+		builder.Services.AddSingleton<AgentSessionNotificationService>();
 		builder.Services.AddSingleton<GitBranchService>();
 		builder.Services.AddSingleton<GitHostService>();
 		builder.Services.AddSingleton<TicketMcpService>();

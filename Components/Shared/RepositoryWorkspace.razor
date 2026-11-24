@@ -1,6 +1,9 @@
 @using CodeBadger.Components.Pages
 @inject LocalizationService L
 @inject RepositoryDetachedWindowService DetachedWindows
+@inject AgentSessionNotificationService AgentSessionNotifications
+@inject Microsoft.Extensions.Logging.ILogger<RepositoryWorkspace> Logger
+@inject WindowsTerminalSessionService TerminalSessions
 
 <MudPaper Outlined="true" Elevation="0" Class="repository-workspace" data-repository-id="@Repository.Id">
     @if (!RepositoryExists)
@@ -12,6 +15,12 @@
     else
     {
         <div class="repository-terminal-panel">
+            @if (!string.IsNullOrWhiteSpace(_notificationSetupError))
+            {
+                <MudAlert Dense="true" Severity="Severity.Warning" Variant="Variant.Outlined">
+                    @L.T("Session notifications could not be configured: {0}", _notificationSetupError)
+                </MudAlert>
+            }
             @if (AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode && Repository.OpenCodeSandboxEnabled)
             {
                 <SandboxRepositoryTerminal @key="TerminalKey" RepositoryId="Repository.Id"
@@ -22,7 +31,7 @@
             else if (AgentAvailable)
             {
                 <RepositoryTerminal @key="TerminalKey" SessionId="Repository.Id" RepositoryPath="@Repository.Path"
-                                    Command="@AgentTools.GetCommand(Repository.AgentTool)"
+                                    Command="@_agentCommand"
                                     OpenCodeSandboxEnabled="@(AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode && Repository.OpenCodeSandboxEnabled)"
                                     OpenCodeSessionId="@OpenCodeSessionId"
                                     IsVisible="@IsVisible" />
@@ -76,6 +85,35 @@
 
     private string TerminalKey =>
         $"{Repository.Id}:{Repository.Path}:{AgentTools.Normalize(Repository.AgentTool)}:{Repository.OpenCodeSandboxEnabled}:{Repository.OpenCodeSandboxModel}:{Repository.OpenCodeSandboxFiles}:{OpenCodeSessionId}";
+
+    private string _agentCommand = "opencode";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var terminalAlreadyStarted = TerminalSessions.IsRunning(Repository.Id);
+        _agentCommand = AgentTools.GetCommand(Repository.AgentTool);
+        if (!terminalAlreadyStarted &&
+            (AgentTools.Normalize(Repository.AgentTool) is AgentTools.ClaudeCode or AgentTools.Hermes))
+        {
+            try
+            {
+                _agentCommand = await AgentSessionNotifications.GetRepositoryCommandAsync(Repository);
+            }
+            catch (Exception exception)
+            {
+                _agentCommand = AgentTools.GetCommand(Repository.AgentTool);
+                Logger.LogError(exception, "Could not configure session notifications for {Agent} in {RepositoryPath}.",
+                    AgentTools.GetDisplayName(Repository.AgentTool), Repository.Path);
+                _notificationSetupError = exception.Message;
+            }
+        }
+        else
+        {
+            _notificationSetupError = null;
+        }
+    }
+
+    private string? _notificationSetupError;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

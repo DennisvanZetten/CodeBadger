@@ -7,6 +7,7 @@
 @inject StartupDetectionService StartupDetection
 @inject WindowsSandboxSessionService SandboxSessions
 @inject WindowsTerminalSessionService WindowsTerminalSessions
+@inject AgentSessionNotificationService AgentSessionNotifications
 @inject SandboxApprovalService SandboxApprovals
 @inject IJSRuntime JS
 @inject IDialogService DialogService
@@ -106,7 +107,7 @@
                                                OpenCodeSessionId="@SelectedOpenCodeSession(repository)"
                                                GitBranchLabel="@BranchLabel(repository)"
                                               GitSnapshot="@(_gitSnapshots.TryGetValue(repository, out var workspaceSnapshot) ? workspaceSnapshot : null)"
-                                              OnOpenGitOverview="@(() => OpenGitDialogAsync(repository))" />
+                                                OnOpenGitOverview="@(() => OpenGitDialogAsync(repository))" />
                     </ChildContent>
                 </MudTabPanel>
             }
@@ -401,7 +402,7 @@
 
     private bool CanOpenRepositorySlackSessions(RepositoryEntry repository) =>
         !repository.SlackNotificationsMuted && SlackNotifications.CanSendNotifications &&
-        AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode;
+        AgentTools.Normalize(repository.AgentTool) is (AgentTools.OpenCode or AgentTools.ClaudeCode or AgentTools.Hermes);
 
     private async Task OpenRepositorySlackSessionsAsync()
     {
@@ -929,6 +930,33 @@
     {
         try
         {
+            if (session.Agent is "Claude Code" or "Hermes")
+            {
+                var settings = await SettingsService.LoadAsync();
+                var repositoryPath = OpenCodeActivityService.NormalizePath(session.Directory);
+                var repository = settings.Repositories.FirstOrDefault(candidate =>
+                    AgentTools.Normalize(candidate.AgentTool) ==
+                    (session.Agent == "Claude Code" ? AgentTools.ClaudeCode : AgentTools.Hermes) &&
+                    string.Equals(OpenCodeActivityService.NormalizePath(candidate.Path), repositoryPath,
+                        StringComparison.OrdinalIgnoreCase));
+                if (repository is null || !Directory.Exists(repository.Path))
+                    throw new InvalidOperationException($"The configured {session.Agent} repository could not be found.");
+                if (System.Text.RegularExpressions.Regex.IsMatch(text, "^!(build|plan)(?:\\s|$)",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                    throw new InvalidOperationException("!build and !plan commands are only supported by OpenCode sessions.");
+
+                if (!WindowsTerminalSessions.IsRunning(repository.Id))
+                {
+                    var agentCommand = await AgentSessionNotifications.GetRepositoryCommandAsync(repository, _statusMonitorCancellation.Token);
+                    await WindowsTerminalSessions.StartAsync(repository.Id, repository.Path, agentCommand);
+                }
+                SlackNotifications.RememberSlackSubmittedMessage(session.Id, text);
+                await WindowsTerminalSessions.WriteInputAsync(repository.Id, text + "\r");
+                await SlackNotifications.PublishReplyStatusAsync(session.Id,
+                    $"✅ {session.Agent} heeft je opdracht ontvangen.", _statusMonitorCancellation.Token);
+                return;
+            }
+
             var command = System.Text.RegularExpressions.Regex.Match(text, "^!(build|plan)(?:\\s+(.*))?$",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
             var prompt = text;
@@ -970,6 +998,8 @@
 
     private void HandleSlackSessionStarted(OpenCodeActivityService.ActiveSession session) => _ = InvokeAsync(() =>
     {
+        if (session.Agent is "Claude Code" or "Hermes")
+            return;
         var repository = _activeRepositories.FirstOrDefault(candidate =>
             AgentTools.Normalize(candidate.AgentTool) == AgentTools.OpenCode &&
             OpenCodeActivityService.NormalizePath(candidate.Path) is { } repositoryPath &&

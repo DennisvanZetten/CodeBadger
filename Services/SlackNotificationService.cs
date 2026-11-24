@@ -18,6 +18,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
     private readonly GitBranchService _gitBranchService;
     private readonly AiCommitMessageService _aiCommitMessageService;
     private readonly IdeaListService _ideaListService;
+    private readonly WindowsTerminalSessionService _terminalSessions;
     private readonly ILogger<SlackNotificationService> _logger;
     private static readonly HttpClient Http = new() { BaseAddress = new Uri("https://slack.com/api/") };
     private static readonly HttpClient DiscordHttp = new() { BaseAddress = new Uri("https://discord.com/api/v10/") };
@@ -27,6 +28,8 @@ public sealed class SlackNotificationService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, PendingInteractionThread> _pendingInteractionThreads = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _announcedInteractions = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _seenReplies = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, DateTime> _lastStatusRequestBySession = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, DateTime> _lastStatusResponseBySession = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _submittedMessageTexts = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> _publishedSessionMessages = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _mutedSessions = new(StringComparer.Ordinal);
@@ -45,13 +48,14 @@ public sealed class SlackNotificationService : IAsyncDisposable
 
     public SlackNotificationService(LauncherSettingsService settingsService, OpenCodeActivityService openCodeActivity,
         GitBranchService gitBranchService, AiCommitMessageService aiCommitMessageService, IdeaListService ideaListService,
-        ILogger<SlackNotificationService> logger)
+        WindowsTerminalSessionService terminalSessions, ILogger<SlackNotificationService> logger)
     {
         _settingsService = settingsService;
         _openCodeActivity = openCodeActivity;
         _gitBranchService = gitBranchService;
         _aiCommitMessageService = aiCommitMessageService;
         _ideaListService = ideaListService;
+        _terminalSessions = terminalSessions;
         _logger = logger;
     }
 
@@ -235,8 +239,14 @@ public sealed class SlackNotificationService : IAsyncDisposable
         using var repositoryScope = _logger.BeginScope(new Dictionary<string, object?> { ["RepositoryPath"] = session.Directory });
         if (!CanSendNotifications || IsSessionMuted(session.Id))
             return;
+        if ((session.Agent is "Claude Code" or "Hermes") && !_sessionThreads.ContainsKey(session.Id))
+        {
+            await PublishExternalAgentPromptAsync(session,
+                $"{session.Agent} session finished without a captured prompt.",
+                "external-session-start:" + session.Id, cancellationToken);
+        }
         var title = string.IsNullOrWhiteSpace(session.Title) || session.Title.Equals("New session", StringComparison.OrdinalIgnoreCase)
-            ? "OpenCode session" : session.Title;
+            ? $"{session.Agent} session" : session.Title;
         if (_sessionThreads.TryGetValue(session.Id, out var existingThread) && existingThread.Platform == _activePlatform &&
             existingThread.ChannelId == (_activePlatform == "Discord" ? _discordChannelId : _channelId))
             title = string.IsNullOrWhiteSpace(existingThread.Title) ? title : existingThread.Title;
@@ -244,7 +254,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
         {
             _logger.LogInformation("Publishing completion notification for session {SessionId} through {NotificationPlatform}. Message: {Message}", session.Id, _activePlatform, answer);
             var thread = await EnsureSessionThreadLinkAsync(session, title, cancellationToken);
-            await PostLongThreadMessageAsync(thread, "✅ *OpenCode klaar*", answer, cancellationToken);
+            await PostLongThreadMessageAsync(thread, $"✅ *{EscapeSlack(session.Agent)} klaar*", answer, cancellationToken);
             _logger.LogInformation("Published completion notification for session {SessionId} through {NotificationPlatform}.", session.Id, _activePlatform);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -271,7 +281,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
             .Where(pair => pair.Value.Platform == _activePlatform &&
                 pair.Value.ChannelId == (_activePlatform == "Discord" ? _discordChannelId : _channelId) &&
                 string.Equals(OpenCodeActivityService.NormalizePath(pair.Value.Directory), normalized,
-                StringComparison.OrdinalIgnoreCase))
+                    StringComparison.OrdinalIgnoreCase))
             .Select(pair => new SessionNotification(pair.Key,
                 FormatNotificationTitle(pair.Value.RepositoryName, pair.Value.Title), pair.Value.Agent, pair.Value.Directory,
                 IsSessionMuted(pair.Key)))
@@ -284,7 +294,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
     public async Task SetSessionMutedAsync(string sessionId, bool muted)
     {
         if (!sessionId.StartsWith("ses_", StringComparison.Ordinal) ||
-            !sessionId.All(character => char.IsAsciiLetterOrDigit(character) || character == '_'))
+            !sessionId.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-'))
             return;
         if (muted)
             _mutedSessions[sessionId] = 0;
@@ -304,7 +314,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
         {
             var ids = JsonSerializer.Deserialize<string[]>(json) ?? [];
             foreach (var id in ids.Where(id => id.StartsWith("ses_", StringComparison.Ordinal) &&
-                         id.All(character => char.IsAsciiLetterOrDigit(character) || character == '_')))
+                         id.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-')))
                 _mutedSessions[id] = 0;
         }
         catch (JsonException) { }
@@ -383,7 +393,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
     private static string GetTitleFromPrompt(string? prompt)
     {
         if (string.IsNullOrWhiteSpace(prompt))
-            return "OpenCode session";
+            return "Agent session";
         var lines = prompt.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         var taskLabel = Array.FindIndex(lines, line => line.Equals("Task:", StringComparison.OrdinalIgnoreCase));
         var title = taskLabel >= 0 && taskLabel + 1 < lines.Length
@@ -395,13 +405,14 @@ public sealed class SlackNotificationService : IAsyncDisposable
 
     private static bool IsGenericTitle(string? title) => string.IsNullOrWhiteSpace(title) ||
         title.Equals("New session", StringComparison.OrdinalIgnoreCase) ||
-        title.Equals("OpenCode session", StringComparison.OrdinalIgnoreCase);
+        title.Equals("OpenCode session", StringComparison.OrdinalIgnoreCase) ||
+        title.Equals("Agent session", StringComparison.OrdinalIgnoreCase);
 
     private static string NormalizeTitle(string? title)
     {
         var normalized = string.Join(' ', (title ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         if (string.IsNullOrWhiteSpace(normalized))
-            return "OpenCode session";
+            return "Agent session";
         return normalized.Length > 120 ? normalized[..120].TrimEnd() + "…" : normalized;
     }
 
@@ -426,7 +437,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
         var selectedChannel = _activePlatform == "Discord" ? _discordChannelId : _channelId;
         if (_sessionThreads.TryGetValue(session.Id, out var existing) && existing.ChannelId == selectedChannel && existing.Platform == _activePlatform)
         {
-            var updatedTitle = !string.IsNullOrWhiteSpace(title) && title != "OpenCode session" ? title : existing.Title;
+            var updatedTitle = !string.IsNullOrWhiteSpace(title) && title != "OpenCode session" && title != "Agent session" ? title : existing.Title;
             var repositoryName = string.IsNullOrWhiteSpace(session.RepositoryName)
                 ? existing.RepositoryName : session.RepositoryName;
             notificationTitle = FormatNotificationTitle(repositoryName, updatedTitle);
@@ -457,6 +468,8 @@ public sealed class SlackNotificationService : IAsyncDisposable
         _sessionThreads[session.Id] = link;
         await SaveThreadLinksAsync();
         SessionNotificationsChanged?.Invoke();
+        if (session.Agent is "Claude Code" or "Hermes")
+            SessionStarted?.Invoke(session with { Title = title });
         SessionLinked?.Invoke(session with { Title = title });
         return link;
     }
@@ -857,6 +870,8 @@ public sealed class SlackNotificationService : IAsyncDisposable
         if (agent is not ("build" or "plan") || !_sessionThreads.TryGetValue(sessionId, out var link) ||
             link.Platform != _activePlatform || link.ChannelId != (_activePlatform == "Discord" ? _discordChannelId : _channelId))
             return;
+        if (link.Agent is not ("build" or "plan"))
+            return;
         _sessionThreads[sessionId] = link with { Agent = agent };
         await SaveThreadLinksAsync();
         SessionNotificationsChanged?.Invoke();
@@ -1060,15 +1075,42 @@ public sealed class SlackNotificationService : IAsyncDisposable
             pair.Value.Platform == _activePlatform && pair.Value.ChannelId == (_activePlatform == "Discord" ? _discordChannelId : _channelId));
         if (string.IsNullOrWhiteSpace(linkedSession.Key))
             return;
+        var isInteractiveAgentSession = linkedSession.Value.Agent is "Claude Code" or "Hermes";
         if (text.Equals("!help", StringComparison.OrdinalIgnoreCase))
         {
             await PostMessageAsync(_botToken, _channelId,
-                "*Session commands*\n• `!status` — check whether OpenCode is currently working.\n• `!build <task>` — switch to Build and send the task.\n• `!plan <task>` — switch to Plan and send the task.\n• `!allow [number|id]` / `!always [number|id]` / `!deny [number|id] [reason]` — answer a permission request; the number may be omitted when only one is pending.\n• `!answer <option>` — answer a single-field form by option number; use `!answer <field> <option>` for forms with multiple fields and `;` between fields. Append text after the “Other” option for a custom answer.\n• `!answer <id> key=value; key2=value` — legacy form syntax.\n• `!commit` — stage and commit all repository changes.\n• `!push` — push using the same safe up-to-date check as the Git dialog.\n• `!help` — show this command list.\n\nAny other reply is sent to the current session.",
+                isInteractiveAgentSession
+                    ? "*Session commands*\n• `!status` — check whether the agent is working.\n• `!help` — show this command list.\n\nAny other reply is sent to the current session."
+                    : "*Session commands*\n• `!status` — check whether OpenCode is currently working.\n• `!build <task>` — switch to Build and send the task.\n• `!plan <task>` — switch to Plan and send the task.\n• `!allow [number|id]` / `!always [number|id]` / `!deny [number|id] [reason]` — answer a permission request; the number may be omitted when only one is pending.\n• `!answer <option>` — answer a single-field form by option number; use `!answer <field> <option>` for forms with multiple fields and `;` between fields. Append text after the “Other” option for a custom answer.\n• `!answer <id> key=value; key2=value` — legacy form syntax.\n• `!commit` — stage and commit all repository changes.\n• `!push` — push using the same safe up-to-date check as the Git dialog.\n• `!help` — show this command list.\n\nAny other reply is sent to the current session.",
                 threadTs, cancellationToken);
             return;
         }
         if (text.Equals("!status", StringComparison.OrdinalIgnoreCase))
         {
+            var now = DateTime.UtcNow;
+            var previous = _lastStatusRequestBySession.GetOrAdd(linkedSession.Key, now);
+            if (now - previous < TimeSpan.FromSeconds(5))
+                return;
+            _lastStatusRequestBySession[linkedSession.Key] = now;
+            var previousResponse = _lastStatusResponseBySession.GetOrAdd(linkedSession.Key, DateTime.MinValue);
+            if (now - previousResponse < TimeSpan.FromSeconds(5))
+                return;
+            _lastStatusResponseBySession[linkedSession.Key] = now;
+            if (isInteractiveAgentSession)
+            {
+                var settings = await _settingsService.LoadAsync();
+                var interactiveRepository = settings.Repositories.FirstOrDefault(repository =>
+                    AgentTools.Normalize(repository.AgentTool) == (linkedSession.Value.Agent == "Claude Code"
+                        ? AgentTools.ClaudeCode : AgentTools.Hermes) &&
+                    string.Equals(OpenCodeActivityService.NormalizePath(repository.Path),
+                        OpenCodeActivityService.NormalizePath(linkedSession.Value.Directory), StringComparison.OrdinalIgnoreCase));
+                var interactiveActive = interactiveRepository is not null && _terminalSessions.IsInteractiveAgentWorking(interactiveRepository.Id);
+                await PostMessageAsync(_botToken, _channelId,
+                    interactiveActive ? $"⏳ {EscapeSlack(linkedSession.Value.Agent)} is bezig met deze sessie." :
+                        $"✅ {EscapeSlack(linkedSession.Value.Agent)} is momenteel niet bezig; de sessie is idle.",
+                    threadTs, cancellationToken);
+                return;
+            }
             var active = await _openCodeActivity.IsSessionActiveAsync(linkedSession.Key,
                 linkedSession.Value.Directory, cancellationToken);
             var status = active switch
@@ -1089,9 +1131,9 @@ public sealed class SlackNotificationService : IAsyncDisposable
         }
         if (!string.IsNullOrWhiteSpace(text))
         {
-            if (text.Equals("!commit", StringComparison.OrdinalIgnoreCase))
+            if (!isInteractiveAgentSession && text.Equals("!commit", StringComparison.OrdinalIgnoreCase))
                 await StartCommitCommandAsync(linkedSession.Key, linkedSession.Value, threadTs, cancellationToken);
-            else if (text.Equals("!push", StringComparison.OrdinalIgnoreCase))
+            else if (!isInteractiveAgentSession && text.Equals("!push", StringComparison.OrdinalIgnoreCase))
                 await PushSessionAsync(linkedSession.Value, threadTs, cancellationToken);
             else
             {
@@ -1218,7 +1260,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
     {
         var settings = await _settingsService.LoadAsync();
         var repository = settings.Repositories.FirstOrDefault(candidate =>
-            AgentTools.Normalize(candidate.AgentTool) == AgentTools.OpenCode &&
+            AgentTools.Normalize(candidate.AgentTool) == AgentTools.OpenCode && (thread.Agent is "build" or "plan") &&
             string.Equals(OpenCodeActivityService.NormalizePath(candidate.Path),
                 OpenCodeActivityService.NormalizePath(thread.Directory), StringComparison.OrdinalIgnoreCase));
         if (repository is null || repository.OpenCodeSandboxEnabled)
@@ -1272,7 +1314,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
     {
         var settings = await _settingsService.LoadAsync();
         var repository = settings.Repositories.FirstOrDefault(candidate =>
-            AgentTools.Normalize(candidate.AgentTool) == AgentTools.OpenCode &&
+            AgentTools.Normalize(candidate.AgentTool) == AgentTools.OpenCode && (thread.Agent is "build" or "plan") &&
             string.Equals(OpenCodeActivityService.NormalizePath(candidate.Path),
                 OpenCodeActivityService.NormalizePath(thread.Directory), StringComparison.OrdinalIgnoreCase));
         if (repository is null || repository.OpenCodeSandboxEnabled)
@@ -1647,6 +1689,34 @@ public sealed class SlackNotificationService : IAsyncDisposable
             delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, 30));
         }
     }
+
+    public async Task PublishExternalAgentPromptAsync(OpenCodeActivityService.ActiveSession session, string prompt,
+        string? eventId = null, CancellationToken cancellationToken = default)
+    {
+        if (!CanSendNotifications || string.IsNullOrWhiteSpace(prompt) || IsSessionMuted(session.Id))
+            return;
+        var isFirstPrompt = !_sessionThreads.ContainsKey(session.Id);
+        var title = IsGenericTitle(session.Title) ? GetTitleFromPrompt(prompt) : session.Title;
+        if (_sessionThreads.TryGetValue(session.Id, out var existingThread) && existingThread.Platform == _activePlatform &&
+            existingThread.ChannelId == (_activePlatform == "Discord" ? _discordChannelId : _channelId) &&
+            !string.IsNullOrWhiteSpace(existingThread.Title))
+            title = existingThread.Title;
+        session = session with { Title = title };
+        var thread = await EnsureSessionThreadLinkAsync(session, title, cancellationToken);
+        var published = _publishedSessionMessages.GetOrAdd(session.Id,
+            _ => new ConcurrentDictionary<string, byte>(StringComparer.Ordinal));
+        var promptId = string.IsNullOrWhiteSpace(eventId) ? GetMessageHash(session.Id, prompt) : eventId;
+        if (published.TryAdd(promptId, 0))
+        {
+            await PostLongThreadMessageAsync(thread, isFirstPrompt ? "*Eerste opdracht:*" : "*Gebruiker:*", prompt, cancellationToken);
+            thread = thread with { InitialPromptPublished = true };
+            _sessionThreads[session.Id] = thread;
+            await SaveThreadLinksAsync();
+        }
+    }
+
+    public Task PublishExternalAgentCompletionAsync(OpenCodeActivityService.ActiveSession session, string answer,
+        CancellationToken cancellationToken = default) => PublishCompletionAsync(session, answer, cancellationToken);
 
     private async Task ReceiveDiscordEventsAsync(ClientWebSocket socket, CancellationToken cancellationToken)
     {

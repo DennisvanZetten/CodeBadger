@@ -2363,7 +2363,52 @@ h1:focus {
     flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
-    padding: 1rem;
+    padding: 1.25rem max(1rem, calc((100% - 54rem) / 2));
+}
+
+.repository-codebadger-empty-state {
+    margin-bottom: 1rem;
+}
+
+.repository-codebadger-message {
+    margin: 0 0 1rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 0.65rem;
+}
+
+.repository-codebadger-user-message {
+    background: color-mix(in srgb, var(--mud-palette-primary) 7%, var(--mud-palette-background));
+}
+
+.repository-codebadger-assistant-message {
+    background: var(--mud-palette-background);
+}
+
+.repository-codebadger-message-author {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-bottom: 0.45rem;
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.repository-codebadger-message-author .repository-agent-logo {
+    width: 1rem;
+    height: 1rem;
+}
+
+.repository-codebadger-message-content {
+    color: var(--mud-palette-text-primary);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.repository-codebadger-assistant-placeholder {
+    color: var(--mud-palette-text-disabled);
+    font-style: italic;
 }
 
 .repository-codebadger-composer {

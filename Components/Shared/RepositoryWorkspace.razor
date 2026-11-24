@@ -98,15 +98,39 @@
                         {
                             <div @key="session.Id" class="repository-codebadger-terminal-view" style="display:@(session.Id == _selectedTerminalSessionId ? "flex" : "none")">
                                 <div class="repository-codebadger-conversation" aria-live="polite">
-                                    <MudText Typo="Typo.body2" Color="Color.Secondary">
-                                        @L.T("Universal commands for {0} will be available in a future update.", AgentTools.GetDisplayName(Repository.AgentTool))
-                                    </MudText>
+                                    @if (session.Messages.Count == 0)
+                                    {
+                                        <div class="repository-codebadger-empty-state">
+                                            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                                @L.T("Your submitted commands will appear here, followed by the assistant response.")
+                                            </MudText>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var message in session.Messages)
+                                        {
+                                            <article class="repository-codebadger-message repository-codebadger-user-message">
+                                                <div class="repository-codebadger-message-author">@L.T("You")</div>
+                                                <div class="repository-codebadger-message-content">@message</div>
+                                            </article>
+                                        }
+                                    }
+                                    <article class="repository-codebadger-message repository-codebadger-assistant-message">
+                                        <div class="repository-codebadger-message-author">
+                                            <img class="repository-agent-logo" src="@AgentLogoPath" alt="" />
+                                            @L.T("Assistant") · @SessionStatusLabel(session).Split('·', 2).Last().Trim()
+                                        </div>
+                                        <div class="repository-codebadger-message-content repository-codebadger-assistant-placeholder">
+                                            @L.T("Assistant responses will appear here when universal command routing is connected.")
+                                        </div>
+                                    </article>
                                 </div>
                                 <div class="repository-codebadger-composer">
                                     <span class="repository-codebadger-prompt" aria-hidden="true">›</span>
                                     <input class="repository-codebadger-input" data-session-id="@session.Id" type="text" autocomplete="off" spellcheck="false"
                                            aria-label="@L.T("Universal command")" placeholder="@L.T("Type a universal command...")"
-                                           @bind="session.Input" @bind:event="oninput" />
+                                           @bind="session.Input" @bind:event="oninput" @onkeydown="eventArgs => HandleInputKeyDown(session, eventArgs)" />
                                 </div>
                                 <footer class="repository-codebadger-statusbar">
                                     <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.SwapHoriz"
@@ -224,6 +248,13 @@
             agent += "-" + FormatModelName(_agentModelReference.Split('/').Last());
         return $"{mode} · {agent}";
     }
+
+    private string AgentLogoPath => AgentTools.Normalize(Repository.AgentTool) switch
+    {
+        AgentTools.ClaudeCode => "claude-code.svg",
+        AgentTools.OpenCode => "opencode.svg",
+        _ => "codebadger.svg"
+    };
 
     private static string FormatModelName(string model)
     {
@@ -348,6 +379,14 @@
     private static void ToggleSessionMode(CodeBadgerTerminalSession session) =>
         session.Mode = session.Mode == TerminalMode.Plan ? TerminalMode.Build : TerminalMode.Plan;
 
+    private static void HandleInputKeyDown(CodeBadgerTerminalSession session, KeyboardEventArgs eventArgs)
+    {
+        if (eventArgs.Key != "Enter" || string.IsNullOrWhiteSpace(session.Input))
+            return;
+        session.Messages.Add(session.Input.Trim());
+        session.Input = string.Empty;
+    }
+
     [JSInvokable]
     public Task SetAiPanelSize(double percent) => InvokeAsync(() =>
     {
@@ -379,6 +418,7 @@
         public string Title { get; } = title;
         public string Input { get; set; } = string.Empty;
         public TerminalMode Mode { get; set; } = TerminalMode.Plan;
+        public List<string> Messages { get; } = [];
     }
 
 }

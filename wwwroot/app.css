@@ -2406,6 +2406,64 @@ h1:focus {
     overflow-wrap: anywhere;
 }
 
+.markdown-content.markdown-content-terminal {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--mud-palette-text-primary);
+    line-height: 1.6;
+    white-space: normal;
+}
+
+.markdown-content-terminal > :first-child { margin-top: 0; }
+.markdown-content-terminal > :last-child { margin-bottom: 0; }
+.markdown-content-terminal h1,
+.markdown-content-terminal h2,
+.markdown-content-terminal h3,
+.markdown-content-terminal h4,
+.markdown-content-terminal h5,
+.markdown-content-terminal h6 {
+    margin: 1.1em 0 0.5em;
+    color: var(--mud-palette-primary);
+    line-height: 1.3;
+}
+.markdown-content-terminal h1:first-child { margin-top: 0; font-size: 1.4em; }
+.markdown-content-terminal h1 { font-size: 1.4em; }
+.markdown-content-terminal h2 { font-size: 1.25em; }
+.markdown-content-terminal h3 { font-size: 1.1em; }
+.markdown-content-terminal h4,
+.markdown-content-terminal h5,
+.markdown-content-terminal h6 { font-size: 1em; }
+.markdown-content-terminal p,
+.markdown-content-terminal ul,
+.markdown-content-terminal ol { margin: 0.5em 0 0.75em; }
+.markdown-content-terminal li + li { margin-top: 0.2em; }
+.markdown-content-terminal a { color: var(--mud-palette-primary); }
+.markdown-content-terminal blockquote {
+    margin: 0.75em 0;
+    color: var(--mud-palette-text-secondary);
+    background: color-mix(in srgb, var(--mud-palette-primary) 7%, var(--mud-palette-surface));
+}
+.markdown-content-terminal pre {
+    max-width: 100%;
+    margin: 0.75em 0;
+    padding: 0.8rem;
+    background: var(--mud-palette-surface);
+    white-space: pre;
+    overflow-wrap: normal;
+}
+.markdown-content-terminal code {
+    color: var(--mud-palette-text-primary);
+    background: color-mix(in srgb, var(--mud-palette-primary) 10%, var(--mud-palette-surface));
+}
+.markdown-content-terminal pre code { background: transparent; }
+.markdown-content-terminal table { margin: 0.75em 0; }
+.markdown-content-terminal th { background: var(--mud-palette-surface); }
+.markdown-content-terminal img { max-width: 100%; height: auto; }
+
 .repository-codebadger-assistant-placeholder {
     color: var(--mud-palette-text-disabled);
     font-style: italic;

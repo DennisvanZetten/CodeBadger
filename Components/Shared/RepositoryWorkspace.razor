@@ -150,7 +150,16 @@
                                                         <span>· @FormatModelReference(message.ModelReference)</span>
                                                     }
                                                 </div>
-                                                <div class="repository-codebadger-message-content">@message.Text</div>
+                                                <div class="repository-codebadger-message-content">
+                                                    @if (message.Role == "assistant")
+                                                    {
+                                                        <MarkdownContent Content="@message.Text" Compact="true" />
+                                                    }
+                                                    else
+                                                    {
+                                                        @message.Text
+                                                    }
+                                                </div>
                                             </article>
                                         }
                                     }

@@ -1,7 +1,7 @@
 @using Markdig
 @using Markdig.Extensions
 
-<article class="markdown-content">
+<article class="markdown-content @(Compact ? "markdown-content-terminal" : string.Empty)">
     @((MarkupString)RenderedHtml)
 </article>
 
@@ -12,6 +12,7 @@
         .Build();
 
     [Parameter] public string Content { get; set; } = string.Empty;
+    [Parameter] public bool Compact { get; set; }
 
     private string RenderedHtml => Markdown.ToHtml(Content ?? string.Empty, Pipeline);
 }

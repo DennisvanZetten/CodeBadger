@@ -2227,7 +2227,7 @@ h1:focus {
 
 .repository-terminal-stack {
     display: grid;
-    grid-template-rows: minmax(120px, var(--ai-terminal-height, 38%)) 2.25rem minmax(120px, 1fr);
+    grid-template-rows: minmax(120px, var(--ai-terminal-height, 38%)) 3.5rem minmax(120px, 1fr);
     gap: 0;
     height: 100%;
     min-height: 0;
@@ -2236,11 +2236,11 @@ h1:focus {
 }
 
 .repository-terminal-stack.ai-pane-collapsed {
-    grid-template-rows: 0 2.25rem minmax(0, 1fr);
+    grid-template-rows: 0 3.5rem minmax(0, 1fr);
 }
 
 .repository-terminal-stack.ai-pane-expanded {
-    grid-template-rows: minmax(0, 1fr) 2.25rem 0;
+    grid-template-rows: minmax(0, 1fr) 3.5rem 0;
 }
 
 .repository-ai-pane,
@@ -2289,11 +2289,22 @@ h1:focus {
     outline: none;
 }
 
-.repository-terminal-splitter > .repository-codebadger-session-tabs {
+.repository-codebadger-session-area {
+    flex: 0 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-self: stretch;
+    justify-content: center;
+    gap: 0.15rem;
+    min-width: 0;
+    max-width: min(70%, 52rem);
+}
+
+.repository-codebadger-session-tabs {
     flex: 0 1 auto;
     align-self: stretch;
     min-height: 0;
-    max-width: min(48%, 42rem);
+    max-width: 100%;
 }
 
 .repository-terminal-splitter-actions {
@@ -2369,10 +2380,11 @@ h1:focus {
     display: flex;
     flex: 0 1 auto;
     flex-wrap: nowrap;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.35rem;
     min-width: 0;
-    max-width: min(42vw, 36rem);
+    max-width: 100%;
+    padding-left: 0.5rem;
     overflow-x: auto;
     scrollbar-width: none;
 }
@@ -2401,6 +2413,12 @@ h1:focus {
     color: var(--mud-palette-text-primary);
     font-weight: 600;
     white-space: nowrap;
+}
+
+.repository-codebadger-agent-context-tokens {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
 }
 
 .repository-codebadger-agent-context-label .mud-icon-button {
@@ -2449,12 +2467,12 @@ h1:focus {
         padding: 0 0.25rem;
     }
 
-    .repository-terminal-splitter > .repository-codebadger-session-tabs {
-        max-width: 42%;
+    .repository-codebadger-session-area {
+        max-width: 62%;
     }
 
     .repository-codebadger-agent-links {
-        max-width: 30vw;
+        max-width: 100%;
     }
 
     .repository-codebadger-agent-context {
@@ -2467,12 +2485,12 @@ h1:focus {
         display: none;
     }
 
-    .repository-terminal-splitter > .repository-codebadger-session-tabs {
-        max-width: 52%;
+    .repository-codebadger-session-area {
+        max-width: 58%;
     }
 
     .repository-codebadger-agent-links {
-        display: none;
+        max-width: 100%;
     }
 }
 

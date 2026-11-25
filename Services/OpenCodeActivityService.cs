@@ -783,11 +783,70 @@ public sealed class OpenCodeActivityService
 
     public async Task<bool> HasPendingInteractionAsync(string sessionId, string directory, CancellationToken cancellationToken)
     {
+        return (await GetPendingInteractionsAsync(sessionId, directory, cancellationToken)).Count > 0;
+    }
+
+    public async Task<IReadOnlyList<PendingInteraction>> GetPendingInteractionsAsync(
+        string sessionId, string directory, CancellationToken cancellationToken)
+    {
         if (!IsValidSessionId(sessionId))
-            return false;
+            return [];
         using var permissions = await RequestAsync($"/api/session/{sessionId}/permission", cancellationToken, workingDirectory: directory);
         using var forms = await RequestAsync($"/api/session/{sessionId}/form", cancellationToken, workingDirectory: directory);
-        return HasItems(permissions) || HasItems(forms);
+        var interactions = new List<PendingInteraction>();
+        if (permissions?.RootElement.TryGetProperty("data", out var permissionItems) == true &&
+            permissionItems.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var permission in permissionItems.EnumerateArray())
+            {
+                var id = GetString(permission, "id");
+                if (string.IsNullOrWhiteSpace(id))
+                    continue;
+                var action = GetString(permission, "action");
+                var message = GetString(permission, "message");
+                interactions.Add(new PendingInteraction(id, "permission", "Permission requested",
+                    string.IsNullOrWhiteSpace(message) ? action : $"{action}: {message}", [],
+                    GetStringArray(permission, "resources")));
+            }
+        }
+        if (forms?.RootElement.TryGetProperty("data", out var formItems) == true &&
+            formItems.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var form in formItems.EnumerateArray())
+            {
+                var id = GetString(form, "id");
+                if (string.IsNullOrWhiteSpace(id))
+                    continue;
+                var fields = new List<FormField>();
+                if (form.TryGetProperty("fields", out var formFields) && formFields.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var field in formFields.EnumerateArray())
+                    {
+                        var key = GetString(field, "key");
+                        if (string.IsNullOrWhiteSpace(key) ||
+                            field.TryGetProperty("hidden", out var hidden) && hidden.ValueKind == JsonValueKind.True)
+                            continue;
+                        var options = new List<(string Value, string Label)>();
+                        if (field.TryGetProperty("options", out var optionValues) && optionValues.ValueKind == JsonValueKind.Array)
+                            foreach (var option in optionValues.EnumerateArray())
+                            {
+                                var value = GetString(option, "value");
+                                var label = GetString(option, "label");
+                                if (!string.IsNullOrWhiteSpace(value))
+                                    options.Add((value, string.IsNullOrWhiteSpace(label) ? value : label));
+                            }
+                        var fieldType = GetString(field, "type");
+                        var supportsCustom = (fieldType is "string" or "multiselect") &&
+                            (!field.TryGetProperty("custom", out var custom) || custom.ValueKind != JsonValueKind.False);
+                        fields.Add(new FormField(key, GetString(field, "title"), GetString(field, "description"),
+                            fieldType, field.TryGetProperty("required", out var required) && required.ValueKind == JsonValueKind.True,
+                            options, supportsCustom));
+                    }
+                }
+                interactions.Add(new PendingInteraction(id, "form", GetString(form, "title"), string.Empty, fields, []));
+            }
+        }
+        return interactions;
     }
 
     public async Task<bool?> IsSessionActiveAsync(string sessionId, string directory, CancellationToken cancellationToken)
@@ -840,10 +899,6 @@ public sealed class OpenCodeActivityService
             ? value.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.String)
                 .Select(item => item.GetString() ?? string.Empty).Where(item => item.Length > 0).ToArray()
             : [];
-
-    private static bool HasItems(JsonDocument? response) => response is not null &&
-        response.RootElement.TryGetProperty("data", out var items) &&
-        items.ValueKind == JsonValueKind.Array && items.GetArrayLength() > 0;
 
     public async Task<string?> SendPromptAsync(string sessionId, string directory, string text, CancellationToken cancellationToken,
         string? agent = null, IReadOnlyList<string>? images = null)

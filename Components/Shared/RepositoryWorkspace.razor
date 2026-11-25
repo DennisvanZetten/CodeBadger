@@ -7,6 +7,7 @@
 @inject Microsoft.Extensions.Logging.ILogger<RepositoryWorkspace> Logger
 @inject SandboxOpenCodeProviderService OpenCodeProviders
 @inject OpenCodeActivityService OpenCodeActivity
+@inject IEnumerable<ICodeBadgerAgentInteractionProvider> AgentInteractionProviders
 @inject CodeBadgerTerminalStateService TerminalStateService
 @inject LauncherSettingsService SettingsService
 @inject ISnackbar Snackbar
@@ -58,25 +59,27 @@
                 </section>
 
                 <div class="repository-terminal-splitter">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="repository-codebadger-session-tabs">
-                        @foreach (var session in _terminalSessions)
-                        {
-                            <div class="repository-codebadger-session-tab @(session.Id == _selectedTerminalSessionId ? "selected" : string.Empty)">
-                                <button type="button" class="repository-codebadger-session-select" @onclick="() => SelectTerminalSession(session.Id)">
-                                    @session.Title
-                                </button>
-                                @if (_terminalSessions.Count > 1)
-                                {
-                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close"
-                                                   aria-label="@L.T("Close session {0}", session.Title)"
-                                                   OnClick="@(() => CloseTerminalSessionAsync(session.Id))" />
-                                }
-                            </div>
-                        }
-                        <MudTooltip Text="@L.T("New session")">
-                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add"
-                                           aria-label="@L.T("New session")" OnClick="AddTerminalSession" />
-                        </MudTooltip>
+                    <div class="repository-codebadger-session-area">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="repository-codebadger-session-tabs">
+                            @foreach (var session in _terminalSessions)
+                            {
+                                <div class="repository-codebadger-session-tab @(session.Id == _selectedTerminalSessionId ? "selected" : string.Empty)">
+                                    <button type="button" class="repository-codebadger-session-select" @onclick="() => SelectTerminalSession(session.Id)">
+                                        @session.Title
+                                    </button>
+                                    @if (_terminalSessions.Count > 1)
+                                    {
+                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close"
+                                                       aria-label="@L.T("Close session {0}", session.Title)"
+                                                       OnClick="@(() => CloseTerminalSessionAsync(session.Id))" />
+                                    }
+                                </div>
+                            }
+                            <MudTooltip Text="@L.T("New session")">
+                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add"
+                                               aria-label="@L.T("New session")" OnClick="AddTerminalSession" />
+                            </MudTooltip>
+                        </MudStack>
                         @if (_terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is { } currentTerminalSession)
                         {
                             <div class="repository-codebadger-agent-links">
@@ -87,11 +90,17 @@
                                     {
                                         var contextUsage = GetContextUsage(currentTerminalSession, roleSessionKey, agentSessionId);
                                         var progress = contextUsage?.Percent ?? 0;
-                                            <div class="repository-codebadger-agent-context" title="@(contextUsage is not { Limit: > 0 }
-                                                ? L.T("Context usage unavailable")
-                                                : L.T("{0}% used: {1} of {2} tokens", progress, contextUsage.Used.ToString("N0"), contextUsage.Limit.ToString("N0")))">
+                                        <div class="repository-codebadger-agent-context" title="@(contextUsage is not { Limit: > 0 }
+                                            ? L.T("Context usage unavailable")
+                                            : L.T("{0}% used: {1} of {2} tokens", progress, contextUsage.Used.ToString("N0"), contextUsage.Limit.ToString("N0")))">
                                             <div class="repository-codebadger-agent-context-label">
                                                 <span>@RoleDisplayName(role)</span>
+                                                @if (contextUsage is { Limit: > 0 })
+                                                {
+                                                    <span class="repository-codebadger-agent-context-tokens">
+                                                        @L.T("{0} / {1} tokens", contextUsage.Used.ToString("N0"), contextUsage.Limit.ToString("N0"))
+                                                    </span>
+                                                }
                                                 @if (!IsAgentRoleBusy(currentTerminalSession, role) && !currentTerminalSession.IsRotatingAgentRole)
                                                 {
                                                     <MudTooltip Text="@L.T("Continue in a new session with a summary")">
@@ -117,7 +126,7 @@
                                 }
                             </div>
                         }
-                    </MudStack>
+                    </div>
                     <div class="repository-terminal-splitter-grip" role="separator" aria-orientation="horizontal"
                          aria-label="@L.T("Resize terminal panels")" tabindex="0"></div>
                     <div class="repository-terminal-splitter-actions">
@@ -197,6 +206,95 @@
                                                         }
                                                     </div>
                                                 </article>
+                                            }
+                                        }
+                                        @if (session.ActiveAgentSessionId is { Length: > 0 } activeInteractionSessionId &&
+                                             _pendingTerminalInteractions.TryGetValue(activeInteractionSessionId, out var pendingInteractions))
+                                        {
+                                            @foreach (var interaction in pendingInteractions)
+                                            {
+                                                <MudPaper Outlined="true" Class="repository-codebadger-interaction" @key="interaction.Id">
+                                                    <MudText Typo="Typo.subtitle2">@(interaction.Kind == CodeBadgerAgentInteractionKind.Permission
+                                                        ? L.T("Permission requested") : interaction.Title)</MudText>
+                                                    @if (!string.IsNullOrWhiteSpace(interaction.Details))
+                                                    {
+                                                        <MudText Typo="Typo.body2">@interaction.Details</MudText>
+                                                    }
+                                                    @if (interaction.Resources.Count > 0)
+                                                    {
+                                                        <MudText Typo="Typo.caption">@string.Join(" · ", interaction.Resources)</MudText>
+                                                    }
+                                                    @if (interaction.Kind == CodeBadgerAgentInteractionKind.Permission)
+                                                    {
+                                                        <MudStack Row="true" Spacing="1" Class="mt-2">
+                                                            <MudButton Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled"
+                                                                       OnClick='() => HandleInteractionReplyAsync(session, interaction, new CodeBadgerAgentInteractionAnswer(Decision: "approve-once"))'>@L.T("Allow once")</MudButton>
+                                                            <MudButton Size="Size.Small" Variant="Variant.Outlined"
+                                                                       OnClick='() => HandleInteractionReplyAsync(session, interaction, new CodeBadgerAgentInteractionAnswer(Decision: "approve-always"))'>@L.T("Always allow")</MudButton>
+                                                            <MudButton Size="Size.Small" Color="Color.Error" Variant="Variant.Outlined"
+                                                                       OnClick='() => HandleInteractionReplyAsync(session, interaction, new CodeBadgerAgentInteractionAnswer(Decision: "reject"))'>@L.T("Reject")</MudButton>
+                                                        </MudStack>
+                                                    }
+                                                    else
+                                                    {
+                                                        <MudStack Spacing="2" Class="mt-2">
+                                                            @foreach (var field in interaction.Fields)
+                                                            {
+                                                                @if (field.Type == "multiselect")
+                                                                {
+                                                                    <MudText Typo="Typo.body2">@(string.IsNullOrWhiteSpace(field.Title) ? field.Key : field.Title)</MudText>
+                                                                    @foreach (var option in field.Options)
+                                                                    {
+                                                                        <MudCheckBox T="bool" Label="@option.Label"
+                                                                                     Value="@IsInteractionOptionSelected(session, interaction, field, option.Value)"
+                                                                                     ValueChanged="@(selected => ToggleInteractionOption(session, interaction, field, option.Value, selected))" />
+                                                                    }
+                                                                    @if (field.AllowsCustomValue)
+                                                                    {
+                                                                        <MudTextField T="string" Label="@L.T("Add a custom answer")"
+                                                                                      @bind-Value="session.InteractionAnswers[InteractionAnswerKey(interaction, field)]" />
+                                                                    }
+                                                                }
+                                                                else if (field.Options.Count > 0 || field.Type == "boolean")
+                                                                {
+                                                                    <MudSelect T="string" Label="@(string.IsNullOrWhiteSpace(field.Title) ? field.Key : field.Title)"
+                                                                               Required="@field.Required"
+                                                                               @bind-Value="session.InteractionAnswers[InteractionAnswerKey(interaction, field)]">
+                                                                        @if (field.Options.Count > 0)
+                                                                        {
+                                                                            @foreach (var option in field.Options)
+                                                                            {
+                                                                                <MudSelectItem T="string" Value="@option.Value">@option.Label</MudSelectItem>
+                                                                            }
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <MudSelectItem T="string" Value="@(bool.TrueString)">@L.T("Yes")</MudSelectItem>
+                                                                            <MudSelectItem T="string" Value="@(bool.FalseString)">@L.T("No")</MudSelectItem>
+                                                                        }
+                                                                    </MudSelect>
+                                                                    @if (field.AllowsCustomValue)
+                                                                    {
+                                                                        <MudTextField T="string" Label="@L.T("Custom answer for {0}", string.IsNullOrWhiteSpace(field.Title) ? field.Key : field.Title)"
+                                                                                      @bind-Value="session.InteractionAnswers[InteractionAnswerKey(interaction, field)]" />
+                                                                    }
+                                                                }
+                                                                else
+                                                                {
+                                                                    <MudTextField T="string" Label="@(string.IsNullOrWhiteSpace(field.Title) ? field.Key : field.Title)"
+                                                                                  Required="@field.Required"
+                                                                                  @bind-Value="session.InteractionAnswers[InteractionAnswerKey(interaction, field)]" />
+                                                                }
+                                                                @if (!string.IsNullOrWhiteSpace(field.Description))
+                                                                {
+                                                                    <MudText Typo="Typo.caption">@field.Description</MudText>
+                                                                }
+                                                            }
+                                                            <MudButton Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled"
+                                                                       OnClick="() => SubmitInteractionAnswerAsync(session, interaction)">@L.T("Submit answer")</MudButton>
+                                                        </MudStack>
+                                                    }
+                                                </MudPaper>
                                             }
                                         }
                                         @if (session.IsBusy)
@@ -353,6 +451,7 @@
     private IJSObjectReference? _composerModule;
     private DotNetObjectReference<RepositoryWorkspace>? _selfReference;
     private readonly List<CodeBadgerTerminalSession> _terminalSessions = [];
+    private readonly Dictionary<string, HashSet<CodeBadgerAgentInteraction>> _pendingTerminalInteractions = new(StringComparer.Ordinal);
     private CodeBadgerTerminalState _terminalState = new();
     private LauncherSettings _settings = new();
     private IReadOnlyList<OpenCodeActivityService.AvailableModel> _availableOpenCodeModels = [];
@@ -430,6 +529,90 @@
     private string GetRoleSessionKey(CodeBadgerTerminalSession session, string role) =>
         CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) == CodeBadgerOrchestrationModes.SingleAgent
             ? "SingleAgent" : role;
+
+    private ICodeBadgerAgentInteractionProvider? GetInteractionProvider(string agentTool) =>
+        AgentInteractionProviders.FirstOrDefault(provider => provider.Supports(agentTool));
+
+    private async Task HandleInteractionReplyAsync(CodeBadgerTerminalSession session,
+        CodeBadgerAgentInteraction interaction, CodeBadgerAgentInteractionAnswer answer)
+    {
+        var sessionId = session.ActiveAgentSessionId;
+        var agentTool = session.ActiveAgentTool;
+        if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(agentTool) ||
+            GetInteractionProvider(agentTool) is not { } provider)
+        {
+            Snackbar.Add(L.T("This agent interaction cannot be answered by the current terminal provider."), Severity.Warning);
+            return;
+        }
+        try
+        {
+            await provider.ReplyAsync(sessionId, Repository.Path, interaction, answer, CancellationToken.None);
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not submit the answer: {0}", exception.Message), Severity.Error);
+        }
+    }
+
+    private static string InteractionAnswerKey(CodeBadgerAgentInteraction interaction,
+        CodeBadgerAgentInteractionField field) => interaction.Id + ":" + field.Key;
+
+    private static bool IsInteractionOptionSelected(CodeBadgerTerminalSession session,
+        CodeBadgerAgentInteraction interaction, CodeBadgerAgentInteractionField field, string option) =>
+        session.InteractionAnswers.TryGetValue(InteractionAnswerKey(interaction, field), out var current) &&
+        (current ?? string.Empty).Split('|', StringSplitOptions.RemoveEmptyEntries).Contains(option, StringComparer.Ordinal);
+
+    private static void ToggleInteractionOption(CodeBadgerTerminalSession session,
+        CodeBadgerAgentInteraction interaction, CodeBadgerAgentInteractionField field, string option, bool selected)
+    {
+        var key = InteractionAnswerKey(interaction, field);
+        session.InteractionAnswers.TryGetValue(key, out var current);
+        var values = (current ?? string.Empty).Split('|', StringSplitOptions.RemoveEmptyEntries)
+            .ToHashSet(StringComparer.Ordinal);
+        if (selected)
+            values.Add(option);
+        else
+            values.Remove(option);
+        session.InteractionAnswers[key] = string.Join('|', values);
+    }
+
+    private async Task SubmitInteractionAnswerAsync(CodeBadgerTerminalSession session,
+        CodeBadgerAgentInteraction interaction)
+    {
+        try
+        {
+            var values = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var field in interaction.Fields)
+            {
+                session.InteractionAnswers.TryGetValue(InteractionAnswerKey(interaction, field), out var value);
+                if (field.Required && string.IsNullOrWhiteSpace(value))
+                {
+                    Snackbar.Add(L.T("Complete the required field: {0}", string.IsNullOrWhiteSpace(field.Title) ? field.Key : field.Title), Severity.Warning);
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(value))
+                    continue;
+                object parsed = field.Type switch
+                {
+                    "boolean" when bool.TryParse(value, out var boolean) => boolean,
+                    "integer" when long.TryParse(value, out var integer) => integer,
+                    "number" when double.TryParse(value, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var number) => number,
+                    "boolean" => throw new InvalidOperationException(L.T("Enter a valid true/false value for {0}.", field.Key)),
+                    "integer" or "number" => throw new InvalidOperationException(L.T("Enter a valid number for {0}.", field.Key)),
+                    "multiselect" => value.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
+                    _ => value
+                };
+                values[field.Key] = parsed;
+            }
+            await HandleInteractionReplyAsync(session, interaction, new CodeBadgerAgentInteractionAnswer(Values: values));
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not submit the answer: {0}", exception.Message), Severity.Error);
+        }
+    }
 
     private bool IsAgentRoleBusy(CodeBadgerTerminalSession session, string role)
     {
@@ -876,7 +1059,11 @@
         finally
         {
             session.IsBusy = false;
-            session.ActiveOpenCodeSessionId = null;
+            session.ActiveAgentSessionId = null;
+            if (!string.IsNullOrWhiteSpace(session.ActiveAgentSessionId))
+                _pendingTerminalInteractions.Remove(session.ActiveAgentSessionId);
+            session.ActiveAgentSessionId = null;
+            session.ActiveAgentTool = string.Empty;
             session.RunCancellation?.Dispose();
             session.RunCancellation = null;
             await PersistTerminalStateAsync();
@@ -891,15 +1078,17 @@
             return;
 
         cancellation.Cancel();
-        if (session.ActiveOpenCodeSessionId is { } sessionId)
+        if (session.ActiveAgentSessionId is { Length: > 0 } sessionId &&
+            GetInteractionProvider(session.ActiveAgentTool) is { } provider)
         {
             try
             {
-                await OpenCodeActivity.InterruptSessionAsync(sessionId, Repository.Path, CancellationToken.None);
+                await provider.InterruptAsync(sessionId, Repository.Path, CancellationToken.None);
             }
             catch (Exception exception)
             {
-                Logger.LogWarning(exception, "Could not interrupt OpenCode session {SessionId} after a terminal stop request.", sessionId);
+                Logger.LogWarning(exception, "Could not interrupt {Agent} session {SessionId} after a terminal stop request.",
+                    session.ActiveAgentTool, sessionId);
             }
         }
     }
@@ -941,7 +1130,8 @@
             await OpenCodeActivity.SwitchAgentAsync(agentSessionId, Repository.Path, preferenceAgent, cancellationToken);
         }
         cancellationToken.ThrowIfCancellationRequested();
-        session.ActiveOpenCodeSessionId = agentSessionId;
+        session.ActiveAgentSessionId = agentSessionId;
+        session.ActiveAgentTool = Repository.AgentTool;
         session.State.ActiveAgentRole = role;
         var modelStateKey = orchestrationMode == CodeBadgerOrchestrationModes.SingleAgent
             ? "Model:SingleAgent" : "Model:" + role;
@@ -968,7 +1158,7 @@
                 cancellationToken, preferenceAgent, images);
             if (string.IsNullOrWhiteSpace(promptMessageId))
                 throw new InvalidOperationException(L.T("OpenCode accepted the request but did not return a message ID, so its reply cannot be matched safely."));
-            await OpenCodeActivity.WaitForSessionAsync(agentSessionId, Repository.Path, cancellationToken);
+            await WaitForAgentCompletionAsync(Repository.AgentTool, agentSessionId, cancellationToken);
             response = await WaitForPromptAnswerAsync(agentSessionId, promptMessageId, previousMessageIds, cancellationToken)
                 ?? throw new InvalidOperationException(L.T("The AI session finished without a completed text response for this request."));
             await RefreshAgentContextAsync(session, role, sessionKey, agentSessionId, cancellationToken);
@@ -991,6 +1181,36 @@
         await PersistTerminalStateAsync();
         await InvokeAsync(StateHasChanged);
         return response;
+    }
+
+    private async Task WaitForAgentCompletionAsync(string agentTool, string agentSessionId,
+        CancellationToken cancellationToken)
+    {
+        // Poll for questions while the agent runs. A provider-specific API adapter can
+        // surface interactions without leaking OpenCode protocol details into the UI.
+        if (GetInteractionProvider(agentTool) is not { } provider)
+            throw new NotSupportedException(L.T("No interaction provider is registered for {0}.", AgentTools.GetDisplayName(agentTool)));
+
+        await provider.WaitForCompletionAsync(agentSessionId, Repository.Path,
+            interactions => InvokeAsync(() =>
+            {
+                var terminalSession = _terminalSessions.FirstOrDefault(candidate =>
+                    string.Equals(candidate.ActiveAgentSessionId, agentSessionId, StringComparison.Ordinal));
+                var current = interactions.ToHashSet();
+                var changed = !_pendingTerminalInteractions.TryGetValue(agentSessionId, out var previous) ||
+                    !previous.SetEquals(current);
+                if (interactions.Count > 0)
+                {
+                    _pendingTerminalInteractions[agentSessionId] = current;
+                    if (terminalSession is not null)
+                        foreach (var field in interactions.SelectMany(interaction => interaction.Fields.Select(field => (interaction, field))))
+                            terminalSession.InteractionAnswers.TryAdd(InteractionAnswerKey(field.interaction, field.field), null);
+                }
+                else
+                    changed |= _pendingTerminalInteractions.Remove(agentSessionId);
+                if (changed)
+                    StateHasChanged();
+            }), cancellationToken);
     }
 
     private async Task<string?> WaitForPromptAnswerAsync(string sessionId, string promptMessageId,
@@ -1178,7 +1398,8 @@
                     session.State.AgentSessionIds[selectorKey] = selectorSessionId;
                     await PersistTerminalStateAsync();
                 }
-                session.ActiveOpenCodeSessionId = selectorSessionId;
+                session.ActiveAgentSessionId = selectorSessionId;
+                session.ActiveAgentTool = Repository.AgentTool;
 
                 var previousMessageIds = await OpenCodeActivity.GetSessionMessageIdsAsync(
                     selectorSessionId, Repository.Path, cancellationToken);
@@ -1347,6 +1568,7 @@
         public string Title => State.Title;
         public string Input { get; set; } = string.Empty;
         public List<string> InputImages { get; } = [];
+        public Dictionary<string, string?> InteractionAnswers { get; } = new(StringComparer.Ordinal);
         public TerminalMode Mode { get; set; } = TerminalMode.Plan;
         public List<CodeBadgerTerminalMessage> Messages => State.Messages;
         public bool IsBusy { get; set; }
@@ -1354,7 +1576,8 @@
         public bool IsSubmitting { get; set; }
         public string? Error { get; set; }
         public CancellationTokenSource? RunCancellation { get; set; }
-        public string? ActiveOpenCodeSessionId { get; set; }
+        public string? ActiveAgentSessionId { get; set; }
+        public string ActiveAgentTool { get; set; } = string.Empty;
     }
 
 }

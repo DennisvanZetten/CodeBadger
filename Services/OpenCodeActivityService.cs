@@ -308,6 +308,54 @@ public sealed class OpenCodeActivityService
         return combined.Length > 20000 ? combined[..20000] + "\n…" : combined;
     }
 
+    public sealed record PromptTextMessage(string Id, string Text, bool IsFinal);
+
+    public async Task<IReadOnlyList<PromptTextMessage>> GetPromptTextMessagesAsync(string sessionId, string directory,
+        string promptMessageId, IReadOnlySet<string> previousMessageIds, CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId) || !IsValidMessageId(promptMessageId))
+            return [];
+        using var response = await RequestAsync($"/api/session/{sessionId}/message?order=desc&limit=100", cancellationToken,
+            workingDirectory: directory);
+        if (response?.RootElement.TryGetProperty("data", out var messages) != true || messages.ValueKind != JsonValueKind.Array)
+            return [];
+
+        var result = new List<(long Created, PromptTextMessage Message)>();
+        foreach (var message in messages.EnumerateArray())
+        {
+            var info = TryGetPropertyIgnoreCase(message, "info", out var infoValue) && infoValue.ValueKind == JsonValueKind.Object
+                ? infoValue : TryGetPropertyIgnoreCase(message, "message", out var messageValue) && messageValue.ValueKind == JsonValueKind.Object
+                    ? messageValue : message;
+            if (!string.Equals(ReadRole(info, message), "assistant", StringComparison.Ordinal))
+                continue;
+            var id = GetStringIgnoreCase(info, "id");
+            if (id.Length == 0)
+                id = GetStringIgnoreCase(message, "id");
+            if (id.Length == 0)
+                continue;
+            var parentId = GetStringIgnoreCase(info, "parentID");
+            if (parentId.Length > 0 ? parentId != promptMessageId : previousMessageIds.Contains(id))
+                continue;
+
+            var parts = TryGetPropertyIgnoreCase(message, "parts", out var partsValue) && partsValue.ValueKind == JsonValueKind.Array
+                ? partsValue : TryGetPropertyIgnoreCase(info, "content", out var content) && content.ValueKind == JsonValueKind.Array
+                    ? content : default;
+            if (parts.ValueKind != JsonValueKind.Array)
+                continue;
+            var text = string.Join("\n", parts.EnumerateArray()
+                .Where(part => GetStringIgnoreCase(part, "type") == "text")
+                .Select(part => GetStringIgnoreCase(part, "text"))
+                .Where(value => !string.IsNullOrWhiteSpace(value))).Trim();
+            if (text.Length == 0)
+                continue;
+            var created = TryGetPropertyIgnoreCase(info, "time", out var time) && time.ValueKind == JsonValueKind.Object
+                ? GetInt64(time, "created") : 0;
+            result.Add((created, new PromptTextMessage(id, text, GetStringIgnoreCase(info, "finish") is "stop" or "length")));
+        }
+        return result.OrderBy(item => item.Created).ThenBy(item => item.Message.Id, StringComparer.Ordinal)
+            .Select(item => item.Message).ToArray();
+    }
+
     public async Task<HashSet<string>?> GetSessionMessageIdsAsync(string sessionId, string directory,
         CancellationToken cancellationToken)
     {

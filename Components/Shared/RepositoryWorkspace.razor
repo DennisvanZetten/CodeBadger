@@ -254,32 +254,48 @@
                                                     <div class="repository-codebadger-message-content">
                                                         @if (message.IsModelPicker)
                                                         {
-                                                            <div class="repository-model-picker" role="listbox" aria-label="@L.T("Available OpenCode models")">
-                                                                @foreach (var model in GetTerminalModelOptions(session, string.Empty))
-                                                                {
-                                                                    <button type="button" class="repository-model-picker-option"
-                                                                            @onclick="() => SelectTerminalModelAsync(session, model.Reference)">
-                                                                        <span class="repository-model-picker-name">@model.Name</span>
-                                                                        <span class="repository-model-picker-reference">@model.Reference</span>
-                                                                        @if (IsCurrentTerminalModel(session, model.Reference))
-                                                                        {
-                                                                            <span class="repository-model-picker-current">@L.T("Current model")</span>
-                                                                        }
-                                                                    </button>
-                                                                }
+                                                            <div class="repository-command-response">
+                                                                <h3 class="repository-command-response-title">@L.T("Available OpenCode models")</h3>
+                                                                <ul class="repository-model-picker" aria-label="@L.T("Available OpenCode models")">
+                                                                    @foreach (var model in GetTerminalModelOptions(session, string.Empty))
+                                                                    {
+                                                                        var isCurrentModel = IsCurrentTerminalModel(session, model.Reference);
+                                                                        <li>
+                                                                            <button type="button" class="repository-model-picker-option @(isCurrentModel ? "current" : string.Empty)"
+                                                                                    aria-pressed="@(isCurrentModel ? "true" : "false")"
+                                                                                    @onclick="() => SelectTerminalModelAsync(session, model.Reference)">
+                                                                                <span class="repository-command-option-text">
+                                                                                    <span class="repository-model-picker-name">@model.Name</span>
+                                                                                    <span class="repository-model-picker-reference">@model.Reference</span>
+                                                                                </span>
+                                                                                @if (isCurrentModel)
+                                                                                {
+                                                                                    <span class="repository-model-picker-current">@L.T("Current model")</span>
+                                                                                }
+                                                                            </button>
+                                                                        </li>
+                                                                    }
+                                                                </ul>
                                                             </div>
                                                         }
                                                         else if (message.IsCommandHelp)
                                                         {
-                                                            <div class="repository-command-help" role="list">
-                                                                @foreach (var command in GetAvailableTerminalCommands())
-                                                                {
-                                                                    <button type="button" class="repository-command-help-option"
-                                                                            @onclick="() => HandleHelpCommandAsync(session, command.Command)">
-                                                                        <code>@command.Command</code>
-                                                                        <span>@L.T(command.Description)</span>
-                                                                    </button>
-                                                                }
+                                                            <div class="repository-command-response">
+                                                                <h3 class="repository-command-response-title">@L.T("Available terminal commands")</h3>
+                                                                <ul class="repository-command-help">
+                                                                    @foreach (var command in GetAvailableTerminalCommands())
+                                                                    {
+                                                                        <li>
+                                                                            <button type="button" class="repository-command-help-option"
+                                                                                    @onclick="() => HandleHelpCommandAsync(session, command.Command)">
+                                                                                <span class="repository-command-option-text">
+                                                                                    <code>@command.Command</code>
+                                                                                    <span class="repository-command-option-description">@L.T(command.Description)</span>
+                                                                                </span>
+                                                                            </button>
+                                                                        </li>
+                                                                    }
+                                                                </ul>
                                                             </div>
                                                         }
                                                         else if (message.Role == "assistant")
@@ -1910,9 +1926,57 @@
                 cancellationToken, preferenceAgent, images);
             if (string.IsNullOrWhiteSpace(promptMessageId))
                 throw new InvalidOperationException(L.T("OpenCode accepted the request but did not return a message ID, so its reply cannot be matched safely."));
-            await WaitForAgentCompletionAsync(session, role, Repository.AgentTool, agentSessionId, cancellationToken);
+            var interimMessages = new Dictionary<string, CodeBadgerTerminalMessage>(StringComparer.Ordinal);
+            async Task RefreshPromptMessagesAsync()
+            {
+                var messages = await OpenCodeActivity.GetPromptTextMessagesAsync(agentSessionId, Repository.Path,
+                    promptMessageId, previousMessageIds, cancellationToken);
+                await InvokeAsync(() =>
+                {
+                    var changed = false;
+                    foreach (var message in messages)
+                    {
+                        if (message.IsFinal)
+                        {
+                            if (interimMessages.Remove(message.Id, out var interimMessage))
+                            {
+                                session.State.Messages.Remove(interimMessage);
+                                changed = true;
+                            }
+                            continue;
+                        }
+                        if (!interimMessages.TryGetValue(message.Id, out var displayedMessage))
+                        {
+                            displayedMessage = new CodeBadgerTerminalMessage
+                            {
+                                Role = "assistant", AgentRole = role, ModelReference = model ?? string.Empty,
+                                Text = message.Text
+                            };
+                            interimMessages[message.Id] = displayedMessage;
+                            session.State.Messages.Insert(session.State.Messages.IndexOf(pendingMessage), displayedMessage);
+                            changed = true;
+                        }
+                        else if (displayedMessage.Text != message.Text)
+                        {
+                            displayedMessage.Text = message.Text;
+                            changed = true;
+                        }
+                    }
+                    var finalText = string.Join("\n\n", messages.Where(message => message.IsFinal).Select(message => message.Text));
+                    if (finalText.Length > 0 && pendingMessage.Text != finalText)
+                    {
+                        pendingMessage.Text = finalText;
+                        changed = true;
+                    }
+                    if (changed)
+                        StateHasChanged();
+                });
+            }
+            await WaitForAgentCompletionAsync(session, role, Repository.AgentTool, agentSessionId, cancellationToken,
+                RefreshPromptMessagesAsync);
             response = await WaitForPromptAnswerAsync(agentSessionId, promptMessageId, previousMessageIds, cancellationToken)
                 ?? throw new InvalidOperationException(L.T("The AI session finished without a completed text response for this request."));
+            await RefreshPromptMessagesAsync();
             await RefreshAgentContextAsync(session, role, sessionKey, agentSessionId, cancellationToken);
             if (isNewAgentSession)
             {
@@ -1963,7 +2027,7 @@
     }
 
     private async Task WaitForAgentCompletionAsync(CodeBadgerTerminalSession session, string role, string agentTool, string agentSessionId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, Func<Task>? onProgress = null)
     {
         // Poll for questions while the agent runs. A provider-specific API adapter can
         // surface interactions without leaking OpenCode protocol details into the UI.
@@ -1971,34 +2035,39 @@
             throw new NotSupportedException(L.T("No interaction provider is registered for {0}.", AgentTools.GetDisplayName(agentTool)));
 
         await provider.WaitForCompletionAsync(agentSessionId, Repository.Path,
-            interactions => InvokeAsync(() =>
+            async interactions =>
             {
-                var terminalSession = _terminalSessions.FirstOrDefault(candidate =>
-                    string.Equals(candidate.ActiveAgentSessionId, agentSessionId, StringComparison.Ordinal));
-                var current = interactions.ToHashSet();
-                var changed = !_pendingTerminalInteractions.TryGetValue(agentSessionId, out var previous) ||
-                    !previous.SetEquals(current);
-                if (interactions.Count > 0)
+                if (onProgress is not null)
+                    await onProgress();
+                await InvokeAsync(() =>
                 {
-                    _pendingTerminalInteractions[agentSessionId] = current;
-                    session.RoleProgress[role] = AgentRoleProgress.Waiting;
-                    if (terminalSession is not null)
-                        foreach (var field in interactions.SelectMany(interaction => interaction.Fields.Select(field => (interaction, field))))
-                        {
-                            terminalSession.InteractionAnswers.TryAdd(InteractionAnswerKey(field.interaction, field.field), null);
-                            if (field.field.AllowsCustomValue)
-                                terminalSession.InteractionAnswers.TryAdd(CustomInteractionAnswerKey(field.interaction, field.field), null);
-                        }
-                }
-                else
-                {
-                    changed |= _pendingTerminalInteractions.Remove(agentSessionId);
-                    if (session.RoleProgress.GetValueOrDefault(role) == AgentRoleProgress.Waiting)
-                        session.RoleProgress[role] = AgentRoleProgress.Working;
-                }
-                if (changed)
-                    StateHasChanged();
-            }), cancellationToken);
+                    var terminalSession = _terminalSessions.FirstOrDefault(candidate =>
+                        string.Equals(candidate.ActiveAgentSessionId, agentSessionId, StringComparison.Ordinal));
+                    var current = interactions.ToHashSet();
+                    var changed = !_pendingTerminalInteractions.TryGetValue(agentSessionId, out var previous) ||
+                        !previous.SetEquals(current);
+                    if (interactions.Count > 0)
+                    {
+                        _pendingTerminalInteractions[agentSessionId] = current;
+                        session.RoleProgress[role] = AgentRoleProgress.Waiting;
+                        if (terminalSession is not null)
+                            foreach (var field in interactions.SelectMany(interaction => interaction.Fields.Select(field => (interaction, field))))
+                            {
+                                terminalSession.InteractionAnswers.TryAdd(InteractionAnswerKey(field.interaction, field.field), null);
+                                if (field.field.AllowsCustomValue)
+                                    terminalSession.InteractionAnswers.TryAdd(CustomInteractionAnswerKey(field.interaction, field.field), null);
+                            }
+                    }
+                    else
+                    {
+                        changed |= _pendingTerminalInteractions.Remove(agentSessionId);
+                        if (session.RoleProgress.GetValueOrDefault(role) == AgentRoleProgress.Waiting)
+                            session.RoleProgress[role] = AgentRoleProgress.Working;
+                    }
+                    if (changed)
+                        StateHasChanged();
+                });
+            }, cancellationToken);
     }
 
     private async Task<string?> WaitForPromptAnswerAsync(string sessionId, string promptMessageId,

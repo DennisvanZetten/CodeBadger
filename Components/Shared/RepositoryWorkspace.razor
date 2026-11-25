@@ -75,7 +75,17 @@
                                                   title="@L.T("{0}: {1}", RoleDisplayName(role), RoleProgressLabel(status))"
                                                   aria-label="@L.T("{0}: {1}", RoleDisplayName(role), RoleProgressLabel(status))">
                                                 @ShortRoleDisplayName(role)
-                                                <MudIcon Icon="@RoleProgressIcon(status)" Class="repository-codebadger-role-status-icon" aria-hidden="true" />
+                                                @if (status == AgentRoleProgress.Working)
+                                                {
+                                                    <span class="repository-codebadger-mascot-progress" aria-hidden="true">
+                                                        <img src="codebadger.svg" alt="" />
+                                                        <span>✦</span>
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <MudIcon Icon="@RoleProgressIcon(status)" Class="repository-codebadger-role-status-icon" aria-hidden="true" />
+                                                }
                                             </span>
                                         }
                                     </div>
@@ -131,6 +141,12 @@
                                             {
                                                 <span class="repository-codebadger-agent-context-tokens">
                                                     @L.T("{0} / {1} tokens", contextUsage.Used.ToString("N0"), contextUsage.Limit.ToString("N0"))
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="repository-codebadger-agent-context-tokens">
+                                                    @L.T("Token usage unavailable")
                                                 </span>
                                             }
                                         </div>
@@ -1324,7 +1340,11 @@
                     session.RoleProgress[role] = AgentRoleProgress.Waiting;
                     if (terminalSession is not null)
                         foreach (var field in interactions.SelectMany(interaction => interaction.Fields.Select(field => (interaction, field))))
+                        {
                             terminalSession.InteractionAnswers.TryAdd(InteractionAnswerKey(field.interaction, field.field), null);
+                            if (field.field.AllowsCustomValue)
+                                terminalSession.InteractionAnswers.TryAdd(CustomInteractionAnswerKey(field.interaction, field.field), null);
+                        }
                 }
                 else
                 {

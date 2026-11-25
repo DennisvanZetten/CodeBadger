@@ -2227,7 +2227,7 @@ h1:focus {
 
 .repository-terminal-stack {
     display: grid;
-    grid-template-rows: minmax(120px, var(--ai-terminal-height, 38%)) 5.5rem minmax(120px, 1fr);
+    grid-template-rows: minmax(120px, var(--ai-terminal-height, 38%)) minmax(8.5rem, auto) minmax(120px, 1fr);
     gap: 0;
     height: 100%;
     min-height: 0;
@@ -2236,11 +2236,11 @@ h1:focus {
 }
 
 .repository-terminal-stack.ai-pane-collapsed {
-    grid-template-rows: 0 5.5rem minmax(0, 1fr);
+    grid-template-rows: 0 minmax(8.5rem, auto) minmax(0, 1fr);
 }
 
 .repository-terminal-stack.ai-pane-expanded {
-    grid-template-rows: minmax(0, 1fr) 5.5rem 0;
+    grid-template-rows: minmax(0, 1fr) minmax(8.5rem, auto) 0;
 }
 
 .repository-ai-pane,
@@ -2294,16 +2294,16 @@ h1:focus {
     display: flex;
     flex-direction: column;
     align-self: stretch;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 0.15rem;
     min-width: 0;
     max-width: none;
 }
 
 .repository-codebadger-session-tabs {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     align-self: stretch;
-    min-height: 0;
+    min-height: auto;
     max-width: 100%;
     width: 100%;
     flex-wrap: nowrap !important;
@@ -2398,8 +2398,34 @@ h1:focus {
 }
 
 .repository-codebadger-role-status.working .repository-codebadger-role-status-icon {
-    color: var(--mud-palette-info);
-    animation: codebadger-role-spin 1.1s linear infinite;
+    display: none;
+}
+
+.repository-codebadger-mascot-progress {
+    position: relative;
+    display: inline-flex;
+    width: 1.15rem;
+    height: 1.15rem;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+}
+
+.repository-codebadger-mascot-progress img {
+    width: 1rem;
+    height: 1rem;
+    object-fit: contain;
+    animation: codebadger-mascot-bounce 0.72s ease-in-out infinite alternate;
+}
+
+.repository-codebadger-mascot-progress > span {
+    position: absolute;
+    top: -0.2rem;
+    right: -0.08rem;
+    color: var(--mud-palette-warning);
+    font-size: 0.62rem;
+    line-height: 1;
+    animation: codebadger-mascot-spark 0.9s ease-in-out infinite;
 }
 
 .repository-codebadger-role-status.waiting {
@@ -2428,8 +2454,14 @@ h1:focus {
     50% { opacity: 0.4; transform: scale(0.82); }
 }
 
-@keyframes codebadger-role-spin {
-    to { transform: rotate(360deg); }
+@keyframes codebadger-mascot-bounce {
+    from { transform: translateY(0) rotate(-7deg) scale(0.92); }
+    to { transform: translateY(-0.1rem) rotate(7deg) scale(1.04); }
+}
+
+@keyframes codebadger-mascot-spark {
+    0%, 100% { opacity: 0.35; transform: scale(0.65) rotate(0); }
+    50% { opacity: 1; transform: scale(1.15) rotate(35deg); }
 }
 
 .repository-codebadger-session-tab.selected .repository-codebadger-session-select {
@@ -2443,7 +2475,7 @@ h1:focus {
 
 .repository-codebadger-agent-links {
     display: flex;
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     flex-wrap: nowrap;
     align-items: flex-start;
     gap: 0.35rem;
@@ -2459,8 +2491,8 @@ h1:focus {
     flex: 0 0 auto;
     flex-direction: column;
     gap: 0.16rem;
-    min-width: 12rem;
-    padding: 0.35rem 0.5rem;
+    min-width: 16rem;
+    padding: 0.45rem 0.6rem;
     border: 1px solid color-mix(in srgb, var(--mud-palette-text-secondary) 24%, transparent);
     border-radius: 0.35rem;
 }
@@ -2468,6 +2500,7 @@ h1:focus {
 .repository-codebadger-agent-context-label {
     display: flex;
     align-items: center;
+    min-height: 1.35rem;
     gap: 0.3rem;
     min-width: 0;
     color: var(--mud-palette-text-secondary);
@@ -2500,7 +2533,7 @@ h1:focus {
 }
 
 .repository-codebadger-agent-context-track {
-    height: 0.32rem;
+    height: 0.4rem;
     overflow: hidden;
     border-radius: 999px;
     background: color-mix(in srgb, var(--mud-palette-text-secondary) 18%, transparent);
@@ -2548,7 +2581,7 @@ h1:focus {
     }
 
     .repository-codebadger-agent-context {
-        min-width: 5.5rem;
+        min-width: 12rem;
     }
 }
 

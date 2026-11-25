@@ -23,11 +23,7 @@ public sealed class LauncherSettings
     public string AiCustomUrl { get; set; } = string.Empty;
     public string AiModel { get; set; } = "gpt-4o-mini";
     public string AiConflictModel { get; set; } = "gpt-4o-mini";
-    public string CodeBadgerTerminalModel { get; set; } = string.Empty;
-    public List<CodeBadgerRolePreference> CodeBadgerRolePreferences { get; set; } = CodeBadgerRoles.CreateDefaults();
-    public List<string> CodeBadgerSingleAgentPreferredModels { get; set; } = [];
-    public List<string> CodeBadgerPlanPreferredModels { get; set; } = [];
-    public List<string> CodeBadgerBuildPreferredModels { get; set; } = [];
+    public List<CodeBadgerAgentPreferences> CodeBadgerAgentPreferences { get; set; } = CodeBadgerRoles.CreateAgentDefaults();
     public int AiMaxInputTokens { get; set; } = 12000;
     public int SandboxMaxFileMb { get; set; } = 64;
     public int SandboxMaxTotalMb { get; set; } = 1024;
@@ -125,6 +121,30 @@ public static class CodeBadgerRoles
     public static List<CodeBadgerRolePreference> CreateDefaults() =>
         All.Select(role => new CodeBadgerRolePreference { Role = role, AgentType = DefaultAgentType(role) }).ToList();
 
+    public static List<CodeBadgerAgentPreferences> CreateAgentDefaults() =>
+        new[] { AgentTools.OpenCode, AgentTools.ClaudeCode, AgentTools.Hermes, AgentTools.Codex }
+            .Select(agent => new CodeBadgerAgentPreferences { AgentTool = agent, RolePreferences = CreateDefaults() }).ToList();
+
+    public static void NormalizeAgentPreferences(List<CodeBadgerAgentPreferences> preferences)
+    {
+        var existing = (preferences ?? []).Where(item => AgentTools.All.Contains(item.AgentTool, StringComparer.Ordinal))
+            .GroupBy(item => item.AgentTool, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        preferences?.Clear();
+        foreach (var agent in AgentTools.All)
+        {
+            if (!existing.TryGetValue(agent, out var preference))
+                preference = new CodeBadgerAgentPreferences { AgentTool = agent, RolePreferences = CreateDefaults() };
+            preference.TerminalModel = preference.TerminalModel?.Trim() ?? string.Empty;
+            preference.SingleAgentPreferredModels = NormalizePreferredModels(preference.SingleAgentPreferredModels);
+            preference.PlanPreferredModels = NormalizePreferredModels(preference.PlanPreferredModels);
+            preference.BuildPreferredModels = NormalizePreferredModels(preference.BuildPreferredModels);
+            preference.RolePreferences ??= CreateDefaults();
+            Normalize(preference.RolePreferences);
+            preferences!.Add(preference);
+        }
+    }
+
     public static void Normalize(List<CodeBadgerRolePreference> preferences)
     {
         preferences ??= [];
@@ -175,6 +195,16 @@ public sealed class CodeBadgerRolePreference
     public string AgentType { get; set; } = "Build";
     public string CustomAgentId { get; set; } = string.Empty;
     public List<string> PreferredModels { get; set; } = [];
+}
+
+public sealed class CodeBadgerAgentPreferences
+{
+    public string AgentTool { get; set; } = AgentTools.OpenCode;
+    public string TerminalModel { get; set; } = string.Empty;
+    public List<string> SingleAgentPreferredModels { get; set; } = [];
+    public List<string> PlanPreferredModels { get; set; } = [];
+    public List<string> BuildPreferredModels { get; set; } = [];
+    public List<CodeBadgerRolePreference> RolePreferences { get; set; } = CodeBadgerRoles.CreateDefaults();
 }
 
 public sealed record CodeBadgerRecommendedModel(string Reference, decimal InputCost, decimal OutputCost, bool IsUnpriced = false);
@@ -231,6 +261,7 @@ public static class AgentTools
     public const string ClaudeCode = "Claude Code";
     public const string Codex = "Codex";
     public const string Hermes = "Hermes";
+    public static readonly string[] All = [OpenCode, ClaudeCode, Hermes, Codex];
 
     public static string Normalize(string? agentTool) => agentTool switch
     {

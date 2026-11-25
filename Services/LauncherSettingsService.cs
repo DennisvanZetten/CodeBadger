@@ -51,13 +51,11 @@ public sealed class LauncherSettingsService
             NormalizeLogSettings(settings);
             settings.GitOverviewStartSize = NormalizeGitOverviewStartSize(settings.GitOverviewStartSize);
             settings.AiConflictModel = string.IsNullOrWhiteSpace(settings.AiConflictModel) ? settings.AiModel : settings.AiConflictModel;
-            settings.CodeBadgerTerminalModel ??= string.Empty;
             settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
             settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);
             settings.TaskBranchPrefix = NormalizeBranchPrefix(settings.TaskBranchPrefix);
-            settings.CodeBadgerRolePreferences ??= CodeBadgerRoles.CreateDefaults();
-            CodeBadgerRoles.Normalize(settings.CodeBadgerRolePreferences);
-            NormalizeCodeBadgerModelPreferences(settings);
+            settings.CodeBadgerAgentPreferences ??= CodeBadgerRoles.CreateAgentDefaults();
+            CodeBadgerRoles.NormalizeAgentPreferences(settings.CodeBadgerAgentPreferences);
             foreach (var repository in settings.Repositories)
             {
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
@@ -99,7 +97,6 @@ public sealed class LauncherSettingsService
             NormalizeLogSettings(settings);
             settings.GitOverviewStartSize = NormalizeGitOverviewStartSize(settings.GitOverviewStartSize);
             settings.AiConflictModel = string.IsNullOrWhiteSpace(settings.AiConflictModel) ? settings.AiModel : settings.AiConflictModel;
-            settings.CodeBadgerTerminalModel = settings.CodeBadgerTerminalModel?.Trim() ?? string.Empty;
             settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
             settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);
             settings.TaskBranchPrefix = NormalizeBranchPrefix(settings.TaskBranchPrefix);
@@ -114,9 +111,8 @@ public sealed class LauncherSettingsService
                 repository.TaskStoryTemplate ??= RepositoryEntry.DefaultTaskStoryTemplate;
                 repository.AiCustomInstruction = repository.AiCustomInstruction?.Trim() ?? string.Empty;
             }
-            settings.CodeBadgerRolePreferences ??= CodeBadgerRoles.CreateDefaults();
-            CodeBadgerRoles.Normalize(settings.CodeBadgerRolePreferences);
-            NormalizeCodeBadgerModelPreferences(settings);
+            settings.CodeBadgerAgentPreferences ??= CodeBadgerRoles.CreateAgentDefaults();
+            CodeBadgerRoles.NormalizeAgentPreferences(settings.CodeBadgerAgentPreferences);
             settings.NotificationChannel = settings.NotificationChannel is "Slack" or "Discord"
                 ? settings.NotificationChannel : "Slack";
             Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
@@ -194,18 +190,44 @@ public sealed class LauncherSettingsService
         if (root is not JsonObject settings)
             return;
 
+        if (settings["CodeBadgerAgentPreferences"] is JsonArray)
+            return;
+
         var rolePreferences = settings["CodeBadgerRolePreferences"] as JsonArray;
         JsonArray? ModelsForRole(string role) => rolePreferences?.OfType<JsonObject>()
             .FirstOrDefault(preference => string.Equals(preference["Role"]?.GetValue<string>(), role, StringComparison.Ordinal))?
             ["PreferredModels"] as JsonArray;
 
-        if (!settings.ContainsKey("CodeBadgerSingleAgentPreferredModels"))
-            settings["CodeBadgerSingleAgentPreferredModels"] = CloneArray(ModelsForRole(CodeBadgerRoles.Worker));
-        if (!settings.ContainsKey("CodeBadgerPlanPreferredModels"))
-            settings["CodeBadgerPlanPreferredModels"] = CloneArray(ModelsForRole(CodeBadgerRoles.Planner));
-        if (!settings.ContainsKey("CodeBadgerBuildPreferredModels"))
-            settings["CodeBadgerBuildPreferredModels"] = CloneArray(ModelsForRole(CodeBadgerRoles.Worker));
+        var roleArray = rolePreferences is null ? CodeBadgerRoles.CreateDefaults() :
+            rolePreferences.Deserialize<List<CodeBadgerRolePreference>>() ?? CodeBadgerRoles.CreateDefaults();
+        CodeBadgerRoles.Normalize(roleArray);
+        var openCode = new JsonObject
+        {
+            ["AgentTool"] = AgentTools.OpenCode,
+            ["TerminalModel"] = settings["CodeBadgerTerminalModel"]?.DeepClone() ?? JsonValue.Create(string.Empty),
+            ["SingleAgentPreferredModels"] = CloneArray(settings["CodeBadgerSingleAgentPreferredModels"] as JsonArray ?? ModelsForRole(CodeBadgerRoles.Worker)),
+            ["PlanPreferredModels"] = CloneArray(settings["CodeBadgerPlanPreferredModels"] as JsonArray ?? ModelsForRole(CodeBadgerRoles.Planner)),
+            ["BuildPreferredModels"] = CloneArray(settings["CodeBadgerBuildPreferredModels"] as JsonArray ?? ModelsForRole(CodeBadgerRoles.Worker)),
+            ["RolePreferences"] = System.Text.Json.JsonSerializer.SerializeToNode(roleArray, JsonOptions)
+        };
+        settings["CodeBadgerAgentPreferences"] = new JsonArray
+        {
+            openCode,
+            CreateAgentPreference(AgentTools.ClaudeCode),
+            CreateAgentPreference(AgentTools.Hermes),
+            CreateAgentPreference(AgentTools.Codex)
+        };
     }
+
+    private static JsonObject CreateAgentPreference(string agent) => new()
+    {
+        ["AgentTool"] = agent,
+        ["TerminalModel"] = string.Empty,
+        ["SingleAgentPreferredModels"] = new JsonArray(),
+        ["PlanPreferredModels"] = new JsonArray(),
+        ["BuildPreferredModels"] = new JsonArray(),
+        ["RolePreferences"] = System.Text.Json.JsonSerializer.SerializeToNode(CodeBadgerRoles.CreateDefaults(), JsonOptions)
+    };
 
     private static JsonArray CloneArray(JsonArray? source)
     {
@@ -214,16 +236,6 @@ public sealed class LauncherSettingsService
             foreach (var item in source)
                 copy.Add(item?.DeepClone());
         return copy;
-    }
-
-    private static void NormalizeCodeBadgerModelPreferences(LauncherSettings settings)
-    {
-        settings.CodeBadgerSingleAgentPreferredModels = CodeBadgerRoles.NormalizePreferredModels(
-            settings.CodeBadgerSingleAgentPreferredModels);
-        settings.CodeBadgerPlanPreferredModels = CodeBadgerRoles.NormalizePreferredModels(
-            settings.CodeBadgerPlanPreferredModels);
-        settings.CodeBadgerBuildPreferredModels = CodeBadgerRoles.NormalizePreferredModels(
-            settings.CodeBadgerBuildPreferredModels);
     }
 
     private static void ClearLegacyTicketMcpServer(RepositoryEntry repository)

@@ -2,7 +2,6 @@
 @inject LocalizationService L
 @inject AiCommitMessageService AiCommitMessageService
 @inject AgentConfigService AgentConfigService
-@inject OpenCodeActivityService OpenCodeActivity
 @inject SlackNotificationService SlackNotificationService
 @inject StartupDetectionService StartupDetection
 @inject AgentUpdateService AgentUpdates
@@ -120,8 +119,9 @@
                          <MudSelectItem T="string" Value="@AgentTools.ClaudeCode">Claude Code</MudSelectItem>
                           <MudSelectItem T="string" Value="@AgentTools.Codex">Codex</MudSelectItem>
                           <MudSelectItem T="string" Value="@AgentTools.Hermes">Hermes</MudSelectItem>
-                     </MudSelect>
-                     <MudText Typo="Typo.subtitle1">@_selectedAgent</MudText>
+                      </MudSelect>
+                      <CodeBadgerAgentPreferencesPanel @key="_selectedAgent" Settings="Settings" AgentTool="_selectedAgent" />
+                      <MudText Typo="Typo.subtitle1">@_selectedAgent</MudText>
                       @if (GetAgentStartupState(_selectedAgent) is { } agentState)
                      {
                          <MudStack Row="true" Spacing="1" Class="flex-wrap">
@@ -319,184 +319,6 @@
                             </MudSelect>
                         </MudStack>
                     </MudPaper>
-                    <MudPaper Outlined="true" Elevation="0" Class="pa-4">
-                        <MudStack Spacing="2">
-                            <MudText Typo="Typo.h6">@L.T("AI for CodeBadger terminal")</MudText>
-                            <MudSelect T="string" Value="@Settings.CodeBadgerTerminalModel"
-                                       ValueChanged="@(value => Settings.CodeBadgerTerminalModel = value)"
-                                       Label="@L.T("CodeBadger terminal model")" Margin="Margin.Dense" Variant="Variant.Outlined"
-                                       Disabled="@(_openCodeModels.Count == 0)">
-                                <MudSelectItem T="string" Value="@string.Empty">@L.T("Automatic selection")</MudSelectItem>
-                                @foreach (var model in _openCodeModels)
-                                {
-                                    <MudSelectItem T="string" Value="@model.Reference" Disabled="@(!model.Enabled)">
-                                        @ModelOptionLabel(model)
-                                    </MudSelectItem>
-                                }
-                            </MudSelect>
-                        </MudStack>
-                    </MudPaper>
-                    <MudPaper Outlined="true" Elevation="0" Class="pa-4">
-                        <MudStack Spacing="2">
-                             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-                                 <MudText Typo="Typo.h6">@L.T("CodeBadger AI team")</MudText>
-                                 <MudTooltip Text="@L.T("Recommend model priorities by role and cost")">
-                                     <MudIconButton Icon="@Icons.Material.Filled.AutoAwesome" Color="Color.Primary"
-                                                    aria-label="@L.T("Recommend model priorities by role and cost")"
-                                                    Disabled="@(_isLoadingCodeBadgerModels || _openCodeModels.Count == 0)"
-                                                    OnClick="RecommendCodeBadgerModelsAsync" />
-                                 </MudTooltip>
-                             </MudStack>
-                             <MudText Typo="Typo.body2" Color="Color.Secondary">
-                                 @L.T("Configure an OpenCode agent and ordered model preferences for each role. Listed model prices are USD per million input/output tokens; models without published prices are unpriced, not free.")
-                             </MudText>
-                             @if (_isLoadingCodeBadgerModels)
-                             {
-                                 <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Loading OpenCode models...")</MudText>
-                             }
-                             else if (!string.IsNullOrWhiteSpace(_codeBadgerModelLoadError))
-                             {
-                                 <MudAlert Dense="true" Severity="Severity.Warning" Variant="Variant.Outlined">@_codeBadgerModelLoadError</MudAlert>
-                             }
-                             else if (_openCodeModels.Count == 0)
-                             {
-                                 <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("OpenCode models load automatically when an OpenCode repository is available.")</MudText>
-                             }
-                            <MudExpansionPanels Elevation="0" Outlined="true">
-                                <MudExpansionPanel Text="@L.T("One agent for everything")">
-                                    <MudStack Spacing="2" Class="pa-3">
-                                        @for (var priorityIndex = 0; priorityIndex < 3; priorityIndex++)
-                                        {
-                                            var slot = priorityIndex;
-                                            <MudSelect T="string" Value="@GetPreferredModel(Settings.CodeBadgerSingleAgentPreferredModels, slot)"
-                                                       ValueChanged="@(value => SetPreferredModel(Settings.CodeBadgerSingleAgentPreferredModels, slot, value))"
-                                                       Label="@L.T("Model priority {0}", slot + 1)" Margin="Margin.Dense" Variant="Variant.Outlined">
-                                                <MudSelectItem T="string" Value="@string.Empty">@L.T("Automatic selection")</MudSelectItem>
-                                                @foreach (var model in _openCodeModels)
-                                                {
-                                                    <MudSelectItem T="string" Value="@model.Reference" Disabled="@(!model.Enabled)">
-                                                        @ModelOptionLabel(model)
-                                                    </MudSelectItem>
-                                                }
-                                            </MudSelect>
-                                        }
-                                    </MudStack>
-                                </MudExpansionPanel>
-                            </MudExpansionPanels>
-
-                            <MudExpansionPanels Elevation="0" Outlined="true">
-                                <MudExpansionPanel Text="@L.T("Plan and build")">
-                                    <MudStack Spacing="2" Class="pa-3">
-                                        <MudText Typo="Typo.body2">@CodeBadgerRoleDisplayName(CodeBadgerRoles.Planner)</MudText>
-                                        @for (var priorityIndex = 0; priorityIndex < 3; priorityIndex++)
-                                        {
-                                            var slot = priorityIndex;
-                                            <MudSelect T="string" Value="@GetPreferredModel(Settings.CodeBadgerPlanPreferredModels, slot)"
-                                                       ValueChanged="@(value => SetPreferredModel(Settings.CodeBadgerPlanPreferredModels, slot, value))"
-                                                       Label="@L.T("Plan model priority {0}", slot + 1)" Margin="Margin.Dense" Variant="Variant.Outlined">
-                                                <MudSelectItem T="string" Value="@string.Empty">@L.T("Automatic selection")</MudSelectItem>
-                                                @foreach (var model in _openCodeModels)
-                                                {
-                                                    <MudSelectItem T="string" Value="@model.Reference" Disabled="@(!model.Enabled)">
-                                                        @ModelOptionLabel(model)
-                                                    </MudSelectItem>
-                                                }
-                                            </MudSelect>
-                                        }
-                                        <MudText Typo="Typo.body2">@CodeBadgerRoleDisplayName(CodeBadgerRoles.Worker)</MudText>
-                                        @for (var priorityIndex = 0; priorityIndex < 3; priorityIndex++)
-                                        {
-                                            var slot = priorityIndex;
-                                            <MudSelect T="string" Value="@GetPreferredModel(Settings.CodeBadgerBuildPreferredModels, slot)"
-                                                       ValueChanged="@(value => SetPreferredModel(Settings.CodeBadgerBuildPreferredModels, slot, value))"
-                                                       Label="@L.T("Build model priority {0}", slot + 1)" Margin="Margin.Dense" Variant="Variant.Outlined">
-                                                <MudSelectItem T="string" Value="@string.Empty">@L.T("Automatic selection")</MudSelectItem>
-                                                @foreach (var model in _openCodeModels)
-                                                {
-                                                    <MudSelectItem T="string" Value="@model.Reference" Disabled="@(!model.Enabled)">
-                                                        @ModelOptionLabel(model)
-                                                    </MudSelectItem>
-                                                }
-                                            </MudSelect>
-                                        }
-                                    </MudStack>
-                                </MudExpansionPanel>
-                            </MudExpansionPanels>
-
-                            <MudPaper Outlined="true" Elevation="0" Class="pa-3">
-                                <MudStack Spacing="2">
-                                    <MudText Typo="Typo.subtitle1">@L.T("Full orchestration")</MudText>
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                        @L.T("Configure the agent and model priorities used by each role in full orchestration.")
-                                    </MudText>
-                                    <MudExpansionPanels Elevation="0" Outlined="true" MultiExpansion="true">
-                                        @foreach (var preference in Settings.CodeBadgerRolePreferences)
-                                        {
-                                            <MudExpansionPanel @key="preference.Role" Text="@CodeBadgerRoleDisplayName(preference.Role)">
-                                                <MudStack Spacing="2" Class="pa-3">
-                                        <MudSelect T="string" Value="@(GetAgentTypeForDisplay(preference))"
-                                                   ValueChanged="@(value => preference.AgentType = value)"
-                                                        Label="@L.T("Agent type")" Margin="Margin.Dense" Variant="Variant.Outlined">
-                                            @foreach (var type in CodeBadgerRoles.AgentTypes)
-                                            {
-                                                <MudSelectItem T="string" Value="@type">@AgentTypeLabel(type)</MudSelectItem>
-                                            }
-                                            @if (!CodeBadgerRoles.AgentTypes.Contains(GetAgentTypeForDisplay(preference), StringComparer.Ordinal))
-                                            {
-                                                <MudSelectItem T="string" Value="@GetAgentTypeForDisplay(preference)">@AgentTypeLabel(GetAgentTypeForDisplay(preference))</MudSelectItem>
-                                            }
-                                        </MudSelect>
-                                        @if (GetAgentTypeForDisplay(preference) == "Primary")
-                                        {
-                                            <MudAlert Dense="true" Severity="Severity.Info" Variant="Variant.Outlined">
-                                                @L.T("Primary uses the default OpenCode agent configured for this project. It is distinct from the built-in Plan and Build agents.")
-                                            </MudAlert>
-                                        }
-                                        @if (GetAgentTypeForDisplay(preference) is "Plan" or "Build")
-                                        {
-                                            <MudAlert Dense="true" Severity="Severity.Info" Variant="Variant.Outlined">
-                                                @L.T("Plan and Build are OpenCode's built-in primary agents. Their model choice is controlled by the role's model priorities below.")
-                                            </MudAlert>
-                                        }
-                                        @if (GetAgentTypeForDisplay(preference) == "Custom")
-                                        {
-                                            <MudSelect T="string" Value="@preference.CustomAgentId"
-                                                       ValueChanged="@(value => preference.CustomAgentId = value)"
-                                                       Label="@L.T("Custom OpenCode agent")" Margin="Margin.Dense" Variant="Variant.Outlined">
-                                                @foreach (var agent in _openCodeAgents)
-                                                {
-                                                    <MudSelectItem T="string" Value="@agent.Id" Disabled="@(agent.Mode is not ("subagent" or "all"))">
-                                                        @agent.Name (@agent.Id)@(agent.Mode is "subagent" or "all" ? string.Empty : " · " + L.T("Primary agent; choose the Primary type"))
-                                                    </MudSelectItem>
-                                                }
-                                            </MudSelect>
-                                        }
-                                        @for (var priorityIndex = 0; priorityIndex < 3; priorityIndex++)
-                                        {
-                                            var slot = priorityIndex;
-                                            <MudSelect T="string" Value="@GetPreferredModel(preference, slot)"
-                                                       ValueChanged="@(value => SetPreferredModel(preference, slot, value))"
-                                                       Label="@L.T("Model priority {0}", slot + 1)" Margin="Margin.Dense" Variant="Variant.Outlined">
-                                                <MudSelectItem T="string" Value="@string.Empty">@L.T("Automatic selection")</MudSelectItem>
-                                                @foreach (var model in _openCodeModels)
-                                                {
-                                                    <MudSelectItem T="string" Value="@model.Reference" Disabled="@(!model.Enabled)">
-                                                        @ModelOptionLabel(model)
-                                                    </MudSelectItem>
-                                                }
-                                            </MudSelect>
-                                        }
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                            @L.T("Higher-priority selections are preferred. Missing, disabled, or unavailable models are skipped.")
-                                        </MudText>
-                                                </MudStack>
-                                            </MudExpansionPanel>
-                                        }
-                                    </MudExpansionPanels>
-                                </MudStack>
-                            </MudPaper>
-                        </MudStack>
-                    </MudPaper>
                 </MudStack>
             </MudTabPanel>
             <MudTabPanel Text="@L.T("Notifications")" Icon="@Icons.Material.Filled.NotificationsActive">
@@ -655,17 +477,7 @@
     private bool _aiConnectionChanged;
     private bool _initialModelLoadsStarted;
     private string _aiConnectionError = string.Empty;
-    private string _codeBadgerModelLoadError = string.Empty;
     private IReadOnlyList<string> _availableModels = [];
-    private IReadOnlyList<OpenCodeActivityService.AvailableModel> _openCodeModels = [];
-    private IReadOnlyList<OpenCodeActivityService.AvailableAgent> _openCodeAgents = new[]
-    {
-        new OpenCodeActivityService.AvailableAgent("build", "Build", "primary"),
-        new OpenCodeActivityService.AvailableAgent("plan", "Plan", "primary")
-    };
-    private bool _isLoadingCodeBadgerModels;
-    private bool HasOpenCodeRepository => Settings.Repositories.Any(repository =>
-        AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && Directory.Exists(repository.Path));
     private bool _aiProviderConfigurationComplete => Settings.AiProvider switch
     {
         "Ollama" => true,
@@ -709,213 +521,9 @@
     protected override void OnInitialized()
     {
         AgentUpdates.UpdatesChanged += HandleAgentUpdatesChanged;
-        Settings.CodeBadgerRolePreferences ??= CodeBadgerRoles.CreateDefaults();
-        CodeBadgerRoles.Normalize(Settings.CodeBadgerRolePreferences);
+        Settings.CodeBadgerAgentPreferences ??= CodeBadgerRoles.CreateAgentDefaults();
+        CodeBadgerRoles.NormalizeAgentPreferences(Settings.CodeBadgerAgentPreferences);
     }
-
-    private async Task LoadCodeBadgerModelsAsync()
-    {
-        var repositoryPath = Settings.Repositories.FirstOrDefault(repository => repository.IsActive &&
-            AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)?.Path;
-        repositoryPath ??= Settings.Repositories.FirstOrDefault(repository =>
-            AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)?.Path;
-        if (string.IsNullOrWhiteSpace(repositoryPath) || !Directory.Exists(repositoryPath))
-            return;
-
-        _isLoadingCodeBadgerModels = true;
-        _codeBadgerModelLoadError = string.Empty;
-        try
-        {
-            _openCodeModels = await OpenCodeActivity.GetAvailableModelsAsync(repositoryPath, CancellationToken.None);
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-            var agents = await OpenCodeActivity.GetAvailableAgentOptionsAsync(repositoryPath, timeout.Token);
-            if (agents.Count > 0)
-                _openCodeAgents = agents;
-            if (_openCodeModels.Count == 0)
-                _codeBadgerModelLoadError = L.T("OpenCode did not return any available models for this repository.");
-        }
-        catch (Exception exception)
-        {
-            _codeBadgerModelLoadError = L.T("Could not load OpenCode models: {0}", exception.Message);
-        }
-        finally
-        {
-            _isLoadingCodeBadgerModels = false;
-            await InvokeAsync(StateHasChanged);
-        }
-    }
-
-    private async Task RecommendCodeBadgerModelsAsync()
-    {
-        var rolePlans = new List<RoleModelRecommendationPlan>
-        {
-            new(CodeBadgerRoles.Worker, L.T("One agent for everything"), Settings.CodeBadgerSingleAgentPreferredModels),
-            new(CodeBadgerRoles.Planner, CodeBadgerRoleDisplayName(CodeBadgerRoles.Planner), Settings.CodeBadgerPlanPreferredModels),
-            new(CodeBadgerRoles.Worker, CodeBadgerRoleDisplayName(CodeBadgerRoles.Worker), Settings.CodeBadgerBuildPreferredModels)
-        };
-        rolePlans.AddRange(CodeBadgerRoles.All.Select(role =>
-        {
-            var preference = Settings.CodeBadgerRolePreferences.First(item => item.Role == role);
-            return new RoleModelRecommendationPlan(role, CodeBadgerRoleDisplayName(role), preference.PreferredModels);
-        }));
-
-        var optionParameters = new DialogParameters<CodeBadgerModelRecommendationsDialog>
-        {
-            { dialog => dialog.Recommendations, Array.Empty<CodeBadgerModelRecommendation>() },
-            { dialog => dialog.InitialCostCeiling, 5m },
-            { dialog => dialog.InitialAllowFreeModels, false }
-        };
-        var optionsDialog = await DialogService.ShowAsync<CodeBadgerModelRecommendationsDialog>(
-            L.T("Recommend model priorities by role and cost"), optionParameters,
-            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Small, CloseButton = true, CloseOnEscapeKey = true });
-        var optionsResult = await optionsDialog.Result;
-        if (optionsResult is not { Canceled: false, Data: CodeBadgerRecommendationOptions options })
-            return;
-
-        var costCeiling = Math.Clamp(options.CostCeiling, 0.01m, 10000m);
-        var allowUnpricedModels = options.AllowFreeModels;
-        var candidates = _openCodeModels.Where(model => model.Enabled && model.Status == "active" &&
-            model.HasPublishedCost && (model.InputCost == 0 && model.OutputCost == 0
-                ? allowUnpricedModels
-                : model.InputCost <= (double)costCeiling && model.OutputCost <= (double)costCeiling)).ToArray();
-        if (candidates.Length == 0)
-        {
-            Snackbar.Add(L.T("No active OpenCode models fit the selected cost ceiling and free-model setting."), Severity.Warning);
-            return;
-        }
-
-        var recommendations = rolePlans.Select(plan =>
-            (Plan: plan, Models: RankModelsForRole(candidates, plan.Role))).ToList();
-        var emptyPlans = recommendations.Where(plan => plan.Models.Count == 0)
-            .Select(plan => plan.Plan.Name).Distinct().ToArray();
-        if (emptyPlans.Length > 0)
-        {
-            Snackbar.Add(L.T("No suitable model fits the price settings for: {0}", string.Join(", ", emptyPlans)), Severity.Warning);
-            return;
-        }
-
-        var dialogRecommendations = new List<CodeBadgerModelRecommendation>
-        {
-            new(L.T("One agent for everything"), new List<CodeBadgerRoleRecommendation>
-                { ToRoleRecommendation(recommendations[0].Plan, recommendations[0].Models) }),
-            new(L.T("Plan and build"), new List<CodeBadgerRoleRecommendation>
-                { ToRoleRecommendation(recommendations[1].Plan, recommendations[1].Models),
-                  ToRoleRecommendation(recommendations[2].Plan, recommendations[2].Models) }),
-            new(L.T("Full orchestration"), recommendations.Skip(3)
-                .Select(plan => ToRoleRecommendation(plan.Plan, plan.Models)).ToArray())
-        };
-        var previewParameters = new DialogParameters<CodeBadgerModelRecommendationsDialog>
-        {
-            { dialog => dialog.Recommendations, dialogRecommendations },
-            { dialog => dialog.InitialCostCeiling, costCeiling },
-            { dialog => dialog.InitialAllowFreeModels, allowUnpricedModels }
-        };
-        var dialog = await DialogService.ShowAsync<CodeBadgerModelRecommendationsDialog>(
-            L.T("Recommended CodeBadger models"), previewParameters,
-            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Medium, CloseButton = true, CloseOnEscapeKey = true });
-        var result = await dialog.Result;
-        if (result is not { Canceled: false, Data: CodeBadgerRecommendationOptions confirmedChoice } ||
-            !confirmedChoice.Confirmed || confirmedChoice.CostCeiling != costCeiling ||
-            confirmedChoice.AllowFreeModels != allowUnpricedModels)
-            return;
-
-        foreach (var recommendation in recommendations)
-        {
-            recommendation.Plan.Target.Clear();
-            recommendation.Plan.Target.AddRange(recommendation.Models.Select(model => model.Reference));
-        }
-        Snackbar.Add(L.T("Model priorities updated from the recommendations."), Severity.Success);
-    }
-
-    private static CodeBadgerRoleRecommendation ToRoleRecommendation(RoleModelRecommendationPlan plan,
-        IReadOnlyList<OpenCodeActivityService.AvailableModel> models) =>
-        new(plan.Name, models
-            .Select(model => new CodeBadgerRecommendedModel(model.Reference, (decimal)model.InputCost,
-                (decimal)model.OutputCost, false))
-            .ToArray());
-
-    private sealed record RoleModelRecommendationPlan(string Role, string Name, List<string> Target);
-
-    private static List<OpenCodeActivityService.AvailableModel> RankModelsForRole(
-        IReadOnlyList<OpenCodeActivityService.AvailableModel> candidates, string role)
-    {
-        var taskWords = role switch
-        {
-            CodeBadgerRoles.Orchestrator or CodeBadgerRoles.Router => new[] { "reason", "pro", "opus", "think", "general" },
-            CodeBadgerRoles.Planner or CodeBadgerRoles.Critic => new[] { "reason", "opus", "pro", "think", "instruct" },
-            CodeBadgerRoles.Worker => new[] { "code", "coder", "dev", "instruct", "build" },
-            CodeBadgerRoles.Rag => new[] { "fast", "flash", "mini", "lite", "embed" },
-            _ => new[] { "code", "reason", "general", "instruct" }
-        };
-        var outputWeight = role is CodeBadgerRoles.Planner or CodeBadgerRoles.Orchestrator or CodeBadgerRoles.Critic ? 2d : 1d;
-        return candidates
-            .OrderByDescending(model => taskWords.Count(word => (model.Name + " " + model.Reference)
-                .Contains(word, StringComparison.OrdinalIgnoreCase)))
-            .ThenByDescending(model => Math.Min(model.Context, 128000) + Math.Min(model.OutputLimit, 32000) * 2)
-            .ThenBy(model => model.InputCost + model.OutputCost * outputWeight)
-            .ThenBy(model => model.Reference, StringComparer.OrdinalIgnoreCase)
-            .Take(3)
-            .ToList();
-    }
-
-    private static string GetPreferredModel(CodeBadgerRolePreference preference, int index) =>
-        preference.PreferredModels.ElementAtOrDefault(index) ?? string.Empty;
-
-    private static string GetPreferredModel(IReadOnlyList<string> preferredModels, int index) =>
-        preferredModels.ElementAtOrDefault(index) ?? string.Empty;
-
-    private static void SetPreferredModel(CodeBadgerRolePreference preference, int index, string? model)
-    {
-        SetPreferredModel(preference.PreferredModels, index, model);
-    }
-
-    private static void SetPreferredModel(List<string> preferredModels, int index, string? model)
-    {
-        while (preferredModels.Count <= index)
-            preferredModels.Add(string.Empty);
-        preferredModels[index] = model ?? string.Empty;
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        for (var slot = 0; slot < preferredModels.Count; slot++)
-        {
-            var value = preferredModels[slot];
-            if (!string.IsNullOrWhiteSpace(value) && !seen.Add(value))
-                preferredModels[slot] = string.Empty;
-        }
-        while (preferredModels.Count > 0 && string.IsNullOrEmpty(preferredModels[^1]))
-            preferredModels.RemoveAt(preferredModels.Count - 1);
-    }
-
-    private string ModelOptionLabel(OpenCodeActivityService.AvailableModel model)
-    {
-        var price = !model.HasPublishedCost
-            ? L.T("price unavailable")
-            : $"${model.InputCost:0.####}/${model.OutputCost:0.####}";
-        return $"{model.Name} · {model.Reference} · {price}";
-    }
-
-    private string CodeBadgerRoleDisplayName(string role) => role switch
-    {
-        CodeBadgerRoles.Orchestrator => L.T("Orchestrator / Manager"),
-        CodeBadgerRoles.Router => L.T("Router / Triage-agent"),
-        CodeBadgerRoles.Planner => L.T("Planner / Reasoning-agent"),
-        CodeBadgerRoles.Worker => L.T("Worker / Tool-use agent"),
-        CodeBadgerRoles.Rag => L.T("RAG / Knowledge-agent"),
-        CodeBadgerRoles.Critic => L.T("Critic / Evaluator-agent"),
-        _ => role
-    };
-
-    private string AgentTypeLabel(string type) => type switch
-    {
-        "Primary" => L.T("Primary agent"),
-        "Plan" => L.T("Plan agent"),
-        "Build" => L.T("Build agent"),
-        "Custom" => L.T("Custom agent"),
-        _ => type
-    };
-
-    private static string GetAgentTypeForDisplay(CodeBadgerRolePreference preference) =>
-        string.IsNullOrWhiteSpace(preference.AgentType) ? CodeBadgerRoles.DefaultAgentType(preference.Role) : preference.AgentType;
-
     private void HandleAgentUpdatesChanged() => _ = InvokeAsync(StateHasChanged);
 
     private void ClearApplicationLogs() => ApplicationLogs.Clear();
@@ -928,8 +536,6 @@
                 _initialModelLoadsStarted = true;
                 if (_aiProviderConfigurationComplete)
                     _ = TestAiConnectionAsync(automatic: true);
-                if (HasOpenCodeRepository)
-                    _ = LoadCodeBadgerModelsAsync();
             }
             await LoadAgentConfigAsync(_selectedAgent);
         }

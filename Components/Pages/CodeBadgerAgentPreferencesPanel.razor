@@ -1,0 +1,323 @@
+@inject LocalizationService L
+@inject OpenCodeActivityService OpenCodeActivity
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<MudPaper Outlined="true" Elevation="0" Class="pa-4">
+    <MudStack Spacing="2">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+            <MudText Typo="Typo.h6">@L.T("CodeBadger AI team") · @AgentTools.GetDisplayName(AgentTool)</MudText>
+            @if (IsOpenCode)
+            {
+                <MudTooltip Text="@L.T("Recommend model priorities by role and cost")">
+                    <MudIconButton Icon="@Icons.Material.Filled.AutoAwesome" Color="Color.Primary"
+                                   aria-label="@L.T("Recommend model priorities by role and cost")"
+                                   Disabled="@(_isLoadingModels || _models.Count == 0)"
+                                   OnClick="RecommendModelsAsync" />
+                </MudTooltip>
+            }
+        </MudStack>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            @L.T("Model preferences are saved separately for each agent. OpenCode models are loaded from its catalog; for other agents enter model IDs supported by their provider.")
+        </MudText>
+
+        @if (_isLoadingModels)
+        {
+            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Loading OpenCode models...")</MudText>
+        }
+        else if (!string.IsNullOrWhiteSpace(_loadError))
+        {
+            <MudAlert Dense="true" Severity="Severity.Warning" Variant="Variant.Outlined">@_loadError</MudAlert>
+        }
+
+        <MudText Typo="Typo.subtitle2">@L.T("AI for CodeBadger terminal")</MudText>
+        @if (IsOpenCode)
+        {
+            <MudSelect T="string" @bind-Value="Preferences.TerminalModel" Label="@L.T("CodeBadger terminal model")"
+                       Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="@(_models.Count == 0)">
+                <MudSelectItem T="string" Value="@string.Empty">@L.T("Automatic selection")</MudSelectItem>
+                @foreach (var model in _models)
+                {
+                    <MudSelectItem T="string" Value="@model.Reference" Disabled="@(!model.Enabled)">@ModelLabel(model)</MudSelectItem>
+                }
+            </MudSelect>
+        }
+        else
+        {
+            <MudTextField @bind-Value="Preferences.TerminalModel" Label="@L.T("CodeBadger terminal model ID")"
+                          Margin="Margin.Dense" Variant="Variant.Outlined" />
+        }
+
+        <MudExpansionPanels Elevation="0" Outlined="true">
+            <MudExpansionPanel Text="@L.T("One agent for everything")">
+                <MudStack Spacing="2" Class="pa-3">
+                    @for (var i = 0; i < 3; i++)
+                    {
+                        var slot = i;
+                        @ModelPriorityField(Preferences.SingleAgentPreferredModels, slot, L.T("Model priority {0}", slot + 1))
+                    }
+                </MudStack>
+            </MudExpansionPanel>
+        </MudExpansionPanels>
+
+        <MudExpansionPanels Elevation="0" Outlined="true">
+            <MudExpansionPanel Text="@L.T("Plan and build")">
+                <MudStack Spacing="2" Class="pa-3">
+                    <MudText Typo="Typo.body2">@RoleName(CodeBadgerRoles.Planner)</MudText>
+                    @for (var i = 0; i < 3; i++)
+                    {
+                        var slot = i;
+                        @ModelPriorityField(Preferences.PlanPreferredModels, slot, L.T("Plan model priority {0}", slot + 1))
+                    }
+                    <MudText Typo="Typo.body2">@RoleName(CodeBadgerRoles.Worker)</MudText>
+                    @for (var i = 0; i < 3; i++)
+                    {
+                        var slot = i;
+                        @ModelPriorityField(Preferences.BuildPreferredModels, slot, L.T("Build model priority {0}", slot + 1))
+                    }
+                </MudStack>
+            </MudExpansionPanel>
+        </MudExpansionPanels>
+
+        <MudPaper Outlined="true" Elevation="0" Class="pa-3">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.subtitle1">@L.T("Full orchestration")</MudText>
+                <MudExpansionPanels Elevation="0" Outlined="true" MultiExpansion="true">
+                    @foreach (var preference in Preferences.RolePreferences)
+                    {
+                        <MudExpansionPanel @key="preference.Role" Text="@RoleName(preference.Role)">
+                            <MudStack Spacing="2" Class="pa-3">
+                                @if (IsOpenCode)
+                                {
+                                    <MudSelect T="string" Value="@AgentTypeForDisplay(preference)"
+                                               ValueChanged="@(value => preference.AgentType = value)"
+                                               Label="@L.T("Agent type")" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                        @foreach (var type in CodeBadgerRoles.AgentTypes)
+                                        {
+                                            <MudSelectItem T="string" Value="@type">@AgentTypeLabel(type)</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                    @if (AgentTypeForDisplay(preference) == "Custom")
+                                    {
+                                        <MudSelect T="string" @bind-Value="preference.CustomAgentId"
+                                                   Label="@L.T("Custom OpenCode agent")" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                            @foreach (var agent in _agents.Where(item => item.Mode is "subagent" or "all"))
+                                            {
+                                                <MudSelectItem T="string" Value="@agent.Id">@agent.Name (@agent.Id)</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                    }
+                                }
+                                else
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                        @L.T("Custom agents and model choices below apply to OpenCode only.")
+                                    </MudText>
+                                }
+                                @for (var i = 0; i < 3; i++)
+                                {
+                                    var slot = i;
+                                    @ModelPriorityField(preference.PreferredModels, slot, L.T("Model priority {0}", slot + 1))
+                                }
+                            </MudStack>
+                        </MudExpansionPanel>
+                    }
+                </MudExpansionPanels>
+            </MudStack>
+        </MudPaper>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public LauncherSettings Settings { get; set; } = new();
+    [Parameter, EditorRequired] public string AgentTool { get; set; } = AgentTools.OpenCode;
+
+    private IReadOnlyList<OpenCodeActivityService.AvailableModel> _models = [];
+    private IReadOnlyList<OpenCodeActivityService.AvailableAgent> _agents = [];
+    private bool _isLoadingModels;
+    private string _loadError = string.Empty;
+    private bool IsOpenCode => AgentTools.Normalize(AgentTool) == AgentTools.OpenCode;
+    private CodeBadgerAgentPreferences Preferences => Settings.CodeBadgerAgentPreferences.First(item => item.AgentTool == AgentTools.Normalize(AgentTool));
+
+    protected override async Task OnInitializedAsync()
+    {
+        Settings.CodeBadgerAgentPreferences ??= CodeBadgerRoles.CreateAgentDefaults();
+        CodeBadgerRoles.NormalizeAgentPreferences(Settings.CodeBadgerAgentPreferences);
+        if (IsOpenCode)
+            await LoadOpenCodeCatalogAsync();
+    }
+
+    private async Task LoadOpenCodeCatalogAsync()
+    {
+        var repositoryPath = Settings.Repositories.FirstOrDefault(repository => repository.IsActive &&
+            AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)?.Path;
+        repositoryPath ??= Settings.Repositories.FirstOrDefault(repository =>
+            AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)?.Path;
+        if (string.IsNullOrWhiteSpace(repositoryPath) || !Directory.Exists(repositoryPath))
+            return;
+        _isLoadingModels = true;
+        try
+        {
+            _models = await OpenCodeActivity.GetAvailableModelsAsync(repositoryPath, CancellationToken.None);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            _agents = await OpenCodeActivity.GetAvailableAgentOptionsAsync(repositoryPath, timeout.Token);
+            if (_models.Count == 0)
+                _loadError = L.T("OpenCode did not return any available models for this repository.");
+        }
+        catch (Exception exception)
+        {
+            _loadError = L.T("Could not load OpenCode models: {0}", exception.Message);
+        }
+        finally { _isLoadingModels = false; }
+    }
+
+    private RenderFragment ModelPriorityField(List<string> values, int index, string label) => builder =>
+    {
+        if (IsOpenCode)
+        {
+            builder.OpenComponent<MudSelect<string>>(0);
+            builder.AddAttribute(1, "Value", GetModel(values, index));
+            builder.AddAttribute(2, "ValueChanged", EventCallback.Factory.Create<string>(this, value => SetModel(values, index, value)));
+            builder.AddAttribute(3, "Label", label);
+            builder.AddAttribute(4, "Margin", Margin.Dense);
+            builder.AddAttribute(5, "Variant", Variant.Outlined);
+            builder.AddAttribute(6, "ChildContent", (RenderFragment)(items =>
+            {
+                var seq = 0;
+                items.OpenComponent<MudSelectItem<string>>(seq++);
+                items.AddAttribute(seq++, "Value", string.Empty);
+                items.AddAttribute(seq++, "ChildContent", (RenderFragment)(content => content.AddContent(0, L.T("Automatic selection"))));
+                items.CloseComponent();
+                foreach (var model in _models)
+                {
+                    items.OpenComponent<MudSelectItem<string>>(seq++);
+                    items.AddAttribute(seq++, "Value", model.Reference);
+                    items.AddAttribute(seq++, "Disabled", !model.Enabled);
+                    items.AddAttribute(seq++, "ChildContent", (RenderFragment)(content => content.AddContent(0, ModelLabel(model))));
+                    items.CloseComponent();
+                }
+            }));
+            builder.CloseComponent();
+        }
+        else
+        {
+            builder.OpenComponent<MudTextField<string>>(0);
+            builder.AddAttribute(1, "Value", GetModel(values, index));
+            builder.AddAttribute(2, "ValueChanged", EventCallback.Factory.Create<string>(this, value => SetModel(values, index, value)));
+            builder.AddAttribute(3, "Label", label);
+            builder.AddAttribute(4, "Margin", Margin.Dense);
+            builder.AddAttribute(5, "Variant", Variant.Outlined);
+            builder.AddAttribute(6, "HelperText", L.T("Enter a model ID supported by this agent's configured provider."));
+            builder.CloseComponent();
+        }
+    };
+
+    private static string GetModel(IReadOnlyList<string> values, int index) => values.ElementAtOrDefault(index) ?? string.Empty;
+    private static void SetModel(List<string> values, int index, string? value)
+    {
+        while (values.Count <= index) values.Add(string.Empty);
+        values[index] = value?.Trim() ?? string.Empty;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < values.Count; i++)
+            if (!string.IsNullOrWhiteSpace(values[i]) && !seen.Add(values[i])) values[i] = string.Empty;
+        while (values.Count > 0 && string.IsNullOrEmpty(values[^1])) values.RemoveAt(values.Count - 1);
+    }
+
+    private string ModelLabel(OpenCodeActivityService.AvailableModel model) =>
+        $"{model.Name} · {model.Reference} · {(model.HasPublishedCost ? $"${model.InputCost:0.####}/${model.OutputCost:0.####}" : L.T("price unavailable"))}";
+
+    private async Task RecommendModelsAsync()
+    {
+        if (!IsOpenCode || _models.Count == 0) return;
+        var optionsParameters = new DialogParameters<CodeBadgerModelRecommendationsDialog>
+        {
+            { dialog => dialog.Recommendations, Array.Empty<CodeBadgerModelRecommendation>() },
+            { dialog => dialog.InitialCostCeiling, 5m },
+            { dialog => dialog.InitialAllowFreeModels, false }
+        };
+        var optionsDialog = await DialogService.ShowAsync<CodeBadgerModelRecommendationsDialog>(L.T("Recommend model priorities by role and cost"),
+            optionsParameters, new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Small, CloseButton = true, CloseOnEscapeKey = true });
+        if ((await optionsDialog.Result) is not { Canceled: false, Data: CodeBadgerRecommendationOptions options }) return;
+        var ceiling = Math.Clamp(options.CostCeiling, 0.01m, 10000m);
+        var candidates = _models.Where(model => model.Enabled && model.Status == "active" && model.HasPublishedCost &&
+            (model.InputCost == 0 && model.OutputCost == 0 ? options.AllowFreeModels :
+                model.InputCost <= (double)ceiling && model.OutputCost <= (double)ceiling)).ToArray();
+        if (candidates.Length == 0)
+        {
+            Snackbar.Add(L.T("No active OpenCode models fit the selected cost ceiling and free-model setting."), Severity.Warning);
+            return;
+        }
+
+        var rolePlans = new List<(string Role, string Name, List<string> Target)>
+        {
+            (CodeBadgerRoles.Worker, L.T("One agent for everything"), Preferences.SingleAgentPreferredModels),
+            (CodeBadgerRoles.Planner, RoleName(CodeBadgerRoles.Planner), Preferences.PlanPreferredModels),
+            (CodeBadgerRoles.Worker, RoleName(CodeBadgerRoles.Worker), Preferences.BuildPreferredModels)
+        };
+        rolePlans.AddRange(Preferences.RolePreferences.Select(role => (role.Role, RoleName(role.Role), role.PreferredModels)));
+        var ranked = rolePlans.Select(plan => (plan.Role, plan.Name, plan.Target, Models: Rank(candidates, plan.Role))).ToArray();
+        var dialogRecommendations = new List<CodeBadgerModelRecommendation>
+        {
+            new(L.T("One agent for everything"), new List<CodeBadgerRoleRecommendation>
+                { ToRole(ranked[0].Name, ranked[0].Models) }),
+            new(L.T("Plan and build"), new List<CodeBadgerRoleRecommendation>
+                { ToRole(ranked[1].Name, ranked[1].Models), ToRole(ranked[2].Name, ranked[2].Models) }),
+            new(L.T("Full orchestration"), ranked.Skip(3).Select(item => ToRole(item.Name, item.Models)).ToArray())
+        };
+        var previewParameters = new DialogParameters<CodeBadgerModelRecommendationsDialog>
+        {
+            { dialog => dialog.Recommendations, dialogRecommendations },
+            { dialog => dialog.InitialCostCeiling, ceiling },
+            { dialog => dialog.InitialAllowFreeModels, options.AllowFreeModels }
+        };
+        var preview = await DialogService.ShowAsync<CodeBadgerModelRecommendationsDialog>(L.T("Recommended CodeBadger models"),
+            previewParameters, new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Medium, CloseButton = true, CloseOnEscapeKey = true });
+        if ((await preview.Result) is not { Canceled: false, Data: CodeBadgerRecommendationOptions result } ||
+            !result.Confirmed || result.CostCeiling != ceiling || result.AllowFreeModels != options.AllowFreeModels) return;
+        foreach (var item in ranked)
+        {
+            item.Target.Clear();
+            item.Target.AddRange(item.Models.Select(model => model.Reference));
+        }
+        Snackbar.Add(L.T("Model priorities updated from the recommendations."), Severity.Success);
+    }
+
+    private static CodeBadgerRoleRecommendation ToRole(string name, IReadOnlyList<OpenCodeActivityService.AvailableModel> models) =>
+        new(name, models.Select(model => new CodeBadgerRecommendedModel(model.Reference, (decimal)model.InputCost,
+            (decimal)model.OutputCost)).ToArray());
+
+    private static List<OpenCodeActivityService.AvailableModel> Rank(IReadOnlyList<OpenCodeActivityService.AvailableModel> models, string role)
+    {
+        var terms = role switch
+        {
+            CodeBadgerRoles.Planner or CodeBadgerRoles.Critic or CodeBadgerRoles.Orchestrator or CodeBadgerRoles.Router => new[] { "reason", "pro", "opus", "think", "instruct" },
+            CodeBadgerRoles.Rag => new[] { "fast", "flash", "mini", "lite", "embed" },
+            _ => new[] { "code", "coder", "dev", "instruct", "build" }
+        };
+        var weight = role is CodeBadgerRoles.Planner or CodeBadgerRoles.Critic or CodeBadgerRoles.Orchestrator ? 2 : 1;
+        return models.OrderByDescending(model => terms.Count(term => (model.Name + " " + model.Reference).Contains(term, StringComparison.OrdinalIgnoreCase)))
+            .ThenByDescending(model => Math.Min(model.Context, 128000) + Math.Min(model.OutputLimit, 32000) * 2)
+            .ThenBy(model => model.InputCost + model.OutputCost * weight)
+            .Take(3).ToList();
+    }
+
+    private string RoleName(string role) => role switch
+    {
+        CodeBadgerRoles.Orchestrator => L.T("Orchestrator / Manager"),
+        CodeBadgerRoles.Router => L.T("Router / Triage-agent"),
+        CodeBadgerRoles.Planner => L.T("Planner / Reasoning-agent"),
+        CodeBadgerRoles.Worker => L.T("Worker / Tool-use agent"),
+        CodeBadgerRoles.Rag => L.T("RAG / Knowledge-agent"),
+        CodeBadgerRoles.Critic => L.T("Critic / Evaluator-agent"),
+        _ => role
+    };
+
+    private string AgentTypeLabel(string type) => type switch
+    {
+        "Primary" => L.T("Primary agent"), "Plan" => L.T("Plan agent"), "Build" => L.T("Build agent"),
+        "Custom" => L.T("Custom agent"), _ => type
+    };
+
+    private static string AgentTypeForDisplay(CodeBadgerRolePreference preference) =>
+        string.IsNullOrWhiteSpace(preference.AgentType) ? CodeBadgerRoles.DefaultAgentType(preference.Role) : preference.AgentType;
+}

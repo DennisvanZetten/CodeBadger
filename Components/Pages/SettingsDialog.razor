@@ -120,7 +120,7 @@
                           <MudSelectItem T="string" Value="@AgentTools.Codex">Codex</MudSelectItem>
                           <MudSelectItem T="string" Value="@AgentTools.Hermes">Hermes</MudSelectItem>
                       </MudSelect>
-                      <CodeBadgerAgentPreferencesPanel @key="_selectedAgent" Settings="Settings" AgentTool="_selectedAgent" />
+                      <CodeBadgerAgentPreferencesPanel @key="_selectedAgent" Settings="Settings" AgentTool="@_selectedAgent" />
                       <MudText Typo="Typo.subtitle1">@_selectedAgent</MudText>
                       @if (GetAgentStartupState(_selectedAgent) is { } agentState)
                      {

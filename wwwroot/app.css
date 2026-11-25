@@ -2339,8 +2339,8 @@ h1:focus {
     flex: 0 1 auto;
     align-self: stretch;
     min-width: 0;
-    max-width: 9rem;
-    padding-left: 0.5rem;
+    max-width: min(22rem, 42vw);
+    padding: 0.15rem 0 0.15rem 0.5rem;
     border: 0;
     border-radius: 0.25rem 0.25rem 0 0;
 }
@@ -2354,7 +2354,7 @@ h1:focus {
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
-    max-width: 8rem;
+    max-width: 7rem;
     padding: 0.25rem 0.5rem 0.25rem 0;
     border: 0;
     background: transparent;
@@ -2365,6 +2365,72 @@ h1:focus {
     font: inherit;
     font-size: 0.72rem;
     line-height: 1.2;
+}
+
+.repository-codebadger-session-role-statuses {
+    display: flex;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: 0.2rem;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.repository-codebadger-role-status {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.2rem;
+    max-width: 4.25rem;
+    overflow: hidden;
+    padding: 0.12rem 0.28rem;
+    border: 1px solid color-mix(in srgb, var(--mud-palette-text-secondary) 22%, transparent);
+    border-radius: 999px;
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.59rem;
+    line-height: 1.15;
+    white-space: nowrap;
+}
+
+.repository-codebadger-role-status-dot {
+    width: 0.38rem;
+    height: 0.38rem;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: var(--mud-palette-text-disabled);
+}
+
+.repository-codebadger-role-status.working .repository-codebadger-role-status-dot {
+    background: var(--mud-palette-info);
+    animation: codebadger-role-pulse 1.2s ease-in-out infinite;
+}
+
+.repository-codebadger-role-status.waiting {
+    border-color: color-mix(in srgb, var(--mud-palette-warning) 55%, transparent);
+    color: var(--mud-palette-warning);
+    font-weight: 700;
+}
+
+.repository-codebadger-role-status.waiting .repository-codebadger-role-status-dot {
+    background: var(--mud-palette-warning);
+    animation: codebadger-role-pulse 0.8s ease-in-out infinite;
+}
+
+.repository-codebadger-role-status.completed .repository-codebadger-role-status-dot {
+    background: var(--mud-palette-success);
+}
+
+.repository-codebadger-role-status.failed .repository-codebadger-role-status-dot {
+    background: var(--mud-palette-error);
+}
+
+.repository-codebadger-role-status.stopped .repository-codebadger-role-status-dot {
+    background: var(--mud-palette-text-secondary);
+}
+
+@keyframes codebadger-role-pulse {
+    50% { opacity: 0.35; }
 }
 
 .repository-codebadger-session-tab.selected .repository-codebadger-session-select {

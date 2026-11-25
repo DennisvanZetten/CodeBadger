@@ -67,6 +67,18 @@
                                     <button type="button" class="repository-codebadger-session-select" @onclick="() => SelectTerminalSession(session.Id)">
                                         @session.Title
                                     </button>
+                                    <div class="repository-codebadger-session-role-statuses" aria-label="@L.T("Agent role status")">
+                                        @foreach (var role in GetSessionAgentRoles(session))
+                                        {
+                                            var status = GetAgentRoleProgress(session, role);
+                                            <span class="repository-codebadger-role-status @RoleProgressCssClass(status)"
+                                                  title="@L.T("{0}: {1}", RoleDisplayName(role), RoleProgressLabel(status))"
+                                                  aria-label="@L.T("{0}: {1}", RoleDisplayName(role), RoleProgressLabel(status))">
+                                                <span class="repository-codebadger-role-status-dot" aria-hidden="true"></span>
+                                                @ShortRoleDisplayName(role)
+                                            </span>
+                                        }
+                                    </div>
                                     @if (_terminalSessions.Count > 1)
                                     {
                                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close"
@@ -525,6 +537,68 @@
             ? new[] { session.State.ActiveAgentRole } : Array.Empty<string>())
         .Distinct(StringComparer.Ordinal);
     }
+
+    private IEnumerable<string> GetSessionAgentRoles(CodeBadgerTerminalSession session) =>
+        CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) switch
+        {
+            CodeBadgerOrchestrationModes.Full => CodeBadgerRoles.All,
+            CodeBadgerOrchestrationModes.PlanBuild => [CodeBadgerRoles.Planner, CodeBadgerRoles.Worker],
+            _ => [session.Mode == TerminalMode.Plan ? CodeBadgerRoles.Planner : CodeBadgerRoles.Worker]
+        };
+
+    private AgentRoleProgress GetAgentRoleProgress(CodeBadgerTerminalSession session, string role)
+    {
+        var roleKey = GetRoleSessionKey(session, role);
+        if (session.State.AgentSessionIds.TryGetValue(roleKey, out var agentSessionId) &&
+            _pendingTerminalInteractions.TryGetValue(agentSessionId, out var pending) && pending.Count > 0)
+            return AgentRoleProgress.Waiting;
+        if (IsAgentRoleBusy(session, role))
+            return AgentRoleProgress.Working;
+        if (session.RoleProgress.TryGetValue(role, out var progress))
+            return progress;
+
+        var lastUserMessageIndex = session.Messages.FindLastIndex(message => message.Role == "user");
+        var latestMessage = session.Messages.Skip(lastUserMessageIndex + 1)
+            .LastOrDefault(message => message.Role == "assistant" && message.AgentRole == role);
+        if (latestMessage is null || latestMessage.Text.StartsWith(L.T("Sending to {0}...", RoleDisplayName(role)), StringComparison.Ordinal))
+            return AgentRoleProgress.NotStarted;
+        if (latestMessage.Text == L.T("The agent request was stopped."))
+            return AgentRoleProgress.Stopped;
+        if (latestMessage.Text.StartsWith(L.T("Agent request failed: {0}", string.Empty), StringComparison.Ordinal))
+            return AgentRoleProgress.Failed;
+        return AgentRoleProgress.Completed;
+    }
+
+    private static string RoleProgressCssClass(AgentRoleProgress progress) => progress switch
+    {
+        AgentRoleProgress.Working => "working",
+        AgentRoleProgress.Waiting => "waiting",
+        AgentRoleProgress.Completed => "completed",
+        AgentRoleProgress.Stopped => "stopped",
+        AgentRoleProgress.Failed => "failed",
+        _ => "not-started"
+    };
+
+    private string RoleProgressLabel(AgentRoleProgress progress) => L.T(progress switch
+    {
+        AgentRoleProgress.Working => "Working",
+        AgentRoleProgress.Waiting => "Waiting for you",
+        AgentRoleProgress.Completed => "Answer ready",
+        AgentRoleProgress.Stopped => "Stopped",
+        AgentRoleProgress.Failed => "Failed",
+        _ => "Not started"
+    });
+
+    private static string ShortRoleDisplayName(string role) => role switch
+    {
+        CodeBadgerRoles.Orchestrator => "Orch",
+        CodeBadgerRoles.Router => "Route",
+        CodeBadgerRoles.Planner => "Plan",
+        CodeBadgerRoles.Worker => "Work",
+        CodeBadgerRoles.Rag => "RAG",
+        CodeBadgerRoles.Critic => "Critic",
+        _ => role
+    };
 
     private string GetRoleSessionKey(CodeBadgerTerminalSession session, string role) =>
         CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) == CodeBadgerOrchestrationModes.SingleAgent
@@ -995,6 +1069,7 @@
     private async Task RunPromptAsync(CodeBadgerTerminalSession session, string prompt, IReadOnlyList<string> images)
     {
         session.IsBusy = true;
+        session.RoleProgress.Clear();
         session.Error = null;
         session.RunCancellation?.Dispose();
         session.RunCancellation = new CancellationTokenSource();
@@ -1049,17 +1124,20 @@
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            if (!string.IsNullOrWhiteSpace(session.State.ActiveAgentRole))
+                session.RoleProgress[session.State.ActiveAgentRole] = AgentRoleProgress.Stopped;
             Snackbar.Add(L.T("The agent request was stopped."), Severity.Info);
         }
         catch (Exception exception)
         {
+            if (!string.IsNullOrWhiteSpace(session.State.ActiveAgentRole))
+                session.RoleProgress[session.State.ActiveAgentRole] = AgentRoleProgress.Failed;
             session.Error = exception.Message;
             Snackbar.Add(L.T("The AI request failed: {0}", exception.Message), Severity.Error);
         }
         finally
         {
             session.IsBusy = false;
-            session.ActiveAgentSessionId = null;
             if (!string.IsNullOrWhiteSpace(session.ActiveAgentSessionId))
                 _pendingTerminalInteractions.Remove(session.ActiveAgentSessionId);
             session.ActiveAgentSessionId = null;
@@ -1105,6 +1183,9 @@
         IReadOnlyList<string>? images = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        session.State.ActiveAgentRole = role;
+        session.RoleProgress[role] = AgentRoleProgress.Working;
+        await InvokeAsync(StateHasChanged);
         var preference = preferences.FirstOrDefault(item => item.Role == role)
             ?? new CodeBadgerRolePreference { Role = role, AgentType = CodeBadgerRoles.DefaultAgentType(role) };
         var preferenceAgent = await ResolvePreferenceAgentAsync(preference, role, cancellationToken);
@@ -1158,7 +1239,7 @@
                 cancellationToken, preferenceAgent, images);
             if (string.IsNullOrWhiteSpace(promptMessageId))
                 throw new InvalidOperationException(L.T("OpenCode accepted the request but did not return a message ID, so its reply cannot be matched safely."));
-            await WaitForAgentCompletionAsync(Repository.AgentTool, agentSessionId, cancellationToken);
+            await WaitForAgentCompletionAsync(session, role, Repository.AgentTool, agentSessionId, cancellationToken);
             response = await WaitForPromptAnswerAsync(agentSessionId, promptMessageId, previousMessageIds, cancellationToken)
                 ?? throw new InvalidOperationException(L.T("The AI session finished without a completed text response for this request."));
             await RefreshAgentContextAsync(session, role, sessionKey, agentSessionId, cancellationToken);
@@ -1166,6 +1247,7 @@
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             pendingMessage.Text = L.T("The agent request was stopped.");
+            session.RoleProgress[role] = AgentRoleProgress.Stopped;
             await PersistTerminalStateAsync();
             await InvokeAsync(StateHasChanged);
             throw;
@@ -1173,17 +1255,19 @@
         catch (Exception exception)
         {
             pendingMessage.Text = L.T("Agent request failed: {0}", exception.Message);
+            session.RoleProgress[role] = AgentRoleProgress.Failed;
             await PersistTerminalStateAsync();
             await InvokeAsync(StateHasChanged);
             throw;
         }
         pendingMessage.Text = response;
+        session.RoleProgress[role] = AgentRoleProgress.Completed;
         await PersistTerminalStateAsync();
         await InvokeAsync(StateHasChanged);
         return response;
     }
 
-    private async Task WaitForAgentCompletionAsync(string agentTool, string agentSessionId,
+    private async Task WaitForAgentCompletionAsync(CodeBadgerTerminalSession session, string role, string agentTool, string agentSessionId,
         CancellationToken cancellationToken)
     {
         // Poll for questions while the agent runs. A provider-specific API adapter can
@@ -1202,12 +1286,17 @@
                 if (interactions.Count > 0)
                 {
                     _pendingTerminalInteractions[agentSessionId] = current;
+                    session.RoleProgress[role] = AgentRoleProgress.Waiting;
                     if (terminalSession is not null)
                         foreach (var field in interactions.SelectMany(interaction => interaction.Fields.Select(field => (interaction, field))))
                             terminalSession.InteractionAnswers.TryAdd(InteractionAnswerKey(field.interaction, field.field), null);
                 }
                 else
+                {
                     changed |= _pendingTerminalInteractions.Remove(agentSessionId);
+                    if (session.RoleProgress.GetValueOrDefault(role) == AgentRoleProgress.Waiting)
+                        session.RoleProgress[role] = AgentRoleProgress.Working;
+                }
                 if (changed)
                     StateHasChanged();
             }), cancellationToken);
@@ -1559,6 +1648,7 @@
 
     private enum AiPanelMode { Split, Collapsed, Expanded }
     private enum TerminalMode { Plan, Build }
+    private enum AgentRoleProgress { NotStarted, Working, Waiting, Completed, Stopped, Failed }
 
     private sealed class CodeBadgerTerminalSession
     {
@@ -1572,6 +1662,7 @@
         public TerminalMode Mode { get; set; } = TerminalMode.Plan;
         public List<CodeBadgerTerminalMessage> Messages => State.Messages;
         public bool IsBusy { get; set; }
+        public Dictionary<string, AgentRoleProgress> RoleProgress { get; } = new(StringComparer.Ordinal);
         public bool IsRotatingAgentRole { get; set; }
         public bool IsSubmitting { get; set; }
         public string? Error { get; set; }

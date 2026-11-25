@@ -1226,7 +1226,7 @@
 
     private string BuildTerminalCommandHelp() => string.Join('\n',
         new[] { L.T("CodeBadger commands:") }
-            .Concat(TerminalCommands.Select(command => $"{command.Command} — {L.T(command.Description)}")));
+            .Concat(TerminalCommands.Select(command => $"- **`{command.Command}`** — {L.T(command.Description)}")));
 
     private async Task AddTerminalSessionAsync()
     {

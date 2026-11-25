@@ -389,6 +389,24 @@
                                                                OnClick="() => ToggleTerminalCommands(session)" />
                                             </MudTooltip>
                                         </div>
+                                        @if (!session.ShowCommands && GetTerminalCommandSuggestions(session).Count > 0)
+                                        {
+                                            var suggestions = GetTerminalCommandSuggestions(session);
+                                            <div class="repository-codebadger-command-list repository-codebadger-command-suggestions"
+                                                 role="listbox" aria-label="@L.T("Command suggestions")">
+                                                @for (var suggestionIndex = 0; suggestionIndex < suggestions.Count; suggestionIndex++)
+                                                {
+                                                    var command = suggestions[suggestionIndex];
+                                                    var capturedIndex = suggestionIndex;
+                                                    <button type="button" class="repository-codebadger-command-option @(session.SelectedCommandSuggestion == capturedIndex ? "selected" : string.Empty)"
+                                                            role="option" aria-selected="@(session.SelectedCommandSuggestion == capturedIndex ? "true" : "false")"
+                                                            @onclick="() => SelectTerminalCommand(session, command.Command)">
+                                                        <code>@command.Command</code>
+                                                        <span>@L.T(command.Description)</span>
+                                                    </button>
+                                                }
+                                            </div>
+                                        }
                                         @if (session.ShowCommands)
                                         {
                                             <div class="repository-codebadger-command-list" role="list" aria-label="@L.T("Available terminal commands")">
@@ -1120,8 +1138,12 @@
         ("/help", "Show this command list"),
         ("/plan", "Switch to Plan mode; add a task to ask for a plan"),
         ("/build", "Switch to Build mode; add a task to implement it"),
+        ("/ask", "Ask a question without requesting code changes"),
+        ("/explain", "Explain a topic without changing files"),
+        ("/fix", "Fix a specific problem in the repository"),
         ("/review", "Review current repository changes"),
         ("/test", "Identify and run relevant tests"),
+        ("/commit", "Review changes and suggest a commit message"),
         ("/clear", "Clear this CodeBadger session")
     ];
 
@@ -1130,8 +1152,53 @@
 
     private static void SelectTerminalCommand(CodeBadgerTerminalSession session, string command)
     {
-        session.Input = command;
+        session.Input = command + " ";
         session.ShowCommands = false;
+        session.SelectedCommandSuggestion = -1;
+    }
+
+    private IReadOnlyList<(string Command, string Description)> GetTerminalCommandSuggestions(CodeBadgerTerminalSession session)
+    {
+        var input = session.Input.TrimStart();
+        if (!input.StartsWith('/') || input.IndexOfAny([' ', '\t', '\r', '\n']) >= 0)
+            return Array.Empty<(string, string)>();
+        return TerminalCommands
+            .Where(command => command.Command.StartsWith(input, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+    }
+
+    [JSInvokable]
+    public async Task MoveTerminalCommandSelectionAsync(string sessionId, int direction)
+    {
+        if (!Guid.TryParse(sessionId, out var id) || _terminalSessions.FirstOrDefault(candidate => candidate.Id == id) is not { } session)
+            return;
+        var suggestions = GetTerminalCommandSuggestions(session);
+        if (suggestions.Count == 0)
+            return;
+        var next = session.SelectedCommandSuggestion + Math.Sign(direction);
+        if (next < 0)
+            next = suggestions.Count - 1;
+        else if (next >= suggestions.Count)
+            next = 0;
+        session.SelectedCommandSuggestion = next;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task<bool> SelectTerminalCommandSuggestionAsync(string sessionId)
+    {
+        if (!Guid.TryParse(sessionId, out var id) || _terminalSessions.FirstOrDefault(candidate => candidate.Id == id) is not { } session)
+            return false;
+        var suggestions = GetTerminalCommandSuggestions(session);
+        if (suggestions.Count == 0)
+            return false;
+        if (string.Equals(session.Input.Trim(), suggestions[0].Command, StringComparison.OrdinalIgnoreCase))
+            return false;
+        var selectedIndex = session.SelectedCommandSuggestion >= 0 && session.SelectedCommandSuggestion < suggestions.Count
+            ? session.SelectedCommandSuggestion : 0;
+        SelectTerminalCommand(session, suggestions[selectedIndex].Command);
+        await InvokeAsync(StateHasChanged);
+        return true;
     }
 
     private string BuildTerminalCommandHelp() => string.Join('\n',
@@ -1311,6 +1378,33 @@
                 session.Mode = TerminalMode.Build;
                 session.State.Mode = "Build";
                 prompt = L.T("Identify and run the relevant tests for the current repository changes. If a test fails, explain why; do not modify files unless asked. {0}", argument);
+                return TerminalCommandResult.SubmitPrompt;
+
+            case "/ask":
+                session.Mode = TerminalMode.Plan;
+                session.State.Mode = "Plan";
+                forcedRole = CodeBadgerRoles.Planner;
+                prompt = L.T("Answer the question directly and clearly. Do not modify files or make code changes.\n\nQuestion:\n{0}", argument);
+                return TerminalCommandResult.SubmitPrompt;
+
+            case "/explain":
+                forcedRole = CodeBadgerRoles.Planner;
+                session.Mode = TerminalMode.Plan;
+                session.State.Mode = "Plan";
+                prompt = L.T("Explain the following topic in the context of this repository. Describe relevant code and behavior. Do not modify files.\n\nTopic:\n{0}", argument);
+                return TerminalCommandResult.SubmitPrompt;
+
+            case "/fix":
+                forcedRole = CodeBadgerRoles.Worker;
+                forceBuildRequest = true;
+                session.Mode = TerminalMode.Build;
+                session.State.Mode = "Build";
+                prompt = L.T("Investigate and fix the following problem in this repository. Make a focused change and run relevant checks.\n\nProblem:\n{0}", argument);
+                return TerminalCommandResult.SubmitPrompt;
+
+            case "/commit":
+                forcedRole = CodeBadgerRoles.Critic;
+                prompt = L.T("Review the current staged and unstaged changes and suggest a concise commit message that summarizes them. Do not create a commit or modify files. {0}", argument);
                 return TerminalCommandResult.SubmitPrompt;
 
             default:
@@ -1958,6 +2052,7 @@
         public string Title => State.Title;
         public string Input { get; set; } = string.Empty;
         public bool ShowCommands { get; set; }
+        public int SelectedCommandSuggestion { get; set; } = -1;
         public List<string> InputImages { get; } = [];
         public Dictionary<string, string?> InteractionAnswers { get; } = new(StringComparer.Ordinal);
         public TerminalMode Mode { get; set; } = TerminalMode.Plan;

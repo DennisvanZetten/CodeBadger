@@ -55,6 +55,17 @@ export function attach(root, dotNetReference) {
     const onKeyDown = event => {
         const textarea = event.target.closest?.(".repository-codebadger-input");
         if (!textarea || event.isComposing) return;
+        if ((event.key === "ArrowDown" || event.key === "ArrowUp") && textarea.value.trimStart().startsWith("/")) {
+            event.preventDefault();
+            dotNetReference.invokeMethodAsync("MoveTerminalCommandSelectionAsync", textarea.dataset.sessionId,
+                event.key === "ArrowDown" ? 1 : -1);
+            return;
+        }
+        if (event.key === "Tab" && !event.shiftKey && textarea.value.trimStart().startsWith("/")) {
+            event.preventDefault();
+            dotNetReference.invokeMethodAsync("SelectTerminalCommandSuggestionAsync", textarea.dataset.sessionId);
+            return;
+        }
         if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey &&
             textarea.dataset.modeToggleEnabled === "true") {
             event.preventDefault();
@@ -63,6 +74,15 @@ export function attach(root, dotNetReference) {
         }
         if (event.key !== "Enter" || event.shiftKey) return;
         event.preventDefault();
+        if (textarea.value.trimStart().startsWith("/")) {
+            dotNetReference.invokeMethodAsync("SelectTerminalCommandSuggestionAsync", textarea.dataset.sessionId)
+                .then(selected => {
+                    if (selected) return;
+                    return dotNetReference.invokeMethodAsync("SubmitTerminalInputAsync", textarea.dataset.sessionId);
+                })
+                .then(() => resize(textarea));
+            return;
+        }
         dotNetReference.invokeMethodAsync("SubmitTerminalInputAsync", textarea.dataset.sessionId)
             .then(() => resize(textarea));
     };

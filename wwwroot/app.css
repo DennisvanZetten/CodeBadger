@@ -2982,7 +2982,8 @@ h1:focus {
 }
 
 .repository-codebadger-command-option:hover,
-.repository-codebadger-command-option:focus-visible {
+.repository-codebadger-command-option:focus-visible,
+.repository-codebadger-command-option.selected {
     outline: 0;
     background: color-mix(in srgb, var(--mud-palette-primary) 9%, transparent);
 }

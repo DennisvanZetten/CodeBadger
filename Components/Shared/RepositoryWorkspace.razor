@@ -113,27 +113,6 @@
                     </div>
                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add" Class="repository-codebadger-session-add"
                                        title="@L.T("New session")" aria-label="@L.T("New session")" OnClick="AddTerminalSession" />
-                    </div>
-                    @if (_terminalContextMenuSessionId is { } contextMenuSessionId && _terminalSessions.Any(session => session.Id == contextMenuSessionId))
-                    {
-                        <div class="repository-tab-context-backdrop" @onclick="CloseTerminalSessionContextMenu" @oncontextmenu:preventDefault="true"></div>
-                        <div class="repository-tab-context-menu repository-codebadger-session-context-menu git-commit-context-menu" style="left:@(_terminalContextMenuX)px;top:@(_terminalContextMenuY)px" @onclick:stopPropagation="true">
-                            <button class="git-commit-context-menu-item" @onclick="CloseAllTerminalSessionsAsync">
-                                <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" />
-                                <span>@L.T("Close all sessions")</span>
-                            </button>
-                            <button class="git-commit-context-menu-item" @onclick="CloseOtherTerminalSessionsAsync">
-                                <MudIcon Icon="@Icons.Material.Filled.FilterList" Size="Size.Small" />
-                                <span>@L.T("Close all sessions except this")</span>
-                            </button>
-                            <button class="git-commit-context-menu-item" @onclick="AddTerminalSessionFromContextMenuAsync">
-                                <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
-                                <span>@L.T("New session")</span>
-                            </button>
-                        </div>
-                    }
-                    <div class="repository-terminal-splitter-footer">
-                    <div class="repository-codebadger-session-area">
                         @if (_aiPanelMode != AiPanelMode.Expanded &&
                              _terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is { } currentTerminalSession)
                         {
@@ -188,6 +167,25 @@
                             </div>
                         }
                     </div>
+                    @if (_terminalContextMenuSessionId is { } contextMenuSessionId && _terminalSessions.Any(session => session.Id == contextMenuSessionId))
+                    {
+                        <div class="repository-tab-context-backdrop" @onclick="CloseTerminalSessionContextMenu" @oncontextmenu:preventDefault="true"></div>
+                        <div class="repository-tab-context-menu repository-codebadger-session-context-menu git-commit-context-menu" style="left:@(_terminalContextMenuX)px;top:@(_terminalContextMenuY)px" @onclick:stopPropagation="true">
+                            <button class="git-commit-context-menu-item" @onclick="CloseAllTerminalSessionsAsync">
+                                <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" />
+                                <span>@L.T("Close all sessions")</span>
+                            </button>
+                            <button class="git-commit-context-menu-item" @onclick="CloseOtherTerminalSessionsAsync">
+                                <MudIcon Icon="@Icons.Material.Filled.FilterList" Size="Size.Small" />
+                                <span>@L.T("Close all sessions except this")</span>
+                            </button>
+                            <button class="git-commit-context-menu-item" @onclick="AddTerminalSessionFromContextMenuAsync">
+                                <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+                                <span>@L.T("New session")</span>
+                            </button>
+                        </div>
+                    }
+                    <div class="repository-terminal-splitter-footer">
                     <div class="repository-terminal-splitter-grip" role="separator" aria-orientation="horizontal"
                          aria-label="@L.T("Resize terminal panels")" tabindex="0"></div>
                     <div class="repository-terminal-splitter-actions">

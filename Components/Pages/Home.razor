@@ -204,8 +204,7 @@
             if (selectedRepository is not null)
             {
                 Preferences.Default.Set(LastRepositoryPreferenceKey, selectedRepository.Id.ToString());
-                var selectedLoad = LoadRepositoryStatusAsync(selectedRepository, _statusMonitorCancellation.Token);
-                _ = LoadRemainingRepositoryStatusesAsync(selectedRepository.Id, selectedLoad, _statusMonitorCancellation.Token);
+                _ = LoadRepositoryStatusAsync(selectedRepository, _statusMonitorCancellation.Token);
             }
         }
         _ = MonitorActiveRepositoryStatusAsync(_statusMonitorCancellation.Token);
@@ -510,20 +509,8 @@
         _ => "repository-activity-spinner-opencode"
     };
 
-    private async Task LoadRemainingRepositoryStatusesAsync(Guid? excludedRepositoryId, Task? initialLoad, CancellationToken cancellationToken)
-    {
-        if (initialLoad is not null)
-            await initialLoad;
-
-        foreach (var repository in _activeRepositories.Where(repository => repository.Id != excludedRepositoryId))
-        {
-            if (cancellationToken.IsCancellationRequested)
-                return;
-            await LoadRepositoryStatusAsync(repository, cancellationToken);
-        }
-    }
-
-    private async Task LoadRepositoryStatusAsync(RepositoryEntry repository, CancellationToken cancellationToken = default)
+    private async Task LoadRepositoryStatusAsync(RepositoryEntry repository, CancellationToken cancellationToken = default,
+        bool includeAheadBehind = true)
     {
         if (!_repositoriesLoading.Add(repository.Id))
             return;
@@ -531,14 +518,16 @@
         await InvokeAsync(StateHasChanged);
         try
         {
-            var result = await Task.Run(async () =>
-                (Snapshot: await GitBranchService.GetRepositorySnapshotAsync(repository.Path),
-                 Branch: await GitBranchService.GetCurrentBranchAsync(repository.Path)), cancellationToken);
+            var status = await Task.Run(() => GitBranchService.GetRepositoryStatusAsync(repository.Path, includeAheadBehind), cancellationToken);
+            var snapshot = status.IsValid
+                ? new GitRepositorySnapshot(status.Branch.Branch ?? string.Empty, status.ChangedFiles,
+                    status.StagedFiles, status.UnstagedFiles, status.Ahead, status.Behind, [], [], [], null)
+                : GitRepositorySnapshot.Invalid(status.Error ?? L.T("Git status unavailable."));
             await InvokeAsync(() =>
             {
-                _branches[repository] = result.Branch;
-                _gitSnapshots[repository] = result.Snapshot;
-                if (result.Snapshot.IsValid)
+                _branches[repository] = status.Branch;
+                _gitSnapshots[repository] = snapshot;
+                if (snapshot.IsValid)
                     _lastInvalidSnapshotRetry.Remove(repository.Id);
                 StateHasChanged();
             });
@@ -620,7 +609,7 @@
 
     private async Task MonitorActiveRepositoryStatusAsync(CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(6));
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(20));
         try
         {
             while (await timer.WaitForNextTickAsync(cancellationToken))
@@ -644,7 +633,7 @@
                         continue;
                     }
 
-                    var status = await GitBranchService.GetRepositoryStatusAsync(repository.Path);
+            var status = await GitBranchService.GetRepositoryStatusAsync(repository.Path, includeAheadBehind: false);
                     if (!status.IsValid)
                     {
                         Logger.LogWarning("Periodic Git status refresh failed for active repository {RepositoryPath}: {Error}",
@@ -727,11 +716,15 @@
 
     private async Task MonitorOpenCodeActivityAsync(CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        var pollDelay = TimeSpan.FromSeconds(3);
+        var consecutiveFailures = 0;
         try
         {
-            do
+            while (!cancellationToken.IsCancellationRequested)
             {
+                using var iterationTimer = new PeriodicTimer(pollDelay);
+                if (!await iterationTimer.WaitForNextTickAsync(cancellationToken))
+                    break;
                 var hasOpenCodeRepositories = _activeRepositories.Any(repository => AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode);
                 if (hasOpenCodeRepositories && !OpenCodeExecutableLocator.HealthCheckCompleted)
                     await StartupDetection.DetectOpenCodeInstancesAsync(cancellationToken);
@@ -743,12 +736,22 @@
                 var activity = supported && OpenCodeExecutableLocator.HealthCheckCompleted
                     ? await GetOpenCodeActivityAsync(monitoredDirectories, cancellationToken)
                     : null;
+                if (activity is null)
+                {
+                    consecutiveFailures = Math.Min(consecutiveFailures + 1, 5);
+                    pollDelay = TimeSpan.FromSeconds(Math.Min(60, 15 * (1 << (consecutiveFailures - 1))));
+                }
+                else
+                {
+                    consecutiveFailures = 0;
+                    pollDelay = TimeSpan.FromSeconds(3);
+                }
                 await InvokeAsync(async () =>
                 {
-                    if (activity is null)
-                    {
-                        return;
-                    }
+                if (activity is null)
+                {
+                    return;
+                }
                     var running = _activeRepositories
                         .Where(repository => AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)
                         .Where(repository => !string.IsNullOrWhiteSpace(repository.Path) &&
@@ -893,7 +896,7 @@
                         // connection interruption does not silently drop their completion reply.
                     }
                 });
-            } while (await timer.WaitForNextTickAsync(cancellationToken));
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (ObjectDisposedException) { }
@@ -1100,13 +1103,8 @@
         _branches.Clear();
         _gitSnapshots.Clear();
         var selectedRepository = DockedRepositories.ElementAtOrDefault(_activeTabIndex);
-        var selectedLoad = selectedRepository is null
-            ? null
-            : LoadRepositoryStatusAsync(selectedRepository, _statusMonitorCancellation.Token);
-        var remainingLoad = LoadRemainingRepositoryStatusesAsync(selectedRepository?.Id, selectedLoad, _statusMonitorCancellation.Token);
-        if (selectedLoad is not null)
-            await selectedLoad;
-        await remainingLoad;
+        if (selectedRepository is not null)
+            await LoadRepositoryStatusAsync(selectedRepository, _statusMonitorCancellation.Token);
     }
 
     private async Task RefreshBranches(bool force = false)

@@ -265,7 +265,7 @@ public sealed class GitBranchService
         return new GitOperationResult(true, string.Empty, string.Empty);
     }
 
-    public async Task<GitRepositoryStatus> GetRepositoryStatusAsync(string path)
+    public async Task<GitRepositoryStatus> GetRepositoryStatusAsync(string path, bool includeAheadBehind = true)
     {
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
             return GitRepositoryStatus.Invalid(_localization.T("Path does not exist"));
@@ -276,7 +276,7 @@ public sealed class GitBranchService
                 ? _localization.T("Not a Git repository")
                 : branchResult.Message);
 
-        var statusResult = await RunGitAsync(path, "status", "--porcelain=v1", "-uall");
+        var statusResult = await RunGitAsync(path, "status", "--porcelain=v1", "--untracked-files=normal");
         if (!statusResult.Success)
             return GitRepositoryStatus.Invalid(_localization.T("Git status unavailable."));
 
@@ -284,7 +284,9 @@ public sealed class GitBranchService
             .Select(line => line.TrimEnd('\r'))
             .ToArray();
         var branchName = branchResult.Output.Trim();
-        var (ahead, behind) = await GetAheadBehindAsync(path, branchName);
+        var (ahead, behind) = includeAheadBehind
+            ? await GetAheadBehindAsync(path, branchName)
+            : (0, 0);
         var branch = branchName == "HEAD"
             ? new GitBranchInfo(null, _localization.T("Detached HEAD"))
             : new GitBranchInfo(branchName, null);
@@ -296,6 +298,30 @@ public sealed class GitBranchService
             ahead,
             behind,
             null);
+    }
+
+    public Task<bool> IsGitRepositoryAsync(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+            return Task.FromResult(false);
+
+        try
+        {
+            var current = new DirectoryInfo(Path.GetFullPath(path));
+            while (current is not null)
+            {
+                var gitEntry = Path.Combine(current.FullName, ".git");
+                if (Directory.Exists(gitEntry) || File.Exists(gitEntry))
+                    return Task.FromResult(true);
+                current = current.Parent;
+            }
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            _logger.LogDebug(exception, "Could not inspect Git metadata for {RepositoryPath} during startup.", path);
+        }
+
+        return Task.FromResult(false);
     }
 
     public async Task<GitOperationResult> GetFileDiffAsync(string path, GitFileChange file, bool staged)

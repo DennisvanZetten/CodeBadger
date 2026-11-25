@@ -139,8 +139,8 @@ public sealed class StartupDetectionService(
             var hasClaudeSettings = Directory.Exists(repository.Path) && HasClaudeSettings(repository.Path);
             var hasCodexSettings = Directory.Exists(repository.Path) && HasCodexSettings(repository.Path);
             await Report(localization.T("Checking repository settings..."));
-            var gitStatus = await gitBranchService.GetRepositoryStatusAsync(repository.Path);
-            repositoryStates[repository.Id] = new RepositoryStartupState(hasOpenCodeSettings, hasClaudeSettings, hasCodexSettings, gitStatus.IsValid);
+            var isGitRepository = await gitBranchService.IsGitRepositoryAsync(repository.Path);
+            repositoryStates[repository.Id] = new RepositoryStartupState(hasOpenCodeSettings, hasClaudeSettings, hasCodexSettings, isGitRepository);
             await Report(localization.T("Checking repository Git status..."));
         }
 

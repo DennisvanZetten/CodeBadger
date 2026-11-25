@@ -24,7 +24,8 @@
     {
         @if (Repository.CodeBadgerTerminalEnabled)
         {
-                <div class="repository-terminal-stack @AiPaneModeClass" @ref="_terminalStack">
+                <div class="repository-terminal-stack @AiPaneModeClass" @ref="_terminalStack"
+                     style="--ai-terminal-ratio: @((_aiPanelHeight / 100).ToString(System.Globalization.CultureInfo.InvariantCulture))fr; --chat-terminal-ratio: @((1 - _aiPanelHeight / 100).ToString(System.Globalization.CultureInfo.InvariantCulture))fr">
                 <section class="repository-ai-pane" aria-label="@L.T("AI terminal")">
                     <div class="repository-terminal-panel">
                         @if (!string.IsNullOrWhiteSpace(_notificationSetupError))
@@ -130,6 +131,8 @@
                             </button>
                         </div>
                     }
+                    <div class="repository-terminal-splitter-grip" role="separator" aria-orientation="horizontal"
+                         aria-label="@L.T("Resize terminal panels")" tabindex="0"></div>
                     <div class="repository-terminal-splitter-footer">
                         @if (_aiPanelMode != AiPanelMode.Expanded)
                         {
@@ -628,6 +631,7 @@
     private Guid? _terminalContextMenuSessionId;
     private double _terminalContextMenuX;
     private double _terminalContextMenuY;
+    private double _aiPanelHeight = 38;
     private AiPanelMode _aiPanelMode = AiPanelMode.Collapsed;
     private bool _showAgentContext = true;
     private bool _splitterAttached;
@@ -1136,7 +1140,8 @@
             try
             {
                 _splitterModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./repository-terminal-splitter.js");
-                await _splitterModule.InvokeVoidAsync("attach", _terminalStack);
+                _selfReference ??= DotNetObjectReference.Create(this);
+                await _splitterModule.InvokeVoidAsync("attach", _terminalStack, _selfReference);
                 _splitterAttached = true;
             }
             catch (JSException exception)
@@ -2383,6 +2388,15 @@
         catch (Exception exception) { Logger.LogWarning(exception, "Could not persist CodeBadger terminal state for repository {RepositoryId}.", Repository.Id); }
     }
 
+    [JSInvokable]
+    public Task SetAiPanelSize(double percent) => InvokeAsync(() =>
+    {
+        _aiPanelHeight = Math.Clamp(percent, 0, 100);
+        _aiPanelMode = _aiPanelHeight <= 5 ? AiPanelMode.Collapsed
+            : _aiPanelHeight >= 95 ? AiPanelMode.Expanded : AiPanelMode.Split;
+        StateHasChanged();
+    });
+
     public async ValueTask DisposeAsync()
     {
         if (_splitterModule is not null)
@@ -2409,7 +2423,7 @@
         _selfReference?.Dispose();
     }
 
-    private enum AiPanelMode { Collapsed, Expanded }
+    private enum AiPanelMode { Split, Collapsed, Expanded }
     private enum TerminalMode { Plan, Build }
     private enum TerminalCommandResult { NotACommand, Handled, SubmitPrompt }
     private enum AgentRoleProgress { NotStarted, Working, Waiting, Completed, Stopped, Failed }

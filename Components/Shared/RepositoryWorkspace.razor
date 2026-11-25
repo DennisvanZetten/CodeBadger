@@ -380,7 +380,7 @@
                                             <textarea class="repository-codebadger-input" data-session-id="@session.Id" rows="1" autocomplete="off" spellcheck="false"
                                                       data-mode-toggle-enabled="@(CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.Full ? "true" : "false")"
                                                       disabled="@session.IsRotatingAgentRole"
-                                                      aria-label="@L.T("Universal command")" placeholder="@L.T("Type a universal command...")"
+                                                      aria-label="@L.T("Universal command")" placeholder="@L.T("Type a prompt or /help for commands...")"
                                                       @bind="session.Input" @bind:event="oninput"></textarea>
                                         </div>
                                     </div>
@@ -1186,21 +1186,110 @@
             session.IsBusy || session.IsSubmitting || session.IsRotatingAgentRole ||
             string.IsNullOrWhiteSpace(session.Input) && session.InputImages.Count == 0)
             return;
-        session.IsSubmitting = true;
+
         var prompt = session.Input.Trim();
         var images = session.InputImages.ToArray();
+        var forceBuildRequest = false;
+        string? forcedRole = null;
+        if (images.Length == 0)
+        {
+            var commandResult = ProcessTerminalCommand(session, ref prompt, ref forceBuildRequest, ref forcedRole);
+            if (commandResult == TerminalCommandResult.Handled)
+            {
+                session.Input = string.Empty;
+                await PersistTerminalStateAsync();
+                await InvokeAsync(StateHasChanged);
+                if (_composerModule is not null)
+                    await _composerModule.InvokeVoidAsync("clear", _terminalStack, sessionId);
+                return;
+            }
+        }
+
+        session.IsSubmitting = true;
         if (string.IsNullOrWhiteSpace(prompt))
             prompt = L.T("Please inspect the attached image and help me with it.");
         session.State.Mode = session.Mode == TerminalMode.Plan ? "Plan" : "Build";
-        session.State.Messages.Add(new CodeBadgerTerminalMessage { Role = "user", Text = prompt, Images = images.ToList() });
+        session.State.Messages.Add(new CodeBadgerTerminalMessage { Role = "user", Text = session.Input.Trim(), Images = images.ToList() });
         session.Input = string.Empty;
         session.InputImages.Clear();
         session.IsSubmitting = false;
         await PersistTerminalStateAsync();
         await InvokeAsync(StateHasChanged);
-        _ = RunPromptAsync(session, prompt, images);
+        _ = RunPromptAsync(session, prompt, images, forceBuildRequest, forcedRole);
         if (_composerModule is not null)
             await _composerModule.InvokeVoidAsync("clear", _terminalStack, sessionId);
+    }
+
+    private TerminalCommandResult ProcessTerminalCommand(CodeBadgerTerminalSession session, ref string prompt,
+        ref bool forceBuildRequest, ref string? forcedRole)
+    {
+        var separator = prompt.IndexOf(' ');
+        var command = (separator < 0 ? prompt : prompt[..separator]).ToLowerInvariant();
+        var argument = separator < 0 ? string.Empty : prompt[(separator + 1)..].Trim();
+
+        switch (command)
+        {
+            case "/help":
+                session.State.Messages.Add(new CodeBadgerTerminalMessage
+                {
+                    Role = "assistant",
+                    Text = L.T("CodeBadger commands:\n/help — show this list\n/plan [task] — switch to Plan mode, or ask for a plan\n/build [task] — switch to Build mode, or plan and implement a task\n/review — review the current repository changes\n/test — identify and run relevant tests\n/clear — clear this CodeBadger session")
+                });
+                return TerminalCommandResult.Handled;
+
+            case "/clear":
+                ClearTerminalSession(session);
+                return TerminalCommandResult.Handled;
+
+            case "/plan":
+                session.Mode = TerminalMode.Plan;
+                session.State.Mode = "Plan";
+                if (argument.Length == 0)
+                    return TerminalCommandResult.Handled;
+                forcedRole = CodeBadgerRoles.Planner;
+                prompt = L.T("Create a clear, actionable plan for this request. Do not edit files or make changes yet.\n\nRequest:\n{0}", argument);
+                return TerminalCommandResult.SubmitPrompt;
+
+            case "/build":
+                session.Mode = TerminalMode.Build;
+                session.State.Mode = "Build";
+                if (argument.Length == 0)
+                    return TerminalCommandResult.Handled;
+                forceBuildRequest = true;
+                prompt = argument;
+                return TerminalCommandResult.SubmitPrompt;
+
+            case "/review":
+                forcedRole = CodeBadgerRoles.Critic;
+                prompt = L.T("Review the current repository changes. Look for correctness issues, regressions, security concerns, and missing tests. Do not modify files. Report findings first, ordered by severity. {0}", argument);
+                return TerminalCommandResult.SubmitPrompt;
+
+            case "/test":
+                forcedRole = CodeBadgerRoles.Worker;
+                session.Mode = TerminalMode.Build;
+                session.State.Mode = "Build";
+                prompt = L.T("Identify and run the relevant tests for the current repository changes. If a test fails, explain why; do not modify files unless asked. {0}", argument);
+                return TerminalCommandResult.SubmitPrompt;
+
+            default:
+                return TerminalCommandResult.NotACommand;
+        }
+    }
+
+    private void ClearTerminalSession(CodeBadgerTerminalSession session)
+    {
+        foreach (var agentSessionId in session.State.AgentSessionIds.Values)
+            _pendingTerminalInteractions.Remove(agentSessionId);
+        session.State.Messages.Clear();
+        session.State.AgentSessionIds.Clear();
+        session.State.AgentSessionGenerations.Clear();
+        session.State.AgentContextTokens.Clear();
+        session.State.AgentContextModels.Clear();
+        session.State.ActiveAgentRole = string.Empty;
+        session.Mode = TerminalMode.Plan;
+        session.State.Mode = "Plan";
+        session.RoleProgress.Clear();
+        session.Error = null;
     }
 
     [JSInvokable]
@@ -1224,7 +1313,8 @@
             session.InputImages.RemoveAt(index);
     }
 
-    private async Task RunPromptAsync(CodeBadgerTerminalSession session, string prompt, IReadOnlyList<string> images)
+    private async Task RunPromptAsync(CodeBadgerTerminalSession session, string prompt, IReadOnlyList<string> images,
+        bool forceBuildRequest = false, string? forcedRole = null)
     {
         session.IsBusy = true;
         session.RoleProgress.Clear();
@@ -1245,6 +1335,11 @@
             _settings = await SettingsService.LoadAsync();
             var agentPreferences = GetAgentPreferences(Repository.AgentTool);
             var preferences = agentPreferences.RolePreferences;
+            if (forcedRole is not null)
+            {
+                await RunRoleAsync(session, forcedRole, prompt, parentRole: null, preferences, cancellationToken, images);
+                return;
+            }
             switch (CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode))
             {
                 case CodeBadgerOrchestrationModes.SingleAgent:
@@ -1253,7 +1348,7 @@
                 case CodeBadgerOrchestrationModes.PlanBuild:
                     var requestedMode = session.Mode;
                     var currentUserIndex = session.State.Messages.FindLastIndex(message => message.Role == "user");
-                    var priorPlan = currentUserIndex > 0
+                    var priorPlan = !forceBuildRequest && currentUserIndex > 0
                         ? session.State.Messages.Take(currentUserIndex)
                             .LastOrDefault(message => message.Role == "assistant" && message.AgentRole == CodeBadgerRoles.Planner)?.Text
                         : null;
@@ -1274,7 +1369,7 @@
                     await RunFullOrchestrationAsync(session, prompt, preferences, cancellationToken, images);
                     break;
             }
-            if (CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.SingleAgent)
+            if (forcedRole is null && CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.SingleAgent)
             {
                 session.State.Mode = "Build";
                 session.Mode = TerminalMode.Build;
@@ -1810,6 +1905,7 @@
 
     private enum AiPanelMode { Split, Collapsed, Expanded }
     private enum TerminalMode { Plan, Build }
+    private enum TerminalCommandResult { NotACommand, Handled, SubmitPrompt }
     private enum AgentRoleProgress { NotStarted, Working, Waiting, Completed, Stopped, Failed }
 
     private sealed class CodeBadgerTerminalSession

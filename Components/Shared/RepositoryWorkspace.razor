@@ -73,7 +73,7 @@
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="repository-codebadger-session-tabs">
                             @foreach (var session in _terminalSessions)
                             {
-                                <div class="repository-codebadger-session-tab @(session.Id == _selectedTerminalSessionId ? "selected" : string.Empty)">
+                                <div class="repository-codebadger-session-tab @(session.Id == _selectedTerminalSessionId ? "selected" : string.Empty)" data-session-id="@session.Id">
                                     @if (_renamingTerminalSessionId == session.Id)
                                     {
                                         <input class="repository-codebadger-session-title-input" aria-label="@L.T("Rename session")"
@@ -121,7 +121,7 @@
                                     }
                                 </div>
                             }
-                            <MudTooltip Text="@L.T("New session")">
+                            <MudTooltip Text="@L.T("New session")" Class="repository-codebadger-session-add-container">
                                 <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add" Class="repository-codebadger-session-add"
                                                aria-label="@L.T("New session")" OnClick="AddTerminalSession" />
                             </MudTooltip>

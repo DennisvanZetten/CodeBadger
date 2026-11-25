@@ -43,11 +43,21 @@
                         }
                         else if (AgentAvailable)
                         {
-                            <RepositoryTerminal @key="TerminalKey" SessionId="Repository.Id" RepositoryPath="@Repository.Path"
-                                                Command="@_agentCommand"
-                                                OpenCodeSandboxEnabled="@(AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode && Repository.OpenCodeSandboxEnabled)"
-                                                OpenCodeSessionId="@OpenCodeSessionId"
-                                                IsVisible="@IsVisible" />
+                            @if (AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode && OpenCodeSessions.Count > 0)
+                            {
+                                <OpenCodeSessionTerminalGroup Sessions="@OpenCodeSessions"
+                                    SelectedSessionId="@_terminalState.SelectedOpenCodeSessionId"
+                                    SelectedSessionIdChanged="SelectOpenCodeSessionAsync"
+                                    RepositoryPath="@Repository.Path" Command="@_agentCommand" IsVisible="@IsVisible" />
+                            }
+                            else
+                            {
+                                <RepositoryTerminal @key="TerminalKey" SessionId="Repository.Id" RepositoryPath="@Repository.Path"
+                                                    Command="@_agentCommand"
+                                                    OpenCodeSandboxEnabled="@(AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode && Repository.OpenCodeSandboxEnabled)"
+                                                    OpenCodeSessionId="@OpenCodeSessionId"
+                                                    IsVisible="@IsVisible" />
+                            }
                         }
                         else
                         {
@@ -470,21 +480,11 @@
             }
             else if (AgentAvailable)
             {
-                @if (AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode && OpenCodeSessions.Count > 0)
-                {
-                    <OpenCodeSessionTerminalGroup Sessions="@OpenCodeSessions"
-                        SelectedSessionId="@_terminalState.SelectedOpenCodeSessionId"
-                        SelectedSessionIdChanged="SelectOpenCodeSessionAsync"
-                        RepositoryPath="@Repository.Path" Command="@_agentCommand" IsVisible="@IsVisible" />
-                }
-                else
-                {
-                    <RepositoryTerminal @key="TerminalKey" SessionId="Repository.Id" RepositoryPath="@Repository.Path"
-                                        Command="@_agentCommand"
-                                        OpenCodeSandboxEnabled="@(AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode && Repository.OpenCodeSandboxEnabled)"
-                                        OpenCodeSessionId="@OpenCodeSessionId"
-                                        IsVisible="@IsVisible" />
-                }
+                <RepositoryTerminal @key="TerminalKey" SessionId="Repository.Id" RepositoryPath="@Repository.Path"
+                                    Command="@_agentCommand"
+                                    OpenCodeSandboxEnabled="@(AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode && Repository.OpenCodeSandboxEnabled)"
+                                    OpenCodeSessionId="@OpenCodeSessionId"
+                                    IsVisible="@IsVisible" />
             }
             else
             {

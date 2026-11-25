@@ -338,11 +338,12 @@ public sealed class OpenCodeActivityService
             if (TryGetPropertyIgnoreCase(info, "error", out var error) && error.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
                 continue;
             var finish = GetStringIgnoreCase(info, "finish");
-            if (!string.IsNullOrEmpty(finish) && finish is not ("stop" or "length"))
-                continue;
             var hasCompletionTimestamp = TryGetPropertyIgnoreCase(info, "time", out var time) && time.ValueKind == JsonValueKind.Object &&
                 TryGetPropertyIgnoreCase(time, "completed", out var completed) && completed.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined);
-            if (finish is not ("stop" or "length") && !hasCompletionTimestamp)
+            // OpenCode can report completed assistant tool turns with finish="tool-calls".
+            // The completion timestamp is authoritative; accept the known terminal finish
+            // values as a fallback for versions that omit the timestamp.
+            if (!hasCompletionTimestamp && finish is not ("stop" or "length"))
                 continue;
             if (!TryGetPropertyIgnoreCase(info, "cost", out var costValue) || costValue.ValueKind != JsonValueKind.Number ||
                 !costValue.TryGetDecimal(out var cost) || cost < 0)

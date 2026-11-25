@@ -146,21 +146,6 @@
                                      title="@L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })">
                                 @L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })
                             </MudText>
-                            @if (_terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is { } costSession)
-                            {
-                                var costLimit = Repository.CodeBadgerSessionCostLimitUsd.GetValueOrDefault();
-                                <MudText Typo="Typo.caption" Color="@(costLimit > 0 && costSession.State.CostUsd >= costLimit ? Color.Warning : Color.Secondary)"
-                                         Class="repository-codebadger-cost" aria-label="@L.T("Session cost")">
-                                    @if (costLimit > 0)
-                                    {
-                                        @($"{FormatUsd(costSession.State.CostUsd)} / {FormatUsd(costLimit)}")
-                                    }
-                                    else
-                                    {
-                                        @FormatUsd(costSession.State.CostUsd)
-                                    }
-                                </MudText>
-                            }
                             <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Open AI terminal full screen" : "Close AI terminal")">
                                 <MudIconButton Size="Size.Small"
                                                Icon="@(_aiPanelMode == AiPanelMode.Collapsed ? Icons.Material.Filled.Fullscreen : Icons.Material.Filled.Close)"
@@ -179,6 +164,29 @@
                             @if (_showAgentContext)
                             {
                             <div class="repository-codebadger-agent-links">
+                                @{
+                                    var costLimit = Repository.CodeBadgerSessionCostLimitUsd.GetValueOrDefault();
+                                    var costProgress = GetSessionCostProgress(currentTerminalSession.State.CostUsd, costLimit);
+                                    var costLevel = costProgress >= 85 ? "high" : costProgress >= 70 ? "medium" : "low";
+                                }
+                                <div class="repository-codebadger-agent-context repository-codebadger-cost" aria-label="@L.T("Session cost")">
+                                    <div class="repository-codebadger-agent-context-label">
+                                        <span>
+                                            @(costLimit > 0
+                                                ? $"{FormatUsd(currentTerminalSession.State.CostUsd)} / {FormatUsd(costLimit)}"
+                                                : FormatUsd(currentTerminalSession.State.CostUsd))
+                                        </span>
+                                    </div>
+                                    @if (costLimit > 0)
+                                    {
+                                        <div class="repository-codebadger-agent-context-track @costLevel"
+                                             role="progressbar" aria-label="@L.T("Session cost")"
+                                             aria-valuemin="0" aria-valuemax="100"
+                                             aria-valuenow="@costProgress.ToString(System.Globalization.CultureInfo.InvariantCulture)">
+                                            <span style="width:@(costProgress.ToString(System.Globalization.CultureInfo.InvariantCulture))%"></span>
+                                        </div>
+                                    }
+                                </div>
                                 @foreach (var role in GetTrackedAgentRoles(currentTerminalSession))
                                 {
                                     var roleSessionKey = GetRoleSessionKey(currentTerminalSession, role);
@@ -1803,6 +1811,9 @@
 
     private static string FormatUsd(decimal amount) =>
         amount.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-US"));
+
+    private static decimal GetSessionCostProgress(decimal cost, decimal limit) =>
+        limit <= 0 || cost <= 0 ? 0 : cost >= limit ? 100 : cost / limit * 100;
 
     private void EnsureSessionBudgetAvailable(CodeBadgerTerminalSession session)
     {

@@ -2961,6 +2961,8 @@ h1:focus {
 .markdown-content-terminal p,
 .markdown-content-terminal ul,
 .markdown-content-terminal ol { margin: 0.5em 0 0.75em; }
+.markdown-content-terminal ul,
+.markdown-content-terminal ol { padding-inline-start: 1.5em; }
 .markdown-content-terminal li + li { margin-top: 0.2em; }
 .markdown-content-terminal a { color: var(--mud-palette-primary); }
 .markdown-content-terminal blockquote {

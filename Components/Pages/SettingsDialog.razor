@@ -1,6 +1,7 @@
 @inject LauncherSettingsService SettingsService
 @inject LocalizationService L
 @inject AiCommitMessageService AiCommitMessageService
+@inject OpenCodeActivityService OpenCodeActivity
 @inject AgentConfigService AgentConfigService
 @inject SlackNotificationService SlackNotificationService
 @inject StartupDetectionService StartupDetection
@@ -291,6 +292,30 @@
                     {
                         <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Complete the required provider settings to load models automatically.")</MudText>
                     }
+                    <MudDivider Class="my-2" />
+                    <MudText Typo="Typo.subtitle1">@L.T("AI for CodeBadger terminal")</MudText>
+                    @if (_terminalModels.Count > 0)
+                    {
+                        <MudSelect T="string" @bind-Value="Settings.CodeBadgerTerminalModel" Label="@L.T("CodeBadger terminal model")"
+                                   Margin="Margin.Dense" Variant="Variant.Outlined" HelperText="@L.T("Choose the model used by the CodeBadger terminal, regardless of the selected agent.")">
+                            <MudSelectItem T="string" Value="@string.Empty">@L.T("Automatic selection")</MudSelectItem>
+                            @if (!string.IsNullOrWhiteSpace(Settings.CodeBadgerTerminalModel) &&
+                                !_terminalModels.Any(model => string.Equals(model.Reference, Settings.CodeBadgerTerminalModel, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                <MudSelectItem T="string" Value="@Settings.CodeBadgerTerminalModel">@Settings.CodeBadgerTerminalModel (@L.T("unavailable"))</MudSelectItem>
+                            }
+                            @foreach (var model in _terminalModels)
+                            {
+                                <MudSelectItem T="string" Value="@model.Reference" Disabled="@(!model.Enabled || model.Status != "active")">@TerminalModelLabel(model)</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                    else
+                    {
+                        <MudTextField @bind-Value="Settings.CodeBadgerTerminalModel" Label="@L.T("CodeBadger terminal model ID")"
+                                      Margin="Margin.Dense" Variant="Variant.Outlined"
+                                      HelperText="@L.T("Enter an OpenCode model reference, or add an OpenCode repository to load model choices.")" />
+                    }
                     </MudStack>
                     </MudPaper>
                     <MudPaper Outlined="true" Elevation="0" Class="pa-4">
@@ -478,6 +503,7 @@
     private bool _initialModelLoadsStarted;
     private string _aiConnectionError = string.Empty;
     private IReadOnlyList<string> _availableModels = [];
+    private IReadOnlyList<OpenCodeActivityService.AvailableModel> _terminalModels = [];
     private bool _aiProviderConfigurationComplete => Settings.AiProvider switch
     {
         "Ollama" => true,
@@ -538,8 +564,32 @@
                     _ = TestAiConnectionAsync(automatic: true);
             }
             await LoadAgentConfigAsync(_selectedAgent);
+            await LoadCodeBadgerTerminalModelsAsync();
         }
     }
+
+    private async Task LoadCodeBadgerTerminalModelsAsync()
+    {
+        var repositoryPath = Settings.Repositories.FirstOrDefault(repository => repository.IsActive &&
+            AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)?.Path;
+        repositoryPath ??= Settings.Repositories.FirstOrDefault(repository =>
+            AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)?.Path;
+        if (string.IsNullOrWhiteSpace(repositoryPath) || !Directory.Exists(repositoryPath))
+            return;
+
+        try
+        {
+            _terminalModels = await OpenCodeActivity.GetAvailableModelsAsync(repositoryPath, CancellationToken.None);
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not load OpenCode models: {0}", exception.Message), Severity.Warning);
+        }
+    }
+
+    private string TerminalModelLabel(OpenCodeActivityService.AvailableModel model) =>
+        $"{model.Name} · {model.Reference} · {(model.HasPublishedCost ? $"${model.InputCost:0.####}/${model.OutputCost:0.####}" : L.T("price unavailable"))}";
 
     private async Task LoadAgentConfigAsync(string agent)
     {

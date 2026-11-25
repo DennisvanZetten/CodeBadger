@@ -147,16 +147,21 @@
                                      title="@L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })">
                                 @L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })
                             </MudText>
-                            <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal" : "Hide AI terminal")">
-                                <MudIconButton Size="Size.Small" Icon="@(_aiPanelMode == AiPanelMode.Collapsed ? Icons.Material.Filled.Visibility : Icons.Material.Filled.VisibilityOff)"
-                                               aria-label="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal" : "Hide AI terminal")"
-                                               OnClick="ToggleAiPanel" />
-                            </MudTooltip>
-                            <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Expanded ? "Restore split view" : "Expand AI terminal")">
-                                <MudIconButton Size="Size.Small" Icon="@(_aiPanelMode == AiPanelMode.Expanded ? Icons.Material.Filled.CloseFullscreen : Icons.Material.Filled.OpenInFull)"
-                                               aria-label="@L.T(_aiPanelMode == AiPanelMode.Expanded ? "Restore split view" : "Expand AI terminal")"
-                                               OnClick="ToggleAiPanelExpanded" />
-                            </MudTooltip>
+                            <MudButton Size="Size.Small" Variant="Variant.Text"
+                                       StartIcon="@(_aiPanelMode == AiPanelMode.Collapsed ? Icons.Material.Filled.Visibility : Icons.Material.Filled.VisibilityOff)"
+                                       aria-label="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal in split view" : "Hide AI terminal")"
+                                       OnClick="ToggleAiPanel">
+                                @L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show in split view" : "Hide terminal")
+                            </MudButton>
+                            @if (_aiPanelMode != AiPanelMode.Collapsed)
+                            {
+                                <MudButton Size="Size.Small" Variant="Variant.Text"
+                                           StartIcon="@(_aiPanelMode == AiPanelMode.Expanded ? Icons.Material.Filled.FullscreenExit : Icons.Material.Filled.Fullscreen)"
+                                           aria-label="@L.T(_aiPanelMode == AiPanelMode.Expanded ? "Restore split view" : "Maximize AI terminal pane")"
+                                           OnClick="ToggleAiPanelExpanded">
+                                    @L.T(_aiPanelMode == AiPanelMode.Expanded ? "Restore split view" : "Maximize terminal")
+                                </MudButton>
+                            }
                         </div>
                     </div>
                 </div>
@@ -1054,15 +1059,15 @@
         {
             _agentModelLookupKey = modelLookupKey;
             _settings = await SettingsService.LoadAsync();
-            _agentModelReference = GetAgentPreferences(Repository.AgentTool).TerminalModel;
+            _agentModelReference = _settings.CodeBadgerTerminalModel;
             if (AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode)
             {
                 try
                 {
                     _agentModelReference = Repository.OpenCodeSandboxEnabled
                         ? Repository.OpenCodeSandboxModel
-                        : !string.IsNullOrWhiteSpace(GetAgentPreferences(Repository.AgentTool).TerminalModel)
-                            ? GetAgentPreferences(Repository.AgentTool).TerminalModel
+                        : !string.IsNullOrWhiteSpace(_settings.CodeBadgerTerminalModel)
+                            ? _settings.CodeBadgerTerminalModel
                             : await OpenCodeProviders.GetDefaultModelAsync(Repository.Path);
                 }
                 catch (Exception exception)
@@ -1294,15 +1299,19 @@
             session.State.AgentContextModels.TryGetValue(key, out selected))
             return string.Equals(selected, modelReference, StringComparison.OrdinalIgnoreCase);
 
-        var preferences = GetAgentPreferences(Repository.AgentTool);
-        var preferred = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) switch
+        var preferred = !string.IsNullOrWhiteSpace(_settings.CodeBadgerTerminalModel)
+            ? _settings.CodeBadgerTerminalModel : _agentModelReference;
+        if (string.IsNullOrWhiteSpace(preferred))
         {
-            CodeBadgerOrchestrationModes.SingleAgent => preferences.SingleAgentPreferredModels.FirstOrDefault(),
-            CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Planner => preferences.PlanPreferredModels.FirstOrDefault(),
-            CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Worker => preferences.BuildPreferredModels.FirstOrDefault(),
-            _ => preferences.RolePreferences.FirstOrDefault(item => item.Role == role)?.PreferredModels.FirstOrDefault()
-        };
-        preferred ??= preferences.TerminalModel ?? _agentModelReference;
+            var preferences = GetAgentPreferences(Repository.AgentTool);
+            preferred = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) switch
+            {
+                CodeBadgerOrchestrationModes.SingleAgent => preferences.SingleAgentPreferredModels.FirstOrDefault(),
+                CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Planner => preferences.PlanPreferredModels.FirstOrDefault(),
+                CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Worker => preferences.BuildPreferredModels.FirstOrDefault(),
+                _ => preferences.RolePreferences.FirstOrDefault(item => item.Role == role)?.PreferredModels.FirstOrDefault()
+            };
+        }
         return string.Equals(preferred, modelReference, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -2231,8 +2240,8 @@
             CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Worker => agentPreferences.BuildPreferredModels,
             _ => preference.PreferredModels
         };
-        if (!string.IsNullOrWhiteSpace(agentPreferences.TerminalModel) &&
-            available.FirstOrDefault(model => string.Equals(model.Reference, agentPreferences.TerminalModel, StringComparison.OrdinalIgnoreCase)) is { } terminalModel)
+        if (!string.IsNullOrWhiteSpace(_settings.CodeBadgerTerminalModel) &&
+            available.FirstOrDefault(model => string.Equals(model.Reference, _settings.CodeBadgerTerminalModel, StringComparison.OrdinalIgnoreCase)) is { } terminalModel)
             return terminalModel.Reference;
         foreach (var preferred in preferredModels.Where(model => !string.IsNullOrWhiteSpace(model)))
             if (available.Any(model => string.Equals(model.Reference, preferred, StringComparison.OrdinalIgnoreCase)))
@@ -2360,7 +2369,9 @@
             CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Worker => agentPreferences.BuildPreferredModels.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)),
             _ => preference?.PreferredModels.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))
         };
-        var model = storedModel ?? fallbackModel ?? agentPreferences.TerminalModel ?? _agentModelReference;
+        var model = storedModel ??
+            (!string.IsNullOrWhiteSpace(_settings.CodeBadgerTerminalModel) ? _settings.CodeBadgerTerminalModel : null) ??
+            fallbackModel ?? _agentModelReference;
         var currentAgent = Repository.AgentTool == AgentTools.OpenCode ? "OpenCode" : AgentTools.GetDisplayName(Repository.AgentTool);
         var agent = preference is null ? "Build" : AgentTypeLabel(preference.AgentType, preference.CustomAgentId);
         return $"{currentAgent} · {RoleDisplayName(selectedRole)} · {agent}{(string.IsNullOrWhiteSpace(model) ? string.Empty : " · " + FormatModelName(model.Split('/').Last()))}";

@@ -52,6 +52,7 @@ public sealed class LauncherSettingsService
             NormalizeLogSettings(settings);
             settings.GitOverviewStartSize = NormalizeGitOverviewStartSize(settings.GitOverviewStartSize);
             settings.AiConflictModel = string.IsNullOrWhiteSpace(settings.AiConflictModel) ? settings.AiModel : settings.AiConflictModel;
+            settings.CodeBadgerTerminalModel = settings.CodeBadgerTerminalModel?.Trim() ?? string.Empty;
             settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
             settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);
             settings.TaskBranchPrefix = NormalizeBranchPrefix(settings.TaskBranchPrefix);
@@ -99,6 +100,7 @@ public sealed class LauncherSettingsService
             NormalizeLogSettings(settings);
             settings.GitOverviewStartSize = NormalizeGitOverviewStartSize(settings.GitOverviewStartSize);
             settings.AiConflictModel = string.IsNullOrWhiteSpace(settings.AiConflictModel) ? settings.AiModel : settings.AiConflictModel;
+            settings.CodeBadgerTerminalModel = settings.CodeBadgerTerminalModel?.Trim() ?? string.Empty;
             settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
             settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);
             settings.TaskBranchPrefix = NormalizeBranchPrefix(settings.TaskBranchPrefix);
@@ -195,6 +197,20 @@ public sealed class LauncherSettingsService
         if (root is not JsonObject settings)
             return;
 
+        if (string.IsNullOrWhiteSpace(settings["CodeBadgerTerminalModel"]?.GetValue<string>()))
+        {
+            var agentPreferences = (settings["CodeBadgerAgentPreferences"] as JsonArray)?.OfType<JsonObject>().ToArray();
+            var agentTerminalModel = agentPreferences?
+                .FirstOrDefault(preference => string.Equals(preference["AgentTool"]?.GetValue<string>(), AgentTools.OpenCode, StringComparison.Ordinal))?
+                ["TerminalModel"]?.GetValue<string>();
+            agentTerminalModel = string.IsNullOrWhiteSpace(agentTerminalModel)
+                ? agentPreferences?.Select(preference => preference["TerminalModel"]?.GetValue<string>())
+                    .FirstOrDefault(model => !string.IsNullOrWhiteSpace(model))
+                : agentTerminalModel;
+            settings["CodeBadgerTerminalModel"] = agentTerminalModel ??
+                settings["CodeBadgerTerminalModel"]?.DeepClone() ?? JsonValue.Create(string.Empty);
+        }
+
         if (settings["CodeBadgerAgentPreferences"] is JsonArray)
             return;
 
@@ -209,7 +225,6 @@ public sealed class LauncherSettingsService
         var openCode = new JsonObject
         {
             ["AgentTool"] = AgentTools.OpenCode,
-            ["TerminalModel"] = settings["CodeBadgerTerminalModel"]?.DeepClone() ?? JsonValue.Create(string.Empty),
             ["SingleAgentPreferredModels"] = CloneArray(settings["CodeBadgerSingleAgentPreferredModels"] as JsonArray ?? ModelsForRole(CodeBadgerRoles.Worker)),
             ["PlanPreferredModels"] = CloneArray(settings["CodeBadgerPlanPreferredModels"] as JsonArray ?? ModelsForRole(CodeBadgerRoles.Planner)),
             ["BuildPreferredModels"] = CloneArray(settings["CodeBadgerBuildPreferredModels"] as JsonArray ?? ModelsForRole(CodeBadgerRoles.Worker)),
@@ -227,7 +242,6 @@ public sealed class LauncherSettingsService
     private static JsonObject CreateAgentPreference(string agent) => new()
     {
         ["AgentTool"] = agent,
-        ["TerminalModel"] = string.Empty,
         ["SingleAgentPreferredModels"] = new JsonArray(),
         ["PlanPreferredModels"] = new JsonArray(),
         ["BuildPreferredModels"] = new JsonArray(),

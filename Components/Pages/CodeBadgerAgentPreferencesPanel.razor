@@ -30,24 +30,6 @@
             <MudAlert Dense="true" Severity="Severity.Warning" Variant="Variant.Outlined">@_loadError</MudAlert>
         }
 
-        <MudText Typo="Typo.subtitle2">@L.T("AI for CodeBadger terminal")</MudText>
-        @if (IsOpenCode)
-        {
-            <MudSelect T="string" @bind-Value="Preferences.TerminalModel" Label="@L.T("CodeBadger terminal model")"
-                       Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="@(_models.Count == 0)">
-                <MudSelectItem T="string" Value="@string.Empty">@L.T("Automatic selection")</MudSelectItem>
-                @foreach (var model in _models)
-                {
-                    <MudSelectItem T="string" Value="@model.Reference" Disabled="@(!model.Enabled)">@ModelLabel(model)</MudSelectItem>
-                }
-            </MudSelect>
-        }
-        else
-        {
-            <MudTextField @bind-Value="Preferences.TerminalModel" Label="@L.T("CodeBadger terminal model ID")"
-                          Margin="Margin.Dense" Variant="Variant.Outlined" />
-        }
-
         <MudExpansionPanels Elevation="0" Outlined="true">
             <MudExpansionPanel Text="@L.T("One agent for everything")">
                 <MudStack Spacing="2" Class="pa-3">

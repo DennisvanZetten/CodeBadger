@@ -24,6 +24,7 @@ public sealed class LauncherSettings
     public string AiCustomUrl { get; set; } = string.Empty;
     public string AiModel { get; set; } = "gpt-4o-mini";
     public string AiConflictModel { get; set; } = "gpt-4o-mini";
+    public string CodeBadgerTerminalModel { get; set; } = string.Empty;
     public List<CodeBadgerAgentPreferences> CodeBadgerAgentPreferences { get; set; } = CodeBadgerRoles.CreateAgentDefaults();
     public int AiMaxInputTokens { get; set; } = 12000;
     public int SandboxMaxFileMb { get; set; } = 64;
@@ -136,7 +137,6 @@ public static class CodeBadgerRoles
         {
             if (!existing.TryGetValue(agent, out var preference))
                 preference = new CodeBadgerAgentPreferences { AgentTool = agent, RolePreferences = CreateDefaults() };
-            preference.TerminalModel = preference.TerminalModel?.Trim() ?? string.Empty;
             preference.SingleAgentPreferredModels = NormalizePreferredModels(preference.SingleAgentPreferredModels);
             preference.PlanPreferredModels = NormalizePreferredModels(preference.PlanPreferredModels);
             preference.BuildPreferredModels = NormalizePreferredModels(preference.BuildPreferredModels);
@@ -201,7 +201,6 @@ public sealed class CodeBadgerRolePreference
 public sealed class CodeBadgerAgentPreferences
 {
     public string AgentTool { get; set; } = AgentTools.OpenCode;
-    public string TerminalModel { get; set; } = string.Empty;
     public List<string> SingleAgentPreferredModels { get; set; } = [];
     public List<string> PlanPreferredModels { get; set; } = [];
     public List<string> BuildPreferredModels { get; set; } = [];

@@ -102,8 +102,6 @@
                                             }
                                         </div>
                                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close"
-                                                       Class="@(_terminalSessions.Count > 1 ? string.Empty : "repository-codebadger-session-close-placeholder")"
-                                                       Disabled="@(_terminalSessions.Count <= 1)"
                                                        aria-label="@L.T("Close session {0}", GetTerminalSessionDisplayTitle(session))"
                                                        OnClick="@(() => CloseTerminalSessionAsync(session.Id))" />
                                     </div>
@@ -1492,19 +1490,23 @@
         _ = PersistTerminalStateAsync();
     }
 
-    private Task CloseTerminalSessionAsync(Guid id)
+    private async Task CloseTerminalSessionAsync(Guid id)
     {
-        if (_terminalSessions.Count <= 1)
-            return Task.CompletedTask;
         var index = _terminalSessions.FindIndex(session => session.Id == id);
         if (index < 0)
-            return Task.CompletedTask;
+            return;
         _terminalSessions.RemoveAt(index);
         _terminalState.Sessions.RemoveAll(session => session.Id == id);
+        if (_terminalSessions.Count == 0)
+        {
+            _terminalState.SelectedSessionId = Guid.Empty;
+            await AddTerminalSessionAsync();
+            return;
+        }
         if (_selectedTerminalSessionId == id)
             _selectedTerminalSessionId = _terminalSessions[Math.Min(index, _terminalSessions.Count - 1)].Id;
         _terminalState.SelectedSessionId = _selectedTerminalSessionId;
-        return PersistTerminalStateAsync();
+        await PersistTerminalStateAsync();
     }
 
     private async Task ToggleSessionMode(CodeBadgerTerminalSession session)

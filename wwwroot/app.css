@@ -2387,6 +2387,8 @@ h1:focus {
 }
 
 .repository-codebadger-pane {
+    position: relative;
+    container-type: inline-size;
     padding-top: 0.35rem;
     background: var(--mud-palette-background);
     box-sizing: border-box;
@@ -2542,30 +2544,30 @@ h1:focus {
 }
 
 .repository-codebadger-agent-links {
+    position: absolute;
+    top: 0.75rem;
+    bottom: 0.75rem;
+    left: 0.5rem;
+    z-index: 1;
     display: flex;
-    flex: 0 0 auto;
-    flex-wrap: nowrap;
-    align-items: center;
+    flex-direction: column;
+    align-items: flex-start;
     gap: 0.35rem;
+    width: min(20rem, calc((100% - 54rem) / 2 - 1rem));
     min-width: 0;
-    max-width: min(40vw, 32rem);
-    padding-left: 0.5rem;
-    overflow-x: auto;
-    scrollbar-width: none;
-}
-
-@container (max-width: 900px) {
-    .repository-codebadger-agent-links {
-        display: none;
-    }
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
 }
 
 .repository-codebadger-agent-context {
     display: grid;
     flex: 0 0 auto;
-    grid-template-columns: minmax(2rem, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     gap: 0.1rem;
-    min-width: 11rem;
+    min-width: 0;
+    width: min(16rem, 100%);
+    box-sizing: border-box;
     padding: 0.2rem 0.35rem;
     border: 1px solid color-mix(in srgb, var(--mud-palette-text-secondary) 24%, transparent);
     border-radius: 0.3rem;
@@ -2585,16 +2587,20 @@ h1:focus {
 }
 
 .repository-codebadger-agent-context-label > span:first-child {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
     color: var(--mud-palette-text-primary);
     font-weight: 600;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 .repository-codebadger-agent-context-tokens {
-    grid-column: 2;
-    grid-row: 2;
+    grid-column: 1;
+    grid-row: 3;
     overflow: hidden;
+    text-align: right;
     text-overflow: ellipsis;
     color: var(--mud-palette-text-secondary);
     font-size: 0.62rem;
@@ -2612,7 +2618,7 @@ h1:focus {
 .repository-codebadger-agent-context-track {
     grid-column: 1;
     grid-row: 2;
-    align-self: center;
+    align-self: stretch;
     height: 0.4rem;
     overflow: hidden;
     border-radius: 999px;

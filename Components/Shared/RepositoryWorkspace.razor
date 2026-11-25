@@ -113,7 +113,54 @@
                     </div>
                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add" Class="repository-codebadger-session-add"
                                        title="@L.T("New session")" aria-label="@L.T("New session")" OnClick="AddTerminalSession" />
-                        @if (_aiPanelMode != AiPanelMode.Expanded &&
+                    </div>
+                    @if (_terminalContextMenuSessionId is { } contextMenuSessionId && _terminalSessions.Any(session => session.Id == contextMenuSessionId))
+                    {
+                        <div class="repository-tab-context-backdrop" @onclick="CloseTerminalSessionContextMenu" @oncontextmenu:preventDefault="true"></div>
+                        <div class="repository-tab-context-menu repository-codebadger-session-context-menu git-commit-context-menu" style="left:@(_terminalContextMenuX)px;top:@(_terminalContextMenuY)px" @onclick:stopPropagation="true">
+                            <button class="git-commit-context-menu-item" @onclick="CloseAllTerminalSessionsAsync">
+                                <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" />
+                                <span>@L.T("Close all sessions")</span>
+                            </button>
+                            <button class="git-commit-context-menu-item" @onclick="CloseOtherTerminalSessionsAsync">
+                                <MudIcon Icon="@Icons.Material.Filled.FilterList" Size="Size.Small" />
+                                <span>@L.T("Close all sessions except this")</span>
+                            </button>
+                            <button class="git-commit-context-menu-item" @onclick="AddTerminalSessionFromContextMenuAsync">
+                                <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+                                <span>@L.T("New session")</span>
+                            </button>
+                        </div>
+                    }
+                    <div class="repository-terminal-splitter-footer">
+                    <div class="repository-terminal-splitter-grip" role="separator" aria-orientation="horizontal"
+                         aria-label="@L.T("Resize terminal panels")" tabindex="0"></div>
+                    <div class="repository-terminal-splitter-actions">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="repository-codebadger-mode-label"
+                                 title="@L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })">
+                            @L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })
+                        </MudText>
+                        <MudTooltip Text="@L.T(_showAgentContext ? "Hide agent context bars" : "Show agent context bars")">
+                            <MudIconButton Size="Size.Small" Icon="@(_showAgentContext ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                           aria-label="@L.T(_showAgentContext ? "Hide agent context bars" : "Show agent context bars")"
+                                           OnClick="ToggleAgentContext" />
+                        </MudTooltip>
+                        <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal" : "Hide AI terminal")">
+                            <MudIconButton Size="Size.Small" Icon="@(_aiPanelMode == AiPanelMode.Collapsed ? Icons.Material.Filled.Visibility : Icons.Material.Filled.VisibilityOff)"
+                                           aria-label="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal" : "Hide AI terminal")"
+                                           OnClick="ToggleAiPanel" />
+                        </MudTooltip>
+                        <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Expanded ? "Restore split view" : "Expand AI terminal")">
+                            <MudIconButton Size="Size.Small" Icon="@(_aiPanelMode == AiPanelMode.Expanded ? Icons.Material.Filled.CloseFullscreen : Icons.Material.Filled.OpenInFull)"
+                                           aria-label="@L.T(_aiPanelMode == AiPanelMode.Expanded ? "Restore split view" : "Expand AI terminal")"
+                                           OnClick="ToggleAiPanelExpanded" />
+                        </MudTooltip>
+                    </div>
+                    </div>
+                </div>
+
+                <section class="repository-codebadger-pane" aria-label="@L.T("CodeBadger terminal")">
+                        @if (_showAgentContext && _aiPanelMode != AiPanelMode.Expanded &&
                              _terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is { } currentTerminalSession)
                         {
                             <div class="repository-codebadger-agent-links">
@@ -166,48 +213,6 @@
                                 }
                             </div>
                         }
-                    </div>
-                    @if (_terminalContextMenuSessionId is { } contextMenuSessionId && _terminalSessions.Any(session => session.Id == contextMenuSessionId))
-                    {
-                        <div class="repository-tab-context-backdrop" @onclick="CloseTerminalSessionContextMenu" @oncontextmenu:preventDefault="true"></div>
-                        <div class="repository-tab-context-menu repository-codebadger-session-context-menu git-commit-context-menu" style="left:@(_terminalContextMenuX)px;top:@(_terminalContextMenuY)px" @onclick:stopPropagation="true">
-                            <button class="git-commit-context-menu-item" @onclick="CloseAllTerminalSessionsAsync">
-                                <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" />
-                                <span>@L.T("Close all sessions")</span>
-                            </button>
-                            <button class="git-commit-context-menu-item" @onclick="CloseOtherTerminalSessionsAsync">
-                                <MudIcon Icon="@Icons.Material.Filled.FilterList" Size="Size.Small" />
-                                <span>@L.T("Close all sessions except this")</span>
-                            </button>
-                            <button class="git-commit-context-menu-item" @onclick="AddTerminalSessionFromContextMenuAsync">
-                                <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
-                                <span>@L.T("New session")</span>
-                            </button>
-                        </div>
-                    }
-                    <div class="repository-terminal-splitter-footer">
-                    <div class="repository-terminal-splitter-grip" role="separator" aria-orientation="horizontal"
-                         aria-label="@L.T("Resize terminal panels")" tabindex="0"></div>
-                    <div class="repository-terminal-splitter-actions">
-                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="repository-codebadger-mode-label"
-                                 title="@L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })">
-                            @L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })
-                        </MudText>
-                        <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal" : "Hide AI terminal")">
-                            <MudIconButton Size="Size.Small" Icon="@(_aiPanelMode == AiPanelMode.Collapsed ? Icons.Material.Filled.Visibility : Icons.Material.Filled.VisibilityOff)"
-                                           aria-label="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal" : "Hide AI terminal")"
-                                           OnClick="ToggleAiPanel" />
-                        </MudTooltip>
-                        <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Expanded ? "Restore split view" : "Expand AI terminal")">
-                            <MudIconButton Size="Size.Small" Icon="@(_aiPanelMode == AiPanelMode.Expanded ? Icons.Material.Filled.CloseFullscreen : Icons.Material.Filled.OpenInFull)"
-                                           aria-label="@L.T(_aiPanelMode == AiPanelMode.Expanded ? "Restore split view" : "Expand AI terminal")"
-                                           OnClick="ToggleAiPanelExpanded" />
-                        </MudTooltip>
-                    </div>
-                    </div>
-                </div>
-
-                <section class="repository-codebadger-pane" aria-label="@L.T("CodeBadger terminal")">
                     <div class="repository-codebadger-session-content">
                         @foreach (var session in _terminalSessions)
                         {
@@ -603,6 +608,7 @@
     private double _terminalContextMenuY;
     private double _aiPanelHeight = 38;
     private AiPanelMode _aiPanelMode = AiPanelMode.Collapsed;
+    private bool _showAgentContext = true;
     private bool _splitterAttached;
     private bool _conversationScrollAttached;
     private bool _composerAttached;
@@ -1151,6 +1157,8 @@
     }
 
     private void ToggleAiPanel() => _aiPanelMode = _aiPanelMode == AiPanelMode.Collapsed ? AiPanelMode.Split : AiPanelMode.Collapsed;
+
+    private void ToggleAgentContext() => _showAgentContext = !_showAgentContext;
 
     private void ToggleAiPanelExpanded() => _aiPanelMode = _aiPanelMode == AiPanelMode.Expanded ? AiPanelMode.Split : AiPanelMode.Expanded;
 

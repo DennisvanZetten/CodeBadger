@@ -47,6 +47,8 @@ public sealed class LocalizationService
         ["Resize terminal panels"] = ["Resize terminal panels", "Terminalvensters vergroten of verkleinen", "Terminalbereiche skalieren", "Redimensionner les panneaux du terminal"],
         ["Show AI terminal"] = ["Show AI terminal", "AI-terminal tonen", "KI-Terminal anzeigen", "Afficher le terminal IA"],
         ["Hide AI terminal"] = ["Hide AI terminal", "AI-terminal verbergen", "KI-Terminal ausblenden", "Masquer le terminal IA"],
+        ["Show agent context bars"] = ["Show agent context bars", "Agent-contextbalken tonen", "Agent-Kontextanzeigen anzeigen", "Afficher les barres de contexte des agents"],
+        ["Hide agent context bars"] = ["Hide agent context bars", "Agent-contextbalken verbergen", "Agent-Kontextanzeigen ausblenden", "Masquer les barres de contexte des agents"],
         ["Expand AI terminal"] = ["Expand AI terminal", "AI-terminal volledig openen", "KI-Terminal maximieren", "Développer le terminal IA"],
         ["Restore split view"] = ["Restore split view", "Gesplitste weergave herstellen", "Geteilte Ansicht wiederherstellen", "Rétablir la vue partagée"],
         ["New session"] = ["New session", "Nieuwe sessie", "Neue Sitzung", "Nouvelle session"],

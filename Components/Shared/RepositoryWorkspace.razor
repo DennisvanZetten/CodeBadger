@@ -1015,8 +1015,7 @@
         }
 
         var priorOpenCodeSessionId = _terminalState.SelectedOpenCodeSessionId;
-        if (!OpenCodeSessions.ContainsKey(priorOpenCodeSessionId))
-            _terminalState.SelectedOpenCodeSessionId = GetPreferredOpenCodeSessionId();
+        SynchronizeOpenCodeSessionSelection();
         if (!string.Equals(priorOpenCodeSessionId, _terminalState.SelectedOpenCodeSessionId, StringComparison.Ordinal))
             await PersistTerminalStateAsync();
 
@@ -1291,7 +1290,7 @@
     private string GetPreferredOpenCodeSessionId()
     {
         if (_terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is not { } selected)
-            return OpenCodeSessions.Keys.FirstOrDefault() ?? string.Empty;
+            return string.Empty;
 
         var modeRole = !string.IsNullOrWhiteSpace(selected.State.ActiveAgentRole)
             ? selected.State.ActiveAgentRole
@@ -1301,15 +1300,21 @@
             return preferred;
         if (selected.State.AgentSessionIds.TryGetValue("SingleAgent", out preferred) && OpenCodeSessions.ContainsKey(preferred))
             return preferred;
-        return OpenCodeSessions.Keys.FirstOrDefault() ?? string.Empty;
+        return selected.State.AgentSessionIds
+            .Where(entry => IsOpenCodeSessionKey(entry.Key) && OpenCodeSessions.ContainsKey(entry.Value))
+            .Select(entry => entry.Value)
+            .FirstOrDefault() ?? string.Empty;
     }
+
+    private void SynchronizeOpenCodeSessionSelection() =>
+        _terminalState.SelectedOpenCodeSessionId = GetPreferredOpenCodeSessionId();
 
     private async Task SelectOpenCodeSessionAsync(string sessionId)
     {
         if (!OpenCodeSessions.ContainsKey(sessionId))
             return;
         _terminalState.SelectedOpenCodeSessionId = sessionId;
-        await PersistTerminalStateAsync();
+        await PersistTerminalStateAsync(synchronizeOpenCodeSelection: false);
         await InvokeAsync(StateHasChanged);
     }
 
@@ -1317,6 +1322,7 @@
     {
         _selectedTerminalSessionId = id;
         _terminalState.SelectedSessionId = id;
+        SynchronizeOpenCodeSessionSelection();
         _ = PersistTerminalStateAsync();
     }
 
@@ -1660,6 +1666,8 @@
         cancellationToken.ThrowIfCancellationRequested();
         session.State.ActiveAgentRole = role;
         session.RoleProgress[role] = AgentRoleProgress.Working;
+        if (session.Id == _selectedTerminalSessionId)
+            SynchronizeOpenCodeSessionSelection();
         await InvokeAsync(StateHasChanged);
         var preference = preferences.FirstOrDefault(item => item.Role == role)
             ?? new CodeBadgerRolePreference { Role = role, AgentType = CodeBadgerRoles.DefaultAgentType(role) };
@@ -2109,8 +2117,12 @@
         _ => agentType
     };
 
-    private async Task PersistTerminalStateAsync()
+    private async Task PersistTerminalStateAsync(bool synchronizeOpenCodeSelection = true)
     {
+        // Agent sessions are created/rotated internally, without a parameter update.
+        // Keep the visible TUI attached to the selected tab's current role before rendering.
+        if (synchronizeOpenCodeSelection)
+            SynchronizeOpenCodeSessionSelection();
         if (_terminalState.RepositoryId == Guid.Empty) return;
         try { await TerminalStateService.SaveAsync(_terminalState); }
         catch (Exception exception) { Logger.LogWarning(exception, "Could not persist CodeBadger terminal state for repository {RepositoryId}.", Repository.Id); }

@@ -2249,6 +2249,15 @@ h1:focus {
     padding: 0.25rem 0.5rem;
 }
 
+.repository-opencode-session-selector {
+    flex: 0 0 auto;
+    max-width: 100%;
+    padding: 0.25rem 0.5rem;
+    color: var(--terminal-foreground, #e5e7eb);
+    background: var(--terminal-background, #0b1220);
+    border: 1px solid var(--mud-palette-lines-default);
+}
+
 .repository-opencode-session-terminal {
     flex: 1 1 auto;
     overflow: hidden;

@@ -2,6 +2,19 @@
 @using CodeBadger.Components.Pages
 
 <div class="repository-opencode-session-group">
+    @if (Sessions.Count > 1)
+    {
+        <select class="repository-opencode-session-selector" value="@SelectedSessionId" @onchange="SelectSessionAsync" aria-label="@L.T("OpenCode session")">
+            @if (string.IsNullOrWhiteSpace(SelectedSessionId))
+            {
+                <option value="" disabled>@L.T("Select a session")</option>
+            }
+            @foreach (var session in Sessions)
+            {
+                <option value="@session.Key">@session.Value</option>
+            }
+        </select>
+    }
     @foreach (var session in Sessions)
     {
         <div @key="session.Key" class="repository-opencode-session-terminal" style="display:@(session.Key == SelectedSessionId ? "flex" : "none")">
@@ -31,5 +44,6 @@
         return terminalId;
     }
 
-    private Task SelectSessionAsync(string sessionId) => SelectedSessionIdChanged.InvokeAsync(sessionId);
+    private Task SelectSessionAsync(ChangeEventArgs args) =>
+        SelectedSessionIdChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty);
 }

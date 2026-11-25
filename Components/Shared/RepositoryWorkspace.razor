@@ -74,8 +74,8 @@
                                             <span class="repository-codebadger-role-status @RoleProgressCssClass(status)"
                                                   title="@L.T("{0}: {1}", RoleDisplayName(role), RoleProgressLabel(status))"
                                                   aria-label="@L.T("{0}: {1}", RoleDisplayName(role), RoleProgressLabel(status))">
-                                                <span class="repository-codebadger-role-status-dot" aria-hidden="true"></span>
                                                 @ShortRoleDisplayName(role)
+                                                <MudIcon Icon="@RoleProgressIcon(status)" Class="repository-codebadger-role-status-icon" aria-hidden="true" />
                                             </span>
                                         }
                                     </div>
@@ -107,12 +107,6 @@
                                             : L.T("{0}% used: {1} of {2} tokens", progress, contextUsage.Used.ToString("N0"), contextUsage.Limit.ToString("N0")))">
                                             <div class="repository-codebadger-agent-context-label">
                                                 <span>@RoleDisplayName(role)</span>
-                                                @if (contextUsage is { Limit: > 0 })
-                                                {
-                                                    <span class="repository-codebadger-agent-context-tokens">
-                                                        @L.T("{0} / {1} tokens", contextUsage.Used.ToString("N0"), contextUsage.Limit.ToString("N0"))
-                                                    </span>
-                                                }
                                                 @if (!IsAgentRoleBusy(currentTerminalSession, role) && !currentTerminalSession.IsRotatingAgentRole)
                                                 {
                                                     <MudTooltip Text="@L.T("Continue in a new session with a summary")">
@@ -132,6 +126,12 @@
                                                 <div class="repository-codebadger-agent-context-track @level">
                                                     <span style="width:@(progress)%"></span>
                                                 </div>
+                                            }
+                                            @if (contextUsage is { Limit: > 0 })
+                                            {
+                                                <span class="repository-codebadger-agent-context-tokens">
+                                                    @L.T("{0} / {1} tokens", contextUsage.Used.ToString("N0"), contextUsage.Limit.ToString("N0"))
+                                                </span>
                                             }
                                         </div>
                                     }
@@ -226,11 +226,15 @@
                                             @foreach (var interaction in pendingInteractions)
                                             {
                                                 <MudPaper Outlined="true" Class="repository-codebadger-interaction" @key="interaction.Id">
-                                                    <MudText Typo="Typo.subtitle2">@(interaction.Kind == CodeBadgerAgentInteractionKind.Permission
-                                                        ? L.T("Permission requested") : interaction.Title)</MudText>
+                                                    <div class="repository-codebadger-interaction-heading">
+                                                        <MudIcon Icon="@(interaction.Kind == CodeBadgerAgentInteractionKind.Permission
+                                                            ? Icons.Material.Filled.GppMaybe : Icons.Material.Filled.HelpOutline)" Color="Color.Primary" />
+                                                        <MudText Typo="Typo.subtitle1">@(interaction.Kind == CodeBadgerAgentInteractionKind.Permission
+                                                            ? L.T("Permission requested") : interaction.Title)</MudText>
+                                                    </div>
                                                     @if (!string.IsNullOrWhiteSpace(interaction.Details))
                                                     {
-                                                        <MudText Typo="Typo.body2">@interaction.Details</MudText>
+                                                        <MudText Typo="Typo.body2" Class="repository-codebadger-interaction-details">@interaction.Details</MudText>
                                                     }
                                                     @if (interaction.Resources.Count > 0)
                                                     {
@@ -238,7 +242,7 @@
                                                     }
                                                     @if (interaction.Kind == CodeBadgerAgentInteractionKind.Permission)
                                                     {
-                                                        <MudStack Row="true" Spacing="1" Class="mt-2">
+                                                        <MudStack Row="true" Spacing="1" Class="repository-codebadger-interaction-actions">
                                                             <MudButton Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled"
                                                                        OnClick='() => HandleInteractionReplyAsync(session, interaction, new CodeBadgerAgentInteractionAnswer(Decision: "approve-once"))'>@L.T("Allow once")</MudButton>
                                                             <MudButton Size="Size.Small" Variant="Variant.Outlined"
@@ -249,7 +253,7 @@
                                                     }
                                                     else
                                                     {
-                                                        <MudStack Spacing="2" Class="mt-2">
+                                                        <MudStack Spacing="2" Class="repository-codebadger-interaction-fields">
                                                             @foreach (var field in interaction.Fields)
                                                             {
                                                                 @if (field.Type == "multiselect")
@@ -303,6 +307,7 @@
                                                                 }
                                                             }
                                                             <MudButton Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled"
+                                                                       Class="repository-codebadger-interaction-submit"
                                                                        OnClick="() => SubmitInteractionAnswerAsync(session, interaction)">@L.T("Submit answer")</MudButton>
                                                         </MudStack>
                                                     }
@@ -577,6 +582,16 @@
         AgentRoleProgress.Stopped => "stopped",
         AgentRoleProgress.Failed => "failed",
         _ => "not-started"
+    };
+
+    private static string RoleProgressIcon(AgentRoleProgress progress) => progress switch
+    {
+        AgentRoleProgress.Working => Icons.Material.Filled.Autorenew,
+        AgentRoleProgress.Waiting => Icons.Material.Filled.QuestionAnswer,
+        AgentRoleProgress.Completed => Icons.Material.Filled.CheckCircle,
+        AgentRoleProgress.Stopped => Icons.Material.Filled.PauseCircleFilled,
+        AgentRoleProgress.Failed => Icons.Material.Filled.Error,
+        _ => Icons.Material.Filled.RadioButtonUnchecked
     };
 
     private string RoleProgressLabel(AgentRoleProgress progress) => L.T(progress switch

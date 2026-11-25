@@ -60,6 +60,8 @@ public sealed class LocalizationService
         ["Expand AI terminal"] = ["Expand AI terminal", "AI-terminal volledig openen", "KI-Terminal maximieren", "Développer le terminal IA"],
         ["Maximize AI terminal pane"] = ["Maximize AI terminal pane", "AI-terminalvenster maximaliseren", "KI-Terminalbereich maximieren", "Maximiser le panneau du terminal IA"],
         ["Maximize terminal"] = ["Maximize terminal", "Terminal maximaliseren", "Terminal maximieren", "Maximiser le terminal"],
+        ["Open AI terminal full screen"] = ["Open AI terminal full screen", "AI-terminal volledig openen", "KI-Terminal im Vollbild öffnen", "Ouvrir le terminal IA en plein écran"],
+        ["Close AI terminal"] = ["Close AI terminal", "AI-terminal sluiten", "KI-Terminal schließen", "Fermer le terminal IA"],
         ["Restore split view"] = ["Restore split view", "Gesplitste weergave herstellen", "Geteilte Ansicht wiederherstellen", "Rétablir la vue partagée"],
         ["New session"] = ["New session", "Nieuwe sessie", "Neue Sitzung", "Nouvelle session"],
         ["Close all sessions"] = ["Close all sessions", "Alle sessies sluiten", "Alle Sitzungen schließen", "Fermer toutes les sessions"],

@@ -2265,7 +2265,7 @@ h1:focus {
 
 .repository-terminal-stack {
     display: grid;
-    grid-template-rows: minmax(120px, var(--ai-terminal-height, 38%)) auto minmax(120px, 1fr);
+    grid-template-rows: 0 auto minmax(0, 1fr);
     gap: 0;
     height: 100%;
     min-height: 0;
@@ -2312,20 +2312,6 @@ h1:focus {
     border-top: 1px solid var(--mud-palette-divider);
     cursor: default;
     background: var(--mud-palette-background);
-}
-
-.repository-terminal-splitter:has(.repository-terminal-splitter-grip:focus-visible),
-.repository-terminal-splitter:has(.repository-terminal-splitter-grip:hover) {
-    border-top-color: var(--mud-palette-primary);
-}
-
-.repository-terminal-splitter-grip {
-    position: absolute;
-    inset: -6px 0 auto;
-    height: 6px;
-    cursor: ns-resize;
-    touch-action: none;
-    outline: none;
 }
 
 .repository-codebadger-session-area {
@@ -3309,12 +3295,6 @@ h1:focus {
     font-size: 0.68rem;
     font-variant-numeric: tabular-nums;
     text-align: center;
-}
-
-body.repository-terminal-resizing,
-body.repository-terminal-resizing * {
-    cursor: ns-resize !important;
-    user-select: none !important;
 }
 
 .sandbox-terminal-layout {

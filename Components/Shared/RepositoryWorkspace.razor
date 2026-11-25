@@ -24,8 +24,7 @@
     {
         @if (Repository.CodeBadgerTerminalEnabled)
         {
-            <div class="repository-terminal-stack @AiPaneModeClass" @ref="_terminalStack"
-                 style="--ai-terminal-height: @_aiPanelHeight.ToString(System.Globalization.CultureInfo.InvariantCulture)%">
+                <div class="repository-terminal-stack @AiPaneModeClass" @ref="_terminalStack">
                 <section class="repository-ai-pane" aria-label="@L.T("AI terminal")">
                     <div class="repository-terminal-panel">
                         @if (!string.IsNullOrWhiteSpace(_notificationSetupError))
@@ -131,8 +130,6 @@
                             </button>
                         </div>
                     }
-                    <div class="repository-terminal-splitter-grip" role="separator" aria-orientation="horizontal"
-                         aria-label="@L.T("Resize terminal panels")" tabindex="0"></div>
                     <div class="repository-terminal-splitter-footer">
                         @if (_aiPanelMode != AiPanelMode.Expanded)
                         {
@@ -147,21 +144,12 @@
                                      title="@L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })">
                                 @L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })
                             </MudText>
-                            <MudButton Size="Size.Small" Variant="Variant.Text"
-                                       StartIcon="@(_aiPanelMode == AiPanelMode.Collapsed ? Icons.Material.Filled.Visibility : Icons.Material.Filled.VisibilityOff)"
-                                       aria-label="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal in split view" : "Hide AI terminal")"
-                                       OnClick="ToggleAiPanel">
-                                @L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show in split view" : "Hide terminal")
-                            </MudButton>
-                            @if (_aiPanelMode != AiPanelMode.Collapsed)
-                            {
-                                <MudButton Size="Size.Small" Variant="Variant.Text"
-                                           StartIcon="@(_aiPanelMode == AiPanelMode.Expanded ? Icons.Material.Filled.FullscreenExit : Icons.Material.Filled.Fullscreen)"
-                                           aria-label="@L.T(_aiPanelMode == AiPanelMode.Expanded ? "Restore split view" : "Maximize AI terminal pane")"
-                                           OnClick="ToggleAiPanelExpanded">
-                                    @L.T(_aiPanelMode == AiPanelMode.Expanded ? "Restore split view" : "Maximize terminal")
-                                </MudButton>
-                            }
+                            <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Open AI terminal full screen" : "Close AI terminal")">
+                                <MudIconButton Size="Size.Small"
+                                               Icon="@(_aiPanelMode == AiPanelMode.Collapsed ? Icons.Material.Filled.Fullscreen : Icons.Material.Filled.Close)"
+                                               aria-label="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Open AI terminal full screen" : "Close AI terminal")"
+                                               OnClick="ToggleAiPanel" />
+                            </MudTooltip>
                         </div>
                     </div>
                 </div>
@@ -640,7 +628,6 @@
     private Guid? _terminalContextMenuSessionId;
     private double _terminalContextMenuX;
     private double _terminalContextMenuY;
-    private double _aiPanelHeight = 38;
     private AiPanelMode _aiPanelMode = AiPanelMode.Collapsed;
     private bool _showAgentContext = true;
     private bool _splitterAttached;
@@ -1149,8 +1136,7 @@
             try
             {
                 _splitterModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./repository-terminal-splitter.js");
-                _selfReference ??= DotNetObjectReference.Create(this);
-                await _splitterModule.InvokeVoidAsync("attach", _terminalStack, _selfReference);
+                await _splitterModule.InvokeVoidAsync("attach", _terminalStack);
                 _splitterAttached = true;
             }
             catch (JSException exception)
@@ -1189,7 +1175,9 @@
         }
     }
 
-    private void ToggleAiPanel() => _aiPanelMode = _aiPanelMode == AiPanelMode.Collapsed ? AiPanelMode.Split : AiPanelMode.Collapsed;
+    private void ToggleAiPanel() => _aiPanelMode = _aiPanelMode == AiPanelMode.Collapsed
+        ? AiPanelMode.Expanded
+        : AiPanelMode.Collapsed;
 
     private void ToggleAgentContext() => _showAgentContext = !_showAgentContext;
 
@@ -1205,8 +1193,6 @@
             Logger.LogWarning(exception, "Could not save the CodeBadger chat size preference.");
         }
     }
-
-    private void ToggleAiPanelExpanded() => _aiPanelMode = _aiPanelMode == AiPanelMode.Expanded ? AiPanelMode.Split : AiPanelMode.Expanded;
 
     private static readonly (string Command, string Description)[] TerminalCommands =
     [
@@ -2397,14 +2383,6 @@
         catch (Exception exception) { Logger.LogWarning(exception, "Could not persist CodeBadger terminal state for repository {RepositoryId}.", Repository.Id); }
     }
 
-    [JSInvokable]
-    public Task SetAiPanelSize(double percent) => InvokeAsync(() =>
-    {
-        _aiPanelHeight = Math.Clamp(percent, 15, 75);
-        _aiPanelMode = AiPanelMode.Split;
-        StateHasChanged();
-    });
-
     public async ValueTask DisposeAsync()
     {
         if (_splitterModule is not null)
@@ -2431,7 +2409,7 @@
         _selfReference?.Dispose();
     }
 
-    private enum AiPanelMode { Split, Collapsed, Expanded }
+    private enum AiPanelMode { Collapsed, Expanded }
     private enum TerminalMode { Plan, Build }
     private enum TerminalCommandResult { NotACommand, Handled, SubmitPrompt }
     private enum AgentRoleProgress { NotStarted, Working, Waiting, Completed, Stopped, Failed }

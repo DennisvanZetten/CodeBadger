@@ -1357,7 +1357,6 @@
             return;
 
         var prompt = session.Input.Trim();
-        var titlePrompt = prompt;
         var images = session.InputImages.ToArray();
         var forceBuildRequest = false;
         string? forcedRole = null;
@@ -1379,13 +1378,8 @@
         if (string.IsNullOrWhiteSpace(prompt))
         {
             prompt = L.T("Please inspect the attached image and help me with it.");
-            if (string.IsNullOrWhiteSpace(titlePrompt))
-                titlePrompt = prompt;
         }
         session.State.Mode = session.Mode == TerminalMode.Plan ? "Plan" : "Build";
-        var isFirstUserMessage = !session.State.Messages.Any(message => message.Role == "user");
-        if (isFirstUserMessage && IsGenericTerminalSessionTitle(session.State.Title))
-            session.State.Title = GetTerminalSessionTitle(titlePrompt);
         session.State.Messages.Add(new CodeBadgerTerminalMessage { Role = "user", Text = session.Input.Trim(), Images = images.ToList() });
         session.Input = string.Empty;
         session.InputImages.Clear();
@@ -1414,25 +1408,6 @@
 
     private string GetTerminalSessionDisplayTitle(CodeBadgerTerminalSession session) =>
         string.IsNullOrWhiteSpace(session.Title) ? L.T("Terminal session") : session.Title;
-
-    private static string GetTerminalSessionTitle(string prompt)
-    {
-        foreach (var command in new[] { "/plan ", "/build " })
-        {
-            if (prompt.StartsWith(command, StringComparison.OrdinalIgnoreCase))
-            {
-                prompt = prompt[command.Length..].TrimStart();
-                break;
-            }
-        }
-
-        var line = prompt.Split(['\r', '\n'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-            .FirstOrDefault(value => !value.StartsWith("Ticket:", StringComparison.OrdinalIgnoreCase) &&
-                                     !value.StartsWith("Branch:", StringComparison.OrdinalIgnoreCase));
-        if (string.IsNullOrWhiteSpace(line))
-            return string.Empty;
-        return line.Length > 120 ? line[..120].TrimEnd() + "…" : line;
-    }
 
     private TerminalCommandResult ProcessTerminalCommand(CodeBadgerTerminalSession session, ref string prompt,
         ref bool forceBuildRequest, ref string? forcedRole)
@@ -1691,10 +1666,11 @@
         var orchestrationMode = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode);
         var sessionKey = orchestrationMode == CodeBadgerOrchestrationModes.SingleAgent
             ? "SingleAgent" : role;
-        if (!session.State.AgentSessionIds.TryGetValue(sessionKey, out var agentSessionId))
+        var isNewAgentSession = !session.State.AgentSessionIds.TryGetValue(sessionKey, out var agentSessionId);
+        if (isNewAgentSession)
         {
             var created = await OpenCodeActivity.CreateOrchestrationSessionAsync(Repository.Path, preferenceAgent,
-                $"{session.Title} · {RoleDisplayName(role)}", parentId, model, cancellationToken);
+                string.Empty, parentId, model, cancellationToken);
             agentSessionId = created.Id;
             session.State.AgentSessionIds[sessionKey] = agentSessionId;
             await PersistTerminalStateAsync();
@@ -1738,6 +1714,30 @@
             response = await WaitForPromptAnswerAsync(agentSessionId, promptMessageId, previousMessageIds, cancellationToken)
                 ?? throw new InvalidOperationException(L.T("The AI session finished without a completed text response for this request."));
             await RefreshAgentContextAsync(session, role, sessionKey, agentSessionId, cancellationToken);
+            if (isNewAgentSession)
+            {
+                try
+                {
+                    var generatedTitle = await OpenCodeActivity.GenerateSessionTitleAsync(agentSessionId,
+                        Repository.Path, cancellationToken);
+                    if (!string.IsNullOrWhiteSpace(generatedTitle) && !IsGenericTerminalSessionTitle(generatedTitle))
+                    {
+                        // The first role session names the CodeBadger terminal; all
+                        // OpenCode role sessions get their own generated subject.
+                        if (session.State.Messages.Count(message => message.Role == "user") == 1 &&
+                            IsGenericTerminalSessionTitle(session.State.Title))
+                            session.State.Title = generatedTitle.Trim();
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    Logger.LogWarning(exception, "Could not generate an OpenCode title for terminal session {SessionId}.", agentSessionId);
+                }
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

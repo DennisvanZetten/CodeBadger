@@ -1035,7 +1035,10 @@ public sealed class OpenCodeActivityService
         if (!string.IsNullOrWhiteSpace(parentSessionId) && !IsValidSessionId(parentSessionId))
             throw new ArgumentException("Invalid parent OpenCode session ID.", nameof(parentSessionId));
 
-        var payload = new Dictionary<string, object?> { ["title"] = title, ["agent"] = role };
+        // Give OpenCode a non-fallback placeholder so it does not start its own
+        // background title generation while CodeBadger explicitly requests one
+        // after the first answer is available.
+        var payload = new Dictionary<string, object?> { ["title"] = string.IsNullOrWhiteSpace(title) ? "CodeBadger session" : title, ["agent"] = role };
         if (string.IsNullOrWhiteSpace(parentSessionId))
             payload["location"] = new { directory };
         else
@@ -1054,6 +1057,25 @@ public sealed class OpenCodeActivityService
         _logger.LogInformation("Created linked OpenCode session {SessionId} for role {Role} in repository {RepositoryDirectory}.",
             id, role, directory);
         return new ActiveSession(id, NormalizePath(directory) ?? directory, role, title);
+    }
+
+    public async Task<string?> GenerateSessionTitleAsync(string sessionId, string directory,
+        CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId))
+            throw new ArgumentException("Invalid OpenCode session ID.", nameof(sessionId));
+
+        // OpenCode's session.update endpoint runs its built-in title generator
+        // when title is the empty string.
+        using var update = await RequestAsync($"/api/session/{sessionId}", cancellationToken,
+            HttpMethod.Patch, JsonSerializer.Serialize(new { title = string.Empty }), directory, timeoutSeconds: 120);
+        if (update is null)
+            return null;
+
+        using var response = await RequestAsync($"/api/session/{sessionId}", cancellationToken, workingDirectory: directory);
+        return response?.RootElement.TryGetProperty("data", out var data) == true &&
+            data.TryGetProperty("title", out var title) && title.ValueKind == JsonValueKind.String
+                ? title.GetString() : null;
     }
 
     public async Task WaitForSessionAsync(string sessionId, string directory, CancellationToken cancellationToken)
@@ -1222,7 +1244,7 @@ public sealed class OpenCodeActivityService
             }
         };
         process.StartInfo.ArgumentList.Add("api");
-        process.StartInfo.ArgumentList.Add(method == HttpMethod.Post ? "post" : "get");
+        process.StartInfo.ArgumentList.Add(method?.Method.ToLowerInvariant() ?? "get");
         process.StartInfo.ArgumentList.Add(path);
         if (body is not null)
         {
@@ -1232,8 +1254,8 @@ public sealed class OpenCodeActivityService
         try
         {
             var startedAt = Stopwatch.GetTimestamp();
-            var methodName = method == HttpMethod.Post ? "POST" : "GET";
-            if (method == HttpMethod.Post)
+            var methodName = method?.Method.ToUpperInvariant() ?? "GET";
+            if (method is not null)
             {
                 var requestExcerpt = path.EndsWith("/prompt", StringComparison.Ordinal) && body is not null
                     ? ExtractPromptExcerpt(body) : "[request payload omitted]";
@@ -1258,7 +1280,7 @@ public sealed class OpenCodeActivityService
                 return null;
             }
             var json = await output;
-            if (method == HttpMethod.Post)
+            if (method is not null)
             {
                 const int maximumResponseLogLength = 12000;
                 var responseExcerpt = json.Length <= maximumResponseLogLength ? json : json[..maximumResponseLogLength] + "… [truncated]";

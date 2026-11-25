@@ -115,7 +115,7 @@
                     </div>
                     <div class="repository-terminal-splitter-footer">
                     <div class="repository-codebadger-session-area">
-                        @if (_aiPanelMode != AiPanelMode.Collapsed &&
+                        @if (_aiPanelMode != AiPanelMode.Expanded &&
                              _terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is { } currentTerminalSession)
                         {
                             <div class="repository-codebadger-agent-links">

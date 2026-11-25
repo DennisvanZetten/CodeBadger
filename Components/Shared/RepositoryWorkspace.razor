@@ -140,11 +140,6 @@
                                  title="@L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })">
                             @L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })
                         </MudText>
-                        <MudTooltip Text="@L.T(_showAgentContext ? "Hide agent context bars" : "Show agent context bars")">
-                            <MudIconButton Size="Size.Small" Icon="@(_showAgentContext ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
-                                           aria-label="@L.T(_showAgentContext ? "Hide agent context bars" : "Show agent context bars")"
-                                           OnClick="ToggleAgentContext" />
-                        </MudTooltip>
                         <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal" : "Hide AI terminal")">
                             <MudIconButton Size="Size.Small" Icon="@(_aiPanelMode == AiPanelMode.Collapsed ? Icons.Material.Filled.Visibility : Icons.Material.Filled.VisibilityOff)"
                                            aria-label="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal" : "Hide AI terminal")"
@@ -160,9 +155,17 @@
                 </div>
 
                 <section class="repository-codebadger-pane" aria-label="@L.T("CodeBadger terminal")">
-                        @if (_showAgentContext && _aiPanelMode != AiPanelMode.Expanded &&
+                        @if (_aiPanelMode != AiPanelMode.Expanded &&
                              _terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is { } currentTerminalSession)
                         {
+                            <div class="repository-codebadger-agent-sidebar">
+                                <MudIconButton Size="Size.Small" Class="repository-codebadger-agent-toggle"
+                                               Icon="@(_showAgentContext ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                               title="@L.T(_showAgentContext ? "Hide agent context bars" : "Show agent context bars")"
+                                               aria-label="@L.T(_showAgentContext ? "Hide agent context bars" : "Show agent context bars")"
+                                               aria-expanded="@(_showAgentContext ? "true" : "false")" OnClick="ToggleAgentContext" />
+                            @if (_showAgentContext)
+                            {
                             <div class="repository-codebadger-agent-links">
                                 @foreach (var role in GetTrackedAgentRoles(currentTerminalSession))
                                 {
@@ -211,6 +214,8 @@
                                         </div>
                                     }
                                 }
+                            </div>
+                            }
                             </div>
                         }
                     <div class="repository-codebadger-session-content">

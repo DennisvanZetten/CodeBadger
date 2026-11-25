@@ -280,9 +280,17 @@
                                       InputType="InputType.Password" HelperText="@L.T("Stored securely on this device.")" />
                     }
                     <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.WifiTethering"
-                               OnClick="TestAiConnectionAsync" Disabled="@_isTestingAi" Class="align-self-start">
+                               OnClick="@(() => TestAiConnectionAsync())" Disabled="@(_isTestingAi || !_aiConnectionChanged || !_aiProviderConfigurationComplete)" Class="align-self-start">
                          @(_isTestingAi ? L.T("Loading connection and models...") : L.T("Test connection & load models"))
                     </MudButton>
+                    @if (!string.IsNullOrWhiteSpace(_aiConnectionError))
+                    {
+                        <MudAlert Dense="true" Severity="Severity.Warning" Variant="Variant.Outlined">@_aiConnectionError</MudAlert>
+                    }
+                    else if (!_aiProviderConfigurationComplete)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Complete the required provider settings to load models automatically.")</MudText>
+                    }
                     </MudStack>
                     </MudPaper>
                     <MudPaper Outlined="true" Elevation="0" Class="pa-4">
@@ -313,14 +321,39 @@
                     </MudPaper>
                     <MudPaper Outlined="true" Elevation="0" Class="pa-4">
                         <MudStack Spacing="2">
-                            <MudText Typo="Typo.h6">@L.T("CodeBadger AI team")</MudText>
+                            <MudText Typo="Typo.h6">@L.T("AI for CodeBadger terminal")</MudText>
+                            <MudSelect T="string" Value="@Settings.CodeBadgerTerminalModel"
+                                       ValueChanged="@(value => Settings.CodeBadgerTerminalModel = value)"
+                                       Label="@L.T("CodeBadger terminal model")" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                       Disabled="@(_openCodeModels.Count == 0)">
+                                <MudSelectItem T="string" Value="@string.Empty">@L.T("Automatic selection")</MudSelectItem>
+                                @foreach (var model in _openCodeModels)
+                                {
+                                    <MudSelectItem T="string" Value="@model.Reference" Disabled="@(!model.Enabled)">
+                                        @ModelOptionLabel(model)
+                                    </MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudStack>
+                    </MudPaper>
+                    <MudPaper Outlined="true" Elevation="0" Class="pa-4">
+                        <MudStack Spacing="2">
+                             <MudText Typo="Typo.h6">@L.T("CodeBadger AI team")</MudText>
                             <MudText Typo="Typo.body2" Color="Color.Secondary">
                                 @L.T("Configure an OpenCode agent and ordered model preferences for each role. Listed model prices are USD per million input/output tokens; models without published prices are unpriced, not free.")
                             </MudText>
-                            <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh"
-                                       OnClick="LoadCodeBadgerModelsAsync" Disabled="@_isLoadingCodeBadgerModels">
-                                @(_isLoadingCodeBadgerModels ? L.T("Loading models...") : L.T("Load OpenCode models"))
-                            </MudButton>
+                             @if (_isLoadingCodeBadgerModels)
+                             {
+                                 <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Loading OpenCode models...")</MudText>
+                             }
+                             else if (!string.IsNullOrWhiteSpace(_codeBadgerModelLoadError))
+                             {
+                                 <MudAlert Dense="true" Severity="Severity.Warning" Variant="Variant.Outlined">@_codeBadgerModelLoadError</MudAlert>
+                             }
+                             else if (_openCodeModels.Count == 0)
+                             {
+                                 <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("OpenCode models load automatically when an OpenCode repository is available.")</MudText>
+                             }
                             <MudExpansionPanels Elevation="0" Outlined="true">
                                 <MudExpansionPanel Text="@L.T("One agent for everything")">
                                     <MudStack Spacing="2" Class="pa-3">
@@ -611,6 +644,10 @@
     private bool _isTestingAi;
     private bool _isSaving;
     private bool _hasTestedConnection;
+    private bool _aiConnectionChanged;
+    private bool _initialModelLoadsStarted;
+    private string _aiConnectionError = string.Empty;
+    private string _codeBadgerModelLoadError = string.Empty;
     private IReadOnlyList<string> _availableModels = [];
     private IReadOnlyList<OpenCodeActivityService.AvailableModel> _openCodeModels = [];
     private IReadOnlyList<OpenCodeActivityService.AvailableAgent> _openCodeAgents = new[]
@@ -619,6 +656,15 @@
         new OpenCodeActivityService.AvailableAgent("plan", "Plan", "primary")
     };
     private bool _isLoadingCodeBadgerModels;
+    private bool HasOpenCodeRepository => Settings.Repositories.Any(repository =>
+        AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && Directory.Exists(repository.Path));
+    private bool _aiProviderConfigurationComplete => Settings.AiProvider switch
+    {
+        "Ollama" => true,
+        "Custom URL" => IsValidProviderUrl(Settings.AiCustomUrl),
+        "Azure OpenAI" => IsValidProviderUrl(Settings.AiCustomUrl) && !string.IsNullOrWhiteSpace(Settings.AiApiKey),
+        _ => !string.IsNullOrWhiteSpace(Settings.AiApiKey)
+    };
     private static readonly string[] AiProviders = ["OpenAI", "Azure OpenAI", "Anthropic", "Google Gemini", "Ollama", "Custom URL"];
     private string _selectedAgent = AgentTools.OpenCode;
     private string _agentConfigJson = "{}";
@@ -666,12 +712,10 @@
         repositoryPath ??= Settings.Repositories.FirstOrDefault(repository =>
             AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)?.Path;
         if (string.IsNullOrWhiteSpace(repositoryPath) || !Directory.Exists(repositoryPath))
-        {
-            Snackbar.Add(L.T("Activate an OpenCode repository to load its available models."), Severity.Warning);
             return;
-        }
 
         _isLoadingCodeBadgerModels = true;
+        _codeBadgerModelLoadError = string.Empty;
         try
         {
             _openCodeModels = await OpenCodeActivity.GetAvailableModelsAsync(repositoryPath, CancellationToken.None);
@@ -679,14 +723,18 @@
             var agents = await OpenCodeActivity.GetAvailableAgentOptionsAsync(repositoryPath, timeout.Token);
             if (agents.Count > 0)
                 _openCodeAgents = agents;
-            Snackbar.Add(L.T("Loaded {0} OpenCode models and {1} agents.", _openCodeModels.Count, _openCodeAgents.Count),
-                _openCodeModels.Count > 0 ? Severity.Success : Severity.Warning);
+            if (_openCodeModels.Count == 0)
+                _codeBadgerModelLoadError = L.T("OpenCode did not return any available models for this repository.");
         }
         catch (Exception exception)
         {
-            Snackbar.Add(L.T("Could not load OpenCode models: {0}", exception.Message), Severity.Error);
+            _codeBadgerModelLoadError = L.T("Could not load OpenCode models: {0}", exception.Message);
         }
-        finally { _isLoadingCodeBadgerModels = false; }
+        finally
+        {
+            _isLoadingCodeBadgerModels = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private static string GetPreferredModel(CodeBadgerRolePreference preference, int index) =>
@@ -753,7 +801,17 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
+        {
+            if (!_initialModelLoadsStarted)
+            {
+                _initialModelLoadsStarted = true;
+                if (_aiProviderConfigurationComplete)
+                    _ = TestAiConnectionAsync(automatic: true);
+                if (HasOpenCodeRepository)
+                    _ = LoadCodeBadgerModelsAsync();
+            }
             await LoadAgentConfigAsync(_selectedAgent);
+        }
     }
 
     private async Task LoadAgentConfigAsync(string agent)
@@ -968,11 +1026,18 @@
         }
     }
 
-    private async Task TestAiConnectionAsync()
+    private async Task TestAiConnectionAsync(bool automatic = false)
     {
+        if (!_aiProviderConfigurationComplete)
+        {
+            _aiConnectionError = L.T("Complete the required provider settings to load models automatically.");
+            return;
+        }
+
         _isTestingAi = true;
         _hasTestedConnection = false;
         _availableModels = [];
+        _aiConnectionError = string.Empty;
         try
         {
             var result = await AiCommitMessageService.GetAvailableModelsAsync(Settings);
@@ -980,17 +1045,31 @@
             {
                 _availableModels = result.Models;
                 _hasTestedConnection = true;
+                _aiConnectionChanged = false;
                 if (!_availableModels.Contains(Settings.AiModel, StringComparer.OrdinalIgnoreCase))
                     Settings.AiModel = _availableModels[0];
                 if (!_availableModels.Contains(Settings.AiConflictModel, StringComparer.OrdinalIgnoreCase))
                     Settings.AiConflictModel = _availableModels[0];
             }
-            Snackbar.Add(result.Success ? L.T("Connection successful. {0} models found.", _availableModels.Count) : result.Error,
-                result.Success ? Severity.Success : Severity.Error);
+            if (!result.Success)
+            {
+                _aiConnectionError = result.Error;
+                if (!automatic)
+                    Snackbar.Add(result.Error, Severity.Error);
+            }
+            else if (!automatic)
+                Snackbar.Add(L.T("Connection successful. {0} models found.", _availableModels.Count), Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            _aiConnectionError = L.T("Connection to the AI provider failed: {0}", exception.Message);
+            if (!automatic)
+                Snackbar.Add(_aiConnectionError, Severity.Error);
         }
         finally
         {
             _isTestingAi = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 
@@ -998,7 +1077,12 @@
     {
         _hasTestedConnection = false;
         _availableModels = [];
+        _aiConnectionError = string.Empty;
+        _aiConnectionChanged = true;
     }
+
+    private static bool IsValidProviderUrl(string? value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https";
 
     private async Task LoadSlackChannelsAsync()
     {

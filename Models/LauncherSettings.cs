@@ -23,6 +23,7 @@ public sealed class LauncherSettings
     public string AiCustomUrl { get; set; } = string.Empty;
     public string AiModel { get; set; } = "gpt-4o-mini";
     public string AiConflictModel { get; set; } = "gpt-4o-mini";
+    public string CodeBadgerTerminalModel { get; set; } = string.Empty;
     public List<CodeBadgerRolePreference> CodeBadgerRolePreferences { get; set; } = CodeBadgerRoles.CreateDefaults();
     public List<string> CodeBadgerSingleAgentPreferredModels { get; set; } = [];
     public List<string> CodeBadgerPlanPreferredModels { get; set; } = [];

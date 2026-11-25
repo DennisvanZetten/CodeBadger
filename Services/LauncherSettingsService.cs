@@ -51,6 +51,7 @@ public sealed class LauncherSettingsService
             NormalizeLogSettings(settings);
             settings.GitOverviewStartSize = NormalizeGitOverviewStartSize(settings.GitOverviewStartSize);
             settings.AiConflictModel = string.IsNullOrWhiteSpace(settings.AiConflictModel) ? settings.AiModel : settings.AiConflictModel;
+            settings.CodeBadgerTerminalModel ??= string.Empty;
             settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
             settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);
             settings.TaskBranchPrefix = NormalizeBranchPrefix(settings.TaskBranchPrefix);
@@ -98,6 +99,7 @@ public sealed class LauncherSettingsService
             NormalizeLogSettings(settings);
             settings.GitOverviewStartSize = NormalizeGitOverviewStartSize(settings.GitOverviewStartSize);
             settings.AiConflictModel = string.IsNullOrWhiteSpace(settings.AiConflictModel) ? settings.AiModel : settings.AiConflictModel;
+            settings.CodeBadgerTerminalModel = settings.CodeBadgerTerminalModel?.Trim() ?? string.Empty;
             settings.SandboxMaxFileMb = Math.Clamp(settings.SandboxMaxFileMb, 1, 512);
             settings.SandboxMaxTotalMb = Math.Clamp(settings.SandboxMaxTotalMb, 1, 2048);
             settings.TaskBranchPrefix = NormalizeBranchPrefix(settings.TaskBranchPrefix);

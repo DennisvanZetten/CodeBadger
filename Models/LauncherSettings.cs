@@ -244,6 +244,8 @@ public sealed class CodeBadgerTerminalMessage
     public string AgentRole { get; set; } = string.Empty;
     public string ModelReference { get; set; } = string.Empty;
     public bool IsCodeBadgerMessage { get; set; }
+    public bool IsCommandHelp { get; set; }
+    public bool IsModelPicker { get; set; }
 }
 
 public static class TicketSystems

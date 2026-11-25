@@ -252,7 +252,37 @@
                                                         }
                                                     </div>
                                                     <div class="repository-codebadger-message-content">
-                                                        @if (message.Role == "assistant")
+                                                        @if (message.IsModelPicker)
+                                                        {
+                                                            <div class="repository-model-picker" role="listbox" aria-label="@L.T("Available OpenCode models")">
+                                                                @foreach (var model in GetTerminalModelOptions(session, string.Empty))
+                                                                {
+                                                                    <button type="button" class="repository-model-picker-option"
+                                                                            @onclick="() => SelectTerminalModelAsync(session, model.Reference)">
+                                                                        <span class="repository-model-picker-name">@model.Name</span>
+                                                                        <span class="repository-model-picker-reference">@model.Reference</span>
+                                                                        @if (IsCurrentTerminalModel(session, model.Reference))
+                                                                        {
+                                                                            <span class="repository-model-picker-current">@L.T("Current model")</span>
+                                                                        }
+                                                                    </button>
+                                                                }
+                                                            </div>
+                                                        }
+                                                        else if (message.IsCommandHelp)
+                                                        {
+                                                            <div class="repository-command-help" role="list">
+                                                                @foreach (var command in GetAvailableTerminalCommands())
+                                                                {
+                                                                    <button type="button" class="repository-command-help-option"
+                                                                            @onclick="() => HandleHelpCommandAsync(session, command.Command)">
+                                                                        <code>@command.Command</code>
+                                                                        <span>@L.T(command.Description)</span>
+                                                                    </button>
+                                                                }
+                                                            </div>
+                                                        }
+                                                        else if (message.Role == "assistant")
                                                         {
                                                             <MarkdownContent Content="@message.Text" Compact="true" />
                                                         }
@@ -420,55 +450,11 @@
                                                       @bind="session.Input" @bind:event="oninput"></textarea>
                                             <MudTooltip Text="@L.T("Show terminal commands")">
                                                 <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.HelpOutline"
-                                                               Color="@(session.ShowCommands ? Color.Primary : Color.Default)"
+                                                               Color="Color.Default"
                                                                aria-label="@L.T("Show terminal commands")"
-                                                               OnClick="() => ToggleTerminalCommands(session)" />
+                                                               OnClick="() => ShowTerminalHelpAsync(session)" />
                                             </MudTooltip>
                                         </div>
-                                        @if (!session.ShowCommands && GetTerminalCommandSuggestions(session).Count > 0)
-                                        {
-                                            var suggestions = GetTerminalCommandSuggestions(session);
-                                            <div class="repository-codebadger-command-list repository-codebadger-command-suggestions"
-                                                 role="listbox" aria-label="@L.T("Command suggestions")">
-                                                @for (var suggestionIndex = 0; suggestionIndex < suggestions.Count; suggestionIndex++)
-                                                {
-                                                    var command = suggestions[suggestionIndex];
-                                                    var capturedIndex = suggestionIndex;
-                                                    <button type="button" class="repository-codebadger-command-option @(session.SelectedCommandSuggestion == capturedIndex ? "selected" : string.Empty)"
-                                                            role="option" aria-selected="@(session.SelectedCommandSuggestion == capturedIndex ? "true" : "false")"
-                                                            @onclick="() => SelectTerminalCommandOptionAsync(session, command.Command)">
-                                                        <code>@command.Command</code>
-                                                        <span>@L.T(command.Description)</span>
-                                                    </button>
-                                                }
-                                            </div>
-                                        }
-                                        @if (session.ShowModelPicker)
-                                        {
-                                            <div class="repository-codebadger-command-list" role="listbox" aria-label="@L.T("Available OpenCode models")">
-                                                @foreach (var model in GetTerminalModelOptions(session, string.Empty))
-                                                    {
-                                                    <button type="button" class="repository-codebadger-command-option"
-                                                            @onclick="() => SelectTerminalModelAsync(session, model.Reference)">
-                                                        <code>@model.Name</code>
-                                                        <span>@model.Reference · @GetTerminalModelRoleLabel(session, model.Reference)</span>
-                                                    </button>
-                                                }
-                                            </div>
-                                        }
-                                        @if (session.ShowCommands)
-                                        {
-                                            <div class="repository-codebadger-command-list" role="list" aria-label="@L.T("Available terminal commands")">
-                                                @foreach (var command in GetAvailableTerminalCommands())
-                                                {
-                                                    <button type="button" class="repository-codebadger-command-option"
-                                                            @onclick="() => SelectTerminalCommand(session, command.Command)">
-                                                        <code>@command.Command</code>
-                                                        <span>@L.T(command.Description)</span>
-                                                    </button>
-                                                }
-                                            </div>
-                                        }
                                     </div>
                                 </div>
                                 <footer class="repository-codebadger-statusbar">
@@ -1216,55 +1202,6 @@
         ("/clear", "Clear this CodeBadger session")
     ];
 
-    private static void ToggleTerminalCommands(CodeBadgerTerminalSession session) =>
-        session.ShowCommands = !session.ShowCommands;
-
-    private static void SelectTerminalCommand(CodeBadgerTerminalSession session, string command)
-    {
-        if (string.Equals(command, "/model", StringComparison.OrdinalIgnoreCase))
-        {
-            session.Input = string.Empty;
-            session.ShowModelPicker = true;
-            session.ShowCommands = false;
-            session.SelectedCommandSuggestion = -1;
-            return;
-        }
-        session.Input = command + " ";
-        session.ShowCommands = false;
-        session.ShowModelPicker = false;
-        session.SelectedCommandSuggestion = -1;
-    }
-
-    private async Task SelectTerminalCommandOptionAsync(CodeBadgerTerminalSession session, string command)
-    {
-        if (command.StartsWith("/model ", StringComparison.OrdinalIgnoreCase))
-        {
-            await SelectTerminalModelAsync(session, command["/model ".Length..]);
-            return;
-        }
-        SelectTerminalCommand(session, command);
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private IReadOnlyList<(string Command, string Description)> GetTerminalCommandSuggestions(CodeBadgerTerminalSession session)
-    {
-        var input = session.Input.TrimStart();
-        if (input.StartsWith("/model", StringComparison.OrdinalIgnoreCase) &&
-            input.Length > "/model".Length && (input["/model".Length] is ' ' or '\t'))
-        {
-            var query = input.Length == "/model".Length ? string.Empty : input["/model".Length..].Trim();
-            return GetTerminalModelOptions(session, query)
-                .Select(model => ("/model " + model.Reference, model.Name + " · " + model.Reference))
-                .ToArray();
-        }
-
-        if (!input.StartsWith('/') || input.IndexOfAny([' ', '\t', '\r', '\n']) >= 0)
-            return Array.Empty<(string, string)>();
-        return GetAvailableTerminalCommands()
-            .Where(command => command.Command.StartsWith(input, StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-    }
-
     private IReadOnlyList<(string Command, string Description)> GetAvailableTerminalCommands() =>
         AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode
             ? TerminalCommands
@@ -1284,75 +1221,90 @@
             .ThenBy(model => model.Reference, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-    private string GetTerminalModelRoleLabel(CodeBadgerTerminalSession session, string modelReference)
+    private async Task ShowTerminalHelpAsync(CodeBadgerTerminalSession session)
+    {
+        session.Messages.RemoveAll(message => message.IsCommandHelp);
+        session.Messages.Add(new CodeBadgerTerminalMessage
+        {
+            Role = "assistant",
+            IsCodeBadgerMessage = true,
+            IsCommandHelp = true
+        });
+        await PersistTerminalStateAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OpenTerminalModelPickerAsync(CodeBadgerTerminalSession session)
+    {
+        if (AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode)
+        {
+            Snackbar.Add(L.T("Model switching is currently available for OpenCode only."), Severity.Info);
+            return;
+        }
+
+        try
+        {
+            _availableOpenCodeModels = await OpenCodeActivity.GetAvailableModelsAsync(Repository.Path, CancellationToken.None);
+            if (!_availableOpenCodeModels.Any(model => model.Enabled && model.Status == "active"))
+            {
+                Snackbar.Add(L.T("No active OpenCode models are available."), Severity.Warning);
+                return;
+            }
+
+            session.Messages.Add(new CodeBadgerTerminalMessage
+            {
+                Role = "assistant",
+                IsCodeBadgerMessage = true,
+                IsModelPicker = true
+            });
+            session.Input = string.Empty;
+            await PersistTerminalStateAsync();
+            await InvokeAsync(StateHasChanged);
+            if (_composerModule is not null)
+                await _composerModule.InvokeVoidAsync("clear", _terminalStack, session.Id.ToString());
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not load OpenCode models: {0}", exception.Message), Severity.Error);
+        }
+    }
+
+    private bool IsCurrentTerminalModel(CodeBadgerTerminalSession session, string modelReference)
     {
         var role = GetModelSelectionRole(session);
-        var current = session.State.RoleModelOverrides.TryGetValue(
-            CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) == CodeBadgerOrchestrationModes.SingleAgent
-                ? "SingleAgent" : role, out var roleOverride)
-            ? roleOverride
-            : session.State.AgentContextModels.TryGetValue(
-                CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) == CodeBadgerOrchestrationModes.SingleAgent
-                    ? "SingleAgent" : role, out var activeModel) ? activeModel : string.Empty;
-        if (string.IsNullOrWhiteSpace(current))
+        var key = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) == CodeBadgerOrchestrationModes.SingleAgent
+            ? "SingleAgent" : role;
+        if (session.State.RoleModelOverrides.TryGetValue(key, out var selected) ||
+            session.State.AgentContextModels.TryGetValue(key, out selected))
+            return string.Equals(selected, modelReference, StringComparison.OrdinalIgnoreCase);
+
+        var preferences = GetAgentPreferences(Repository.AgentTool);
+        var preferred = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) switch
         {
-            var preferences = GetAgentPreferences(Repository.AgentTool);
-            current = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) switch
-            {
-                CodeBadgerOrchestrationModes.SingleAgent => preferences.SingleAgentPreferredModels.FirstOrDefault() ?? string.Empty,
-                CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Planner => preferences.PlanPreferredModels.FirstOrDefault() ?? string.Empty,
-                CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Worker => preferences.BuildPreferredModels.FirstOrDefault() ?? string.Empty,
-                _ => preferences.RolePreferences.FirstOrDefault(item => item.Role == role)?.PreferredModels.FirstOrDefault() ?? string.Empty
-            };
-            if (string.IsNullOrWhiteSpace(current))
-                current = preferences.TerminalModel ?? _agentModelReference ?? string.Empty;
-        }
-        return string.Equals(current, modelReference, StringComparison.OrdinalIgnoreCase) ? L.T("Current model") : string.Empty;
+            CodeBadgerOrchestrationModes.SingleAgent => preferences.SingleAgentPreferredModels.FirstOrDefault(),
+            CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Planner => preferences.PlanPreferredModels.FirstOrDefault(),
+            CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Worker => preferences.BuildPreferredModels.FirstOrDefault(),
+            _ => preferences.RolePreferences.FirstOrDefault(item => item.Role == role)?.PreferredModels.FirstOrDefault()
+        };
+        preferred ??= preferences.TerminalModel ?? _agentModelReference;
+        return string.Equals(preferred, modelReference, StringComparison.OrdinalIgnoreCase);
     }
 
-    [JSInvokable]
-    public async Task MoveTerminalCommandSelectionAsync(string sessionId, int direction)
+    private async Task HandleHelpCommandAsync(CodeBadgerTerminalSession session, string command)
     {
-        if (!Guid.TryParse(sessionId, out var id) || _terminalSessions.FirstOrDefault(candidate => candidate.Id == id) is not { } session)
+        if (command == "/help")
+        {
+            await ShowTerminalHelpAsync(session);
             return;
-        var suggestions = GetTerminalCommandSuggestions(session);
-        if (suggestions.Count == 0)
+        }
+        if (command == "/model")
+        {
+            await OpenTerminalModelPickerAsync(session);
             return;
-        var next = session.SelectedCommandSuggestion + Math.Sign(direction);
-        if (next < 0)
-            next = suggestions.Count - 1;
-        else if (next >= suggestions.Count)
-            next = 0;
-        session.SelectedCommandSuggestion = next;
+        }
+        session.Input = command + " ";
         await InvokeAsync(StateHasChanged);
     }
-
-    [JSInvokable]
-    public async Task<bool> SelectTerminalCommandSuggestionAsync(string sessionId)
-    {
-        if (!Guid.TryParse(sessionId, out var id) || _terminalSessions.FirstOrDefault(candidate => candidate.Id == id) is not { } session)
-            return false;
-        var suggestions = GetTerminalCommandSuggestions(session);
-        if (suggestions.Count == 0)
-            return false;
-        if (string.Equals(session.Input.Trim(), suggestions[0].Command, StringComparison.OrdinalIgnoreCase))
-            return false;
-        var selectedIndex = session.SelectedCommandSuggestion >= 0 && session.SelectedCommandSuggestion < suggestions.Count
-            ? session.SelectedCommandSuggestion : 0;
-        var selected = suggestions[selectedIndex].Command;
-        if (selected.StartsWith("/model ", StringComparison.OrdinalIgnoreCase))
-        {
-            await SelectTerminalModelAsync(session, selected["/model ".Length..]);
-            return true;
-        }
-        SelectTerminalCommand(session, selected);
-        await InvokeAsync(StateHasChanged);
-        return true;
-    }
-
-    private string BuildTerminalCommandHelp() => string.Join('\n',
-        new[] { L.T("CodeBadger commands:") }
-            .Concat(GetAvailableTerminalCommands().Select(command => $"- **`{command.Command}`** — {L.T(command.Description)}")));
 
     private async Task SelectTerminalModelAsync(CodeBadgerTerminalSession session, string modelReference)
     {
@@ -1392,13 +1344,15 @@
 
         session.State.RoleModelOverrides[roleOverrideKey] = model.Reference;
         RememberTerminalModel(session, model.Reference);
+        session.Messages.Add(new CodeBadgerTerminalMessage
+        {
+            Role = "assistant",
+            IsCodeBadgerMessage = true,
+            Text = L.T("Model for {0} changed to {1}.", RoleDisplayName(role), model.Name)
+        });
 
         session.Input = string.Empty;
-        session.SelectedCommandSuggestion = -1;
-        session.ShowCommands = false;
-        session.ShowModelPicker = false;
         await PersistTerminalStateAsync();
-        Snackbar.Add(L.T("Model for {0} changed to {1}.", RoleDisplayName(role), model.Name), Severity.Success);
         await InvokeAsync(StateHasChanged);
         if (_composerModule is not null)
             await _composerModule.InvokeVoidAsync("clear", _terminalStack, session.Id.ToString());
@@ -1569,25 +1523,19 @@
         string? forcedRole = null;
         if (images.Length == 0)
         {
-            if (prompt.Equals("/model", StringComparison.OrdinalIgnoreCase))
+            if (prompt.Equals("/help", StringComparison.OrdinalIgnoreCase))
             {
-                if (AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode)
-                {
-                    Snackbar.Add(L.T("Model switching is currently available for OpenCode only."), Severity.Info);
-                    session.Input = string.Empty;
-                    await InvokeAsync(StateHasChanged);
-                    if (_composerModule is not null)
-                        await _composerModule.InvokeVoidAsync("clear", _terminalStack, sessionId);
-                    return;
-                }
-                if (_availableOpenCodeModels.Count == 0)
-                    _availableOpenCodeModels = await OpenCodeActivity.GetAvailableModelsAsync(Repository.Path, CancellationToken.None);
-                session.ShowModelPicker = true;
                 session.Input = string.Empty;
-                session.SelectedCommandSuggestion = -1;
-                await InvokeAsync(StateHasChanged);
+                await ShowTerminalHelpAsync(session);
                 if (_composerModule is not null)
                     await _composerModule.InvokeVoidAsync("clear", _terminalStack, sessionId);
+                return;
+            }
+
+            if (prompt.Equals("/model", StringComparison.OrdinalIgnoreCase))
+            {
+                session.Input = string.Empty;
+                await OpenTerminalModelPickerAsync(session);
                 return;
             }
 
@@ -1671,8 +1619,8 @@
                 session.State.Messages.Add(new CodeBadgerTerminalMessage
                 {
                     Role = "assistant",
-                    Text = BuildTerminalCommandHelp(),
-                    IsCodeBadgerMessage = true
+                    IsCodeBadgerMessage = true,
+                    IsCommandHelp = true
                 });
                 return TerminalCommandResult.Handled;
 
@@ -2415,9 +2363,6 @@
         public Guid Id => State.Id;
         public string Title => State.Title;
         public string Input { get; set; } = string.Empty;
-        public bool ShowCommands { get; set; }
-        public bool ShowModelPicker { get; set; }
-        public int SelectedCommandSuggestion { get; set; } = -1;
         public List<string> InputImages { get; } = [];
         public Dictionary<string, string?> InteractionAnswers { get; } = new(StringComparer.Ordinal);
         public TerminalMode Mode { get; set; } = TerminalMode.Plan;

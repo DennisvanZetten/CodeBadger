@@ -3089,6 +3089,63 @@ h1:focus {
     font-size: 0.78rem;
 }
 
+.repository-model-picker,
+.repository-command-help {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+    gap: 0.45rem 0.75rem;
+    max-height: min(60vh, 34rem);
+    overflow: auto;
+    padding: 0.75rem 0;
+    border-top: 1px solid var(--mud-palette-divider);
+    border-bottom: 1px solid var(--mud-palette-divider);
+}
+
+.repository-model-picker-option,
+.repository-command-help-option {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.2rem 0.55rem;
+    min-width: 0;
+    padding: 0.25rem 0.35rem;
+    border: 0;
+    border-radius: 0.35rem;
+    background: transparent;
+    color: var(--mud-palette-text-secondary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.repository-model-picker-option:hover,
+.repository-model-picker-option:focus-visible,
+.repository-command-help-option:hover,
+.repository-command-help-option:focus-visible {
+    outline: 0;
+    background: color-mix(in srgb, var(--mud-palette-primary) 9%, transparent);
+}
+
+.repository-model-picker-name,
+.repository-command-help-option code {
+    color: var(--mud-palette-primary);
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 0.95rem;
+}
+
+.repository-model-picker-reference,
+.repository-model-picker-current,
+.repository-command-help-option span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.78rem;
+}
+
+.repository-model-picker-current {
+    color: var(--mud-palette-success);
+}
+
 .repository-codebadger-prompt {
     flex: 0 0 auto;
     line-height: 1.45rem;

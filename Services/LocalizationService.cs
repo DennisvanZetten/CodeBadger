@@ -70,6 +70,8 @@ public sealed class LocalizationService
         ["Change the model for the active role"] = ["Change the model for the active role", "Wijzig het model voor de actieve rol", "Modell für die aktive Rolle ändern", "Changer le modèle du rôle actif"],
         ["Available OpenCode models"] = ["Available OpenCode models", "Beschikbare OpenCode-modellen", "Verfügbare OpenCode-Modelle", "Modèles OpenCode disponibles"],
         ["Current model"] = ["Current model", "Huidig model", "Aktuelles Modell", "Modèle actuel"],
+        ["No active OpenCode models are available."] = ["No active OpenCode models are available.", "Er zijn geen actieve OpenCode-modellen beschikbaar.", "Es sind keine aktiven OpenCode-Modelle verfügbar.", "Aucun modèle OpenCode actif n’est disponible."],
+        ["Model for {0} changed to {1}."] = ["Model for {0} changed to {1}.", "Model voor {0} gewijzigd naar {1}.", "Modell für {0} geändert zu {1}.", "Modèle de {0} changé en {1}."],
         ["No available model matches {0}."] = ["No available model matches {0}.", "Er is geen beschikbaar model met de naam {0}.", "Kein verfügbares Modell entspricht {0}.", "Aucun modèle disponible ne correspond à {0}."] ,
         ["That OpenCode model is no longer available."] = ["That OpenCode model is no longer available.", "Dit OpenCode-model is niet meer beschikbaar.", "Dieses OpenCode-Modell ist nicht mehr verfügbar.", "Ce modèle OpenCode n’est plus disponible."],
         ["Model switching is currently available for OpenCode only."] = ["Model switching is currently available for OpenCode only.", "Van model wisselen kan momenteel alleen voor OpenCode.", "Der Modellwechsel ist derzeit nur für OpenCode verfügbar.", "Le changement de modèle est actuellement disponible uniquement pour OpenCode."],

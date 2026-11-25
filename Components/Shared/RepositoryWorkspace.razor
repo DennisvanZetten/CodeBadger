@@ -69,11 +69,13 @@
                 </section>
 
                 <div class="repository-terminal-splitter">
+                    <div class="repository-codebadger-session-tabs-row">
                     <div class="repository-codebadger-session-tabs-viewport">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="repository-codebadger-session-tabs">
                             @foreach (var session in _terminalSessions)
                             {
-                                <div class="repository-codebadger-session-tab @(session.Id == _selectedTerminalSessionId ? "selected" : string.Empty)" data-session-id="@session.Id">
+                                <div class="repository-codebadger-session-tab @(session.Id == _selectedTerminalSessionId ? "selected" : string.Empty)" data-session-id="@session.Id"
+                                     @oncontextmenu:preventDefault="true" @oncontextmenu="@(args => OpenTerminalSessionContextMenu(session.Id, args))">
                                     <button type="button" class="repository-codebadger-session-select" @onclick="() => SelectTerminalSession(session.Id)">
                                         @GetTerminalSessionDisplayTitle(session)
                                     </button>
@@ -107,12 +109,29 @@
                                     }
                                 </div>
                             }
-                            <MudTooltip Text="@L.T("New session")" Class="repository-codebadger-session-add-container">
-                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add" Class="repository-codebadger-session-add"
-                                               aria-label="@L.T("New session")" OnClick="AddTerminalSession" />
-                            </MudTooltip>
                         </MudStack>
                     </div>
+                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add" Class="repository-codebadger-session-add"
+                                       title="@L.T("New session")" aria-label="@L.T("New session")" OnClick="AddTerminalSession" />
+                    </div>
+                    @if (_terminalContextMenuSessionId is { } contextMenuSessionId && _terminalSessions.Any(session => session.Id == contextMenuSessionId))
+                    {
+                        <div class="repository-tab-context-backdrop" @onclick="CloseTerminalSessionContextMenu" @oncontextmenu:preventDefault="true"></div>
+                        <div class="repository-tab-context-menu repository-codebadger-session-context-menu git-commit-context-menu" style="left:@(_terminalContextMenuX)px;top:@(_terminalContextMenuY)px" @onclick:stopPropagation="true">
+                            <button class="git-commit-context-menu-item" @onclick="CloseAllTerminalSessionsAsync">
+                                <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Small" />
+                                <span>@L.T("Close all sessions")</span>
+                            </button>
+                            <button class="git-commit-context-menu-item" @onclick="CloseOtherTerminalSessionsAsync">
+                                <MudIcon Icon="@Icons.Material.Filled.FilterList" Size="Size.Small" />
+                                <span>@L.T("Close all sessions except this")</span>
+                            </button>
+                            <button class="git-commit-context-menu-item" @onclick="AddTerminalSessionFromContextMenuAsync">
+                                <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+                                <span>@L.T("New session")</span>
+                            </button>
+                        </div>
+                    }
                     <div class="repository-terminal-splitter-footer">
                     <div class="repository-codebadger-session-area">
                         @if (_aiPanelMode != AiPanelMode.Expanded &&
@@ -581,6 +600,9 @@
     private LauncherSettings _settings = new();
     private IReadOnlyList<OpenCodeActivityService.AvailableModel> _availableOpenCodeModels = [];
     private Guid _selectedTerminalSessionId;
+    private Guid? _terminalContextMenuSessionId;
+    private double _terminalContextMenuX;
+    private double _terminalContextMenuY;
     private double _aiPanelHeight = 38;
     private AiPanelMode _aiPanelMode = AiPanelMode.Collapsed;
     private bool _splitterAttached;
@@ -1222,6 +1244,44 @@
     }
 
     private Task AddTerminalSession() => AddTerminalSessionAsync();
+
+    private void OpenTerminalSessionContextMenu(Guid sessionId, MouseEventArgs args)
+    {
+        _terminalContextMenuSessionId = sessionId;
+        _terminalContextMenuX = Math.Max(8, args.ClientX);
+        _terminalContextMenuY = Math.Max(8, args.ClientY);
+    }
+
+    private void CloseTerminalSessionContextMenu() => _terminalContextMenuSessionId = null;
+
+    private async Task CloseAllTerminalSessionsAsync()
+    {
+        CloseTerminalSessionContextMenu();
+        _terminalSessions.Clear();
+        _terminalState.Sessions.Clear();
+        _terminalState.SelectedSessionId = Guid.Empty;
+        await AddTerminalSessionAsync();
+    }
+
+    private async Task CloseOtherTerminalSessionsAsync()
+    {
+        var keepSessionId = _terminalContextMenuSessionId;
+        CloseTerminalSessionContextMenu();
+        if (keepSessionId is not { } id || !_terminalSessions.Any(session => session.Id == id))
+            return;
+
+        _terminalSessions.RemoveAll(session => session.Id != id);
+        _terminalState.Sessions.RemoveAll(session => session.Id != id);
+        _selectedTerminalSessionId = id;
+        _terminalState.SelectedSessionId = id;
+        await PersistTerminalStateAsync();
+    }
+
+    private async Task AddTerminalSessionFromContextMenuAsync()
+    {
+        CloseTerminalSessionContextMenu();
+        await AddTerminalSessionAsync();
+    }
 
     private string GetPreferredOpenCodeSessionId()
     {

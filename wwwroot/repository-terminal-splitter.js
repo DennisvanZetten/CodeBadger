@@ -31,12 +31,10 @@ export function attach(stack, dotnet) {
 
         const bounds = viewport.getBoundingClientRect();
         const tabBounds = selected.getBoundingClientRect();
-        const addButton = viewport.querySelector('.repository-codebadger-session-add-container');
-        const rightEdge = bounds.right - (addButton?.getBoundingClientRect().width ?? 0);
         if (tabBounds.left < bounds.left)
             viewport.scrollLeft += tabBounds.left - bounds.left;
-        else if (tabBounds.right > rightEdge)
-            viewport.scrollLeft += tabBounds.right - rightEdge;
+        else if (tabBounds.right > bounds.right)
+            viewport.scrollLeft += tabBounds.right - bounds.right;
     };
     const scheduleTabReveal = () => {
         if (!tabFrame) tabFrame = requestAnimationFrame(revealSelectedTab);

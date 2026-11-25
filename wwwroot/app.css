@@ -2017,6 +2017,11 @@ h1:focus {
     z-index: 1401;
 }
 
+.repository-tab-context-menu.repository-codebadger-session-context-menu {
+    position: fixed;
+    z-index: 1401;
+}
+
 .repository-tabs .repository-undock-button,
 .detached-repository-tab-header .repository-dock-button {
     position: absolute;
@@ -2307,8 +2312,8 @@ h1:focus {
 
 .repository-terminal-splitter-grip {
     position: absolute;
-    inset: -4px 0 auto;
-    height: 9px;
+    inset: -6px 0 auto;
+    height: 6px;
     cursor: ns-resize;
     touch-action: none;
     outline: none;
@@ -2336,15 +2341,22 @@ h1:focus {
 }
 
 .repository-codebadger-session-tabs-viewport {
-    flex: 0 0 auto;
-    width: 100%;
+    flex: 0 1 auto;
+    width: max-content;
     min-width: 0;
     max-width: 100%;
     box-sizing: border-box;
     overflow-x: auto;
     overflow-y: hidden;
-    border-bottom: 1px solid var(--mud-palette-divider);
     scrollbar-width: thin;
+}
+
+.repository-codebadger-session-tabs-row {
+    display: flex;
+    align-items: flex-start;
+    width: 100%;
+    min-width: 0;
+    border-bottom: 1px solid var(--mud-palette-divider);
 }
 
 .repository-terminal-splitter-footer {
@@ -2394,16 +2406,7 @@ h1:focus {
 
 .repository-codebadger-session-add {
     flex: 0 0 auto;
-    align-self: center;
-}
-
-.repository-codebadger-session-add-container {
-    position: sticky;
-    right: 0;
-    z-index: 1;
-    flex: 0 0 auto;
-    align-self: center;
-    background: var(--mud-palette-background);
+    align-self: flex-start;
 }
 
 .repository-codebadger-session-tab.selected {

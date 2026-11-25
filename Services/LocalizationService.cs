@@ -50,6 +50,8 @@ public sealed class LocalizationService
         ["Expand AI terminal"] = ["Expand AI terminal", "AI-terminal volledig openen", "KI-Terminal maximieren", "Développer le terminal IA"],
         ["Restore split view"] = ["Restore split view", "Gesplitste weergave herstellen", "Geteilte Ansicht wiederherstellen", "Rétablir la vue partagée"],
         ["New session"] = ["New session", "Nieuwe sessie", "Neue Sitzung", "Nouvelle session"],
+        ["Close all sessions"] = ["Close all sessions", "Alle sessies sluiten", "Alle Sitzungen schließen", "Fermer toutes les sessions"],
+        ["Close all sessions except this"] = ["Close all sessions except this", "Alle sessies behalve deze sluiten", "Alle Sitzungen außer dieser schließen", "Fermer toutes les sessions sauf celle-ci"],
         ["Close session {0}"] = ["Close session {0}", "Sessie {0} sluiten", "Sitzung {0} schließen", "Fermer la session {0}"],
         ["Terminal session {0}"] = ["Terminal session {0}", "Terminalsessie {0}", "Terminalsitzung {0}", "Session de terminal {0}"],
         ["Universal commands for {0} will be available in a future update."] = ["Universal commands for {0} will be available in a future update.", "Universele commando's voor {0} zijn beschikbaar in een toekomstige update.", "Universelle Befehle für {0} sind in einem zukünftigen Update verfügbar.", "Les commandes universelles pour {0} seront disponibles dans une prochaine mise à jour."],

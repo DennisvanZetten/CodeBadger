@@ -1,0 +1,49 @@
+@inject LocalizationService L
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@L.T("Recommended CodeBadger models")</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                @L.T("Confirming will overwrite every model priority in One agent, Plan and build, and Full orchestration. Agent selections and the general terminal model will not change.")
+                @L.T("The ceiling limits published input and output prices per million tokens, not total usage. Models without published prices are excluded.")
+            </MudAlert>
+            @foreach (var recommendation in Recommendations)
+            {
+                <MudPaper Outlined="true" Elevation="0" Class="pa-3">
+                    <MudStack Spacing="1">
+                        <MudText Typo="Typo.subtitle1">@L.T(recommendation.SetName)</MudText>
+                        @foreach (var role in recommendation.Roles)
+                        {
+                            <MudText Typo="Typo.body2">
+                                <strong>@L.T(role.RoleName)</strong>: @string.Join(" → ", role.Models.Select(model => model.Reference))
+                            </MudText>
+                            @foreach (var model in role.Models)
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                    @model.Reference · @L.T("Input ${0:0.####} / output ${1:0.####} per million tokens", model.InputCost, model.OutputCost)
+                                </MudText>
+                            }
+                        }
+                    </MudStack>
+                </MudPaper>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">@L.T("Cancel")</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Confirm">
+            @L.T("Overwrite model priorities")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter, EditorRequired] public IReadOnlyList<CodeBadger.Models.CodeBadgerModelRecommendation> Recommendations { get; set; } = [];
+
+    private void Confirm() => MudDialog.Close(DialogResult.Ok(true));
+    private void Cancel() => MudDialog.Cancel();
+}

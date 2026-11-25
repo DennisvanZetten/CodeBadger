@@ -2328,9 +2328,21 @@ h1:focus {
     flex: 0 0 auto;
     align-self: stretch;
     min-height: auto;
-    max-width: 100%;
-    width: 100%;
+    min-width: 100%;
+    max-width: none;
+    width: max-content;
     flex-wrap: nowrap !important;
+}
+
+.repository-codebadger-session-tabs-viewport {
+    flex: 1 1 auto;
+    align-self: stretch;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-bottom: 1px solid var(--mud-palette-divider);
+    scrollbar-width: thin;
 }
 
 .repository-terminal-splitter-actions {
@@ -2353,9 +2365,7 @@ h1:focus {
 
 .repository-codebadger-session-tabs {
     align-items: stretch !important;
-    min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: thin;
+    overflow: visible;
 }
 
 .repository-codebadger-session-tab {
@@ -2369,6 +2379,11 @@ h1:focus {
     padding: 0.15rem 0 0.15rem 0.5rem;
     border: 0;
     border-radius: 0.25rem 0.25rem 0 0;
+}
+
+.repository-codebadger-session-add {
+    flex: 0 0 auto;
+    align-self: center;
 }
 
 .repository-codebadger-session-tab.selected {

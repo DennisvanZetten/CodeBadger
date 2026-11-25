@@ -70,6 +70,7 @@
 
                 <div class="repository-terminal-splitter">
                     <div class="repository-codebadger-session-area">
+                        <div class="repository-codebadger-session-tabs-viewport">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="repository-codebadger-session-tabs">
                             @foreach (var session in _terminalSessions)
                             {
@@ -122,10 +123,11 @@
                                 </div>
                             }
                             <MudTooltip Text="@L.T("New session")">
-                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add"
+                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add" Class="repository-codebadger-session-add"
                                                aria-label="@L.T("New session")" OnClick="AddTerminalSession" />
                             </MudTooltip>
                         </MudStack>
+                        </div>
                         @if (_aiPanelMode != AiPanelMode.Collapsed &&
                              _terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is { } currentTerminalSession)
                         {

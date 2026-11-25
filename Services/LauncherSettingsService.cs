@@ -58,7 +58,6 @@ public sealed class LauncherSettingsService
             settings.CodeBadgerRolePreferences ??= CodeBadgerRoles.CreateDefaults();
             CodeBadgerRoles.Normalize(settings.CodeBadgerRolePreferences);
             NormalizeCodeBadgerModelPreferences(settings);
-            settings.CodeBadgerModelCostCeiling = Math.Clamp(settings.CodeBadgerModelCostCeiling, 0.01m, 10000m);
             foreach (var repository in settings.Repositories)
             {
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
@@ -118,7 +117,6 @@ public sealed class LauncherSettingsService
             settings.CodeBadgerRolePreferences ??= CodeBadgerRoles.CreateDefaults();
             CodeBadgerRoles.Normalize(settings.CodeBadgerRolePreferences);
             NormalizeCodeBadgerModelPreferences(settings);
-            settings.CodeBadgerModelCostCeiling = Math.Clamp(settings.CodeBadgerModelCostCeiling, 0.01m, 10000m);
             settings.NotificationChannel = settings.NotificationChannel is "Slack" or "Discord"
                 ? settings.NotificationChannel : "Slack";
             Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);

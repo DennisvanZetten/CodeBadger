@@ -350,11 +350,6 @@
                              <MudText Typo="Typo.body2" Color="Color.Secondary">
                                  @L.T("Configure an OpenCode agent and ordered model preferences for each role. Listed model prices are USD per million input/output tokens; models without published prices are unpriced, not free.")
                              </MudText>
-                             <MudNumericField T="decimal" @bind-Value="Settings.CodeBadgerModelCostCeiling"
-                                              Label="@L.T("Maximum input/output price per million tokens (USD)")"
-                                              Min="0.01m" Max="10000m" Step="0.25m" Format="0.####"
-                                              Margin="Margin.Dense" Variant="Variant.Outlined"
-                                              HelperText="@L.T("Automatic recommendations exclude models whose published input or output price exceeds this ceiling.")" />
                              @if (_isLoadingCodeBadgerModels)
                              {
                                  <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Loading OpenCode models...")</MudText>
@@ -752,17 +747,6 @@
 
     private async Task RecommendCodeBadgerModelsAsync()
     {
-        var candidates = _openCodeModels
-            .Where(model => model.Enabled && model.Status == "active" && model.HasPublishedCost &&
-                model.InputCost <= (double)Settings.CodeBadgerModelCostCeiling &&
-                model.OutputCost <= (double)Settings.CodeBadgerModelCostCeiling)
-            .ToArray();
-        if (candidates.Length == 0)
-        {
-            Snackbar.Add(L.T("No active, priced OpenCode models fit the selected cost ceiling."), Severity.Warning);
-            return;
-        }
-
         var rolePlans = new List<RoleModelRecommendationPlan>
         {
             new(CodeBadgerRoles.Worker, L.T("One agent for everything"), Settings.CodeBadgerSingleAgentPreferredModels),
@@ -775,13 +759,38 @@
             return new RoleModelRecommendationPlan(role, CodeBadgerRoleDisplayName(role), preference.PreferredModels);
         }));
 
+        var optionParameters = new DialogParameters<CodeBadgerModelRecommendationsDialog>
+        {
+            { dialog => dialog.Recommendations, Array.Empty<CodeBadgerModelRecommendation>() },
+            { dialog => dialog.InitialCostCeiling, 5m },
+            { dialog => dialog.InitialAllowFreeModels, false }
+        };
+        var optionsDialog = await DialogService.ShowAsync<CodeBadgerModelRecommendationsDialog>(
+            L.T("Recommend model priorities by role and cost"), optionParameters,
+            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Small, CloseButton = true, CloseOnEscapeKey = true });
+        var optionsResult = await optionsDialog.Result;
+        if (optionsResult is not { Canceled: false, Data: CodeBadgerRecommendationOptions options })
+            return;
+
+        var costCeiling = Math.Clamp(options.CostCeiling, 0.01m, 10000m);
+        var allowUnpricedModels = options.AllowFreeModels;
+        var candidates = _openCodeModels.Where(model => model.Enabled && model.Status == "active" &&
+            model.HasPublishedCost && (model.InputCost == 0 && model.OutputCost == 0
+                ? allowUnpricedModels
+                : model.InputCost <= (double)costCeiling && model.OutputCost <= (double)costCeiling)).ToArray();
+        if (candidates.Length == 0)
+        {
+            Snackbar.Add(L.T("No active OpenCode models fit the selected cost ceiling and free-model setting."), Severity.Warning);
+            return;
+        }
+
         var recommendations = rolePlans.Select(plan =>
-            (Plan: plan, Models: RankModelsForRole(candidates, plan.Role))).ToArray();
+            (Plan: plan, Models: RankModelsForRole(candidates, plan.Role))).ToList();
         var emptyPlans = recommendations.Where(plan => plan.Models.Count == 0)
             .Select(plan => plan.Plan.Name).Distinct().ToArray();
         if (emptyPlans.Length > 0)
         {
-            Snackbar.Add(L.T("No suitable priced model fits the cost ceiling for: {0}", string.Join(", ", emptyPlans)), Severity.Warning);
+            Snackbar.Add(L.T("No suitable model fits the price settings for: {0}", string.Join(", ", emptyPlans)), Severity.Warning);
             return;
         }
 
@@ -795,15 +804,19 @@
             new(L.T("Full orchestration"), recommendations.Skip(3)
                 .Select(plan => ToRoleRecommendation(plan.Plan, plan.Models)).ToArray())
         };
-        var parameters = new DialogParameters<CodeBadgerModelRecommendationsDialog>
+        var previewParameters = new DialogParameters<CodeBadgerModelRecommendationsDialog>
         {
-            { dialog => dialog.Recommendations, dialogRecommendations }
+            { dialog => dialog.Recommendations, dialogRecommendations },
+            { dialog => dialog.InitialCostCeiling, costCeiling },
+            { dialog => dialog.InitialAllowFreeModels, allowUnpricedModels }
         };
         var dialog = await DialogService.ShowAsync<CodeBadgerModelRecommendationsDialog>(
-            L.T("Recommended CodeBadger models"), parameters,
+            L.T("Recommended CodeBadger models"), previewParameters,
             new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Medium, CloseButton = true, CloseOnEscapeKey = true });
         var result = await dialog.Result;
-        if (result is not { Canceled: false, Data: true })
+        if (result is not { Canceled: false, Data: CodeBadgerRecommendationOptions confirmedChoice } ||
+            !confirmedChoice.Confirmed || confirmedChoice.CostCeiling != costCeiling ||
+            confirmedChoice.AllowFreeModels != allowUnpricedModels)
             return;
 
         foreach (var recommendation in recommendations)
@@ -817,7 +830,8 @@
     private static CodeBadgerRoleRecommendation ToRoleRecommendation(RoleModelRecommendationPlan plan,
         IReadOnlyList<OpenCodeActivityService.AvailableModel> models) =>
         new(plan.Name, models
-            .Select(model => new CodeBadgerRecommendedModel(model.Reference, (decimal)model.InputCost, (decimal)model.OutputCost))
+            .Select(model => new CodeBadgerRecommendedModel(model.Reference, (decimal)model.InputCost,
+                (decimal)model.OutputCost, false))
             .ToArray());
 
     private sealed record RoleModelRecommendationPlan(string Role, string Name, List<string> Target);

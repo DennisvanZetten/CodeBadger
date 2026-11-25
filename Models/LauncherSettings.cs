@@ -28,7 +28,6 @@ public sealed class LauncherSettings
     public List<string> CodeBadgerSingleAgentPreferredModels { get; set; } = [];
     public List<string> CodeBadgerPlanPreferredModels { get; set; } = [];
     public List<string> CodeBadgerBuildPreferredModels { get; set; } = [];
-    public decimal CodeBadgerModelCostCeiling { get; set; } = 5m;
     public int AiMaxInputTokens { get; set; } = 12000;
     public int SandboxMaxFileMb { get; set; } = 64;
     public int SandboxMaxTotalMb { get; set; } = 1024;
@@ -178,9 +177,10 @@ public sealed class CodeBadgerRolePreference
     public List<string> PreferredModels { get; set; } = [];
 }
 
-public sealed record CodeBadgerRecommendedModel(string Reference, decimal InputCost, decimal OutputCost);
+public sealed record CodeBadgerRecommendedModel(string Reference, decimal InputCost, decimal OutputCost, bool IsUnpriced = false);
 public sealed record CodeBadgerRoleRecommendation(string RoleName, IReadOnlyList<CodeBadgerRecommendedModel> Models);
 public sealed record CodeBadgerModelRecommendation(string SetName, IReadOnlyList<CodeBadgerRoleRecommendation> Roles);
+public sealed record CodeBadgerRecommendationOptions(decimal CostCeiling, bool AllowFreeModels, bool Confirmed);
 
 public sealed class CodeBadgerTerminalState
 {

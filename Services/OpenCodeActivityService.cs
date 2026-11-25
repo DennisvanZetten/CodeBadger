@@ -1007,12 +1007,31 @@ public sealed class OpenCodeActivityService
             throw new ArgumentException("Invalid OpenCode session ID.", nameof(sessionId));
         try
         {
-            using var response = await RequestAsync($"/api/experimental/session/{sessionId}/wait", cancellationToken,
-                HttpMethod.Post, workingDirectory: directory, timeoutSeconds: 300);
-            cancellationToken.ThrowIfCancellationRequested();
-            if (response is null)
-                throw new InvalidOperationException("OpenCode could not confirm that the agent session has finished.");
-            // The opencode API CLI prints no JSON for this successful HTTP 204 response.
+            var failedWaitAttempts = 0;
+            while (true)
+            {
+                using var response = await RequestAsync($"/api/experimental/session/{sessionId}/wait", cancellationToken,
+                    HttpMethod.Post, workingDirectory: directory, timeoutSeconds: 300);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (response is not null)
+                    return;
+
+                // OpenCode can transiently fail its experimental wait endpoint while the
+                // agent is still processing (for example, while publishing an event).
+                // Do not fail the terminal request in that case: confirm the session
+                // state and retry instead. If it is already idle, let the caller inspect
+                // the completed message for this prompt.
+                var isActive = await IsSessionActiveAsync(sessionId, directory, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (isActive == false)
+                    return;
+
+                failedWaitAttempts++;
+                if (failedWaitAttempts == 1 || failedWaitAttempts % 30 == 0)
+                    _logger.LogWarning("OpenCode wait request failed and session {SessionId} is {SessionState}; retrying (attempt {Attempt}).",
+                        sessionId, isActive == true ? "still active" : "currently unconfirmed", failedWaitAttempts);
+                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+            }
         }
         finally
         {

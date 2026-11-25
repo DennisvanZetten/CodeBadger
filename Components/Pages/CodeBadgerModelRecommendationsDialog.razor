@@ -6,44 +6,97 @@
     </TitleContent>
     <DialogContent>
         <MudStack Spacing="2">
-            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-                @L.T("Confirming will overwrite every model priority in One agent, Plan and build, and Full orchestration. Agent selections and the general terminal model will not change.")
-                @L.T("The ceiling limits published input and output prices per million tokens, not total usage. Models without published prices are excluded.")
-            </MudAlert>
-            @foreach (var recommendation in Recommendations)
+            @if (Recommendations.Count == 0)
             {
-                <MudPaper Outlined="true" Elevation="0" Class="pa-3">
-                    <MudStack Spacing="1">
-                        <MudText Typo="Typo.subtitle1">@L.T(recommendation.SetName)</MudText>
-                        @foreach (var role in recommendation.Roles)
-                        {
-                            <MudText Typo="Typo.body2">
-                                <strong>@L.T(role.RoleName)</strong>: @string.Join(" → ", role.Models.Select(model => model.Reference))
-                            </MudText>
-                            @foreach (var model in role.Models)
+                <MudNumericField T="decimal" @bind-Value="CostCeiling"
+                                 Label="@L.T("Maximum input/output price per million tokens (USD)")"
+                                 Min="0.01m" Max="10000m" Step="0.25m" Format="0.####"
+                                 Margin="Margin.Dense" Variant="Variant.Outlined"
+                                 HelperText="@L.T("Models above this published input or output price are excluded from recommendations.")" />
+                <MudSwitch T="bool" @bind-Value="AllowFreeModels" Color="Color.Primary"
+                           Label="@L.T("Allow free or unpriced models")" />
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    @L.T("The ceiling limits published input and output prices per million tokens, not total usage.")
+                </MudAlert>
+                @if (AllowFreeModels)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                        @L.T("Free models with published zero input and output prices are also eligible. Models without price data remain excluded.")
+                    </MudText>
+                }
+            }
+            else
+            {
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    @L.T("Price ceiling: ${0:0.####} per million input/output tokens. Free or unpriced models: {1}", CostCeiling,
+                        AllowFreeModels ? L.T("allowed") : L.T("excluded"))
+                </MudText>
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                    @L.T("Confirming will overwrite every model priority in One agent, Plan and build, and Full orchestration. Agent selections and the general terminal model will not change.")
+                    @L.T("The ceiling limits published input and output prices per million tokens, not total usage.")
+                </MudAlert>
+                @foreach (var recommendation in Recommendations)
+                {
+                    <MudPaper Outlined="true" Elevation="0" Class="pa-3">
+                        <MudStack Spacing="1">
+                            <MudText Typo="Typo.subtitle1">@L.T(recommendation.SetName)</MudText>
+                            @foreach (var role in recommendation.Roles)
                             {
-                                <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                    @model.Reference · @L.T("Input ${0:0.####} / output ${1:0.####} per million tokens", model.InputCost, model.OutputCost)
+                                <MudText Typo="Typo.body2">
+                                    <strong>@L.T(role.RoleName)</strong>: @string.Join(" → ", role.Models.Select(model => model.Reference))
                                 </MudText>
+                                @foreach (var model in role.Models)
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                        @model.Reference · @if (model.IsUnpriced)
+                                        {
+                                            @L.T("free")
+                                        }
+                                        else
+                                        {
+                                            @L.T("Input ${0:0.####} / output ${1:0.####} per million tokens", model.InputCost, model.OutputCost)
+                                        }
+                                    </MudText>
+                                }
                             }
-                        }
-                    </MudStack>
-                </MudPaper>
+                        </MudStack>
+                    </MudPaper>
+                }
             }
         </MudStack>
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="Cancel">@L.T("Cancel")</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Confirm">
-            @L.T("Overwrite model priorities")
-        </MudButton>
+        @if (Recommendations.Count == 0)
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Continue">
+                @L.T("Preview recommendations")
+            </MudButton>
+        }
+        else
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Confirm">
+                @L.T("Overwrite model priorities")
+            </MudButton>
+        }
     </DialogActions>
 </MudDialog>
 
 @code {
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
     [Parameter, EditorRequired] public IReadOnlyList<CodeBadger.Models.CodeBadgerModelRecommendation> Recommendations { get; set; } = [];
+    [Parameter] public decimal InitialCostCeiling { get; set; } = 5m;
+    [Parameter] public bool InitialAllowFreeModels { get; set; }
+    private decimal CostCeiling { get; set; }
+    private bool AllowFreeModels { get; set; }
 
-    private void Confirm() => MudDialog.Close(DialogResult.Ok(true));
+    protected override void OnInitialized()
+    {
+        CostCeiling = InitialCostCeiling;
+        AllowFreeModels = InitialAllowFreeModels;
+    }
+
+    private void Continue() => MudDialog.Close(DialogResult.Ok(new CodeBadgerRecommendationOptions(CostCeiling, AllowFreeModels, false)));
+    private void Confirm() => MudDialog.Close(DialogResult.Ok(new CodeBadgerRecommendationOptions(CostCeiling, AllowFreeModels, true)));
     private void Cancel() => MudDialog.Cancel();
 }

@@ -1,0 +1,45 @@
+@inject LocalizationService L
+@using CodeBadger.Components.Pages
+
+<div class="repository-opencode-session-group">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="repository-opencode-session-tabs">
+        @foreach (var session in Sessions)
+        {
+            <MudButton Size="Size.Small" Variant="@(session.Key == SelectedSessionId ? Variant.Filled : Variant.Text)"
+                       Color="@(session.Key == SelectedSessionId ? Color.Primary : Color.Default)"
+                       OnClick="() => SelectSessionAsync(session.Key)">
+                @session.Value
+            </MudButton>
+        }
+    </MudStack>
+    @foreach (var session in Sessions)
+    {
+        <div @key="session.Key" class="repository-opencode-session-terminal" style="display:@(session.Key == SelectedSessionId ? "flex" : "none")">
+            <RepositoryTerminal @key="session.Key" SessionId="@TerminalIdFor(session.Key)"
+                                RepositoryPath="@RepositoryPath" Command="@Command"
+                                OpenCodeSessionId="@session.Key"
+                                StartWhenVisible="true"
+                                IsVisible="@(IsVisible && session.Key == SelectedSessionId)" />
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyDictionary<string, string> Sessions { get; set; } = new Dictionary<string, string>();
+    [Parameter, EditorRequired] public string SelectedSessionId { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public EventCallback<string> SelectedSessionIdChanged { get; set; }
+    [Parameter, EditorRequired] public string RepositoryPath { get; set; } = string.Empty;
+    [Parameter] public string Command { get; set; } = "opencode";
+    [Parameter] public bool IsVisible { get; set; }
+
+    private readonly Dictionary<string, Guid> _terminalIds = new(StringComparer.Ordinal);
+
+    private Guid TerminalIdFor(string sessionId)
+    {
+        if (!_terminalIds.TryGetValue(sessionId, out var terminalId))
+            _terminalIds[sessionId] = terminalId = Guid.NewGuid();
+        return terminalId;
+    }
+
+    private Task SelectSessionAsync(string sessionId) => SelectedSessionIdChanged.InvokeAsync(sessionId);
+}

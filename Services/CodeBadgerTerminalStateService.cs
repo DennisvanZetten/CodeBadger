@@ -22,6 +22,7 @@ public sealed class CodeBadgerTerminalStateService
             var state = states.FirstOrDefault(candidate => candidate.RepositoryId == repositoryId)
                 ?? new CodeBadgerTerminalState { RepositoryId = repositoryId };
             state.Sessions ??= [];
+            state.SelectedOpenCodeSessionId ??= string.Empty;
             foreach (var session in state.Sessions)
             {
                 session.AgentSessionIds ??= new Dictionary<string, string>(StringComparer.Ordinal);

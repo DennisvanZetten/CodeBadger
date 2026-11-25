@@ -420,11 +420,21 @@
             }
             else if (AgentAvailable)
             {
-                <RepositoryTerminal @key="TerminalKey" SessionId="Repository.Id" RepositoryPath="@Repository.Path"
-                                    Command="@_agentCommand"
-                                    OpenCodeSandboxEnabled="@(AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode && Repository.OpenCodeSandboxEnabled)"
-                                    OpenCodeSessionId="@OpenCodeSessionId"
-                                    IsVisible="@IsVisible" />
+                @if (AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode && OpenCodeSessions.Count > 0)
+                {
+                    <OpenCodeSessionTerminalGroup Sessions="@OpenCodeSessions"
+                        SelectedSessionId="@_terminalState.SelectedOpenCodeSessionId"
+                        SelectedSessionIdChanged="SelectOpenCodeSessionAsync"
+                        RepositoryPath="@Repository.Path" Command="@_agentCommand" IsVisible="@IsVisible" />
+                }
+                else
+                {
+                    <RepositoryTerminal @key="TerminalKey" SessionId="Repository.Id" RepositoryPath="@Repository.Path"
+                                        Command="@_agentCommand"
+                                        OpenCodeSandboxEnabled="@(AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode && Repository.OpenCodeSandboxEnabled)"
+                                        OpenCodeSessionId="@OpenCodeSessionId"
+                                        IsVisible="@IsVisible" />
+                }
             }
             else
             {
@@ -476,6 +486,34 @@
 
     private string TerminalKey =>
         $"{Repository.Id}:{Repository.Path}:{AgentTools.Normalize(Repository.AgentTool)}:{Repository.OpenCodeSandboxEnabled}:{Repository.OpenCodeSandboxModel}:{Repository.OpenCodeSandboxFiles}:{OpenCodeSessionId}";
+
+    private IReadOnlyDictionary<string, string> OpenCodeSessions
+    {
+        get
+        {
+            var sessions = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var terminalSession in _terminalState.Sessions)
+            {
+                var state = terminalSession;
+                foreach (var (role, sessionId) in state.AgentSessionIds)
+                {
+                    if (!IsOpenCodeSessionKey(role) || !IsOpenCodeSessionId(sessionId))
+                        continue;
+                    var roleName = role == "SingleAgent" ? state.Mode : RoleDisplayName(role);
+                    var title = string.IsNullOrWhiteSpace(state.Title) ? L.T("Terminal session") : state.Title;
+                    sessions.TryAdd(sessionId, $"{title} · {roleName}");
+                }
+            }
+            return sessions;
+        }
+    }
+
+    private static bool IsOpenCodeSessionKey(string key) => key == "SingleAgent" ||
+        (!key.StartsWith("Model:", StringComparison.Ordinal) && !key.StartsWith("ModelSelector:", StringComparison.Ordinal));
+
+    private static bool IsOpenCodeSessionId(string sessionId) =>
+        sessionId.StartsWith("ses_", StringComparison.Ordinal) &&
+        sessionId.All(character => char.IsAsciiLetterOrDigit(character) || character == '_');
 
     private string _agentCommand = "opencode";
     private ElementReference _terminalStack;
@@ -852,7 +890,7 @@
             _aiPanelMode = AiPanelMode.Collapsed;
         _wasCodeBadgerTerminalEnabled = Repository.CodeBadgerTerminalEnabled;
 
-        if (Repository.CodeBadgerTerminalEnabled && _terminalState.RepositoryId != Repository.Id)
+        if (_terminalState.RepositoryId != Repository.Id)
         {
             _settings = await SettingsService.LoadAsync();
             _terminalState = await TerminalStateService.LoadAsync(Repository.Id);
@@ -868,12 +906,19 @@
                 if (int.TryParse(digits, out var number))
                     _nextTerminalSessionNumber = Math.Max(_nextTerminalSessionNumber, number);
             }
-            if (_terminalSessions.Count == 0)
+            if (Repository.CodeBadgerTerminalEnabled && _terminalSessions.Count == 0)
                 await AddTerminalSessionAsync();
-            _selectedTerminalSessionId = _terminalState.SelectedSessionId != Guid.Empty &&
-                _terminalSessions.Any(session => session.Id == _terminalState.SelectedSessionId)
-                    ? _terminalState.SelectedSessionId : _terminalSessions[0].Id;
+            if (_terminalSessions.Count > 0)
+                _selectedTerminalSessionId = _terminalState.SelectedSessionId != Guid.Empty &&
+                    _terminalSessions.Any(session => session.Id == _terminalState.SelectedSessionId)
+                        ? _terminalState.SelectedSessionId : _terminalSessions[0].Id;
         }
+
+        var priorOpenCodeSessionId = _terminalState.SelectedOpenCodeSessionId;
+        if (!OpenCodeSessions.ContainsKey(priorOpenCodeSessionId))
+            _terminalState.SelectedOpenCodeSessionId = GetPreferredOpenCodeSessionId();
+        if (!string.Equals(priorOpenCodeSessionId, _terminalState.SelectedOpenCodeSessionId, StringComparison.Ordinal))
+            await PersistTerminalStateAsync();
 
         var modelLookupKey = $"{Repository.Path}:{AgentTools.Normalize(Repository.AgentTool)}:{Repository.OpenCodeSandboxEnabled}:{Repository.OpenCodeSandboxModel}";
         if (!string.Equals(modelLookupKey, _agentModelLookupKey, StringComparison.Ordinal))
@@ -1031,6 +1076,31 @@
     }
 
     private Task AddTerminalSession() => AddTerminalSessionAsync();
+
+    private string GetPreferredOpenCodeSessionId()
+    {
+        if (_terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is not { } selected)
+            return OpenCodeSessions.Keys.FirstOrDefault() ?? string.Empty;
+
+        var modeRole = !string.IsNullOrWhiteSpace(selected.State.ActiveAgentRole)
+            ? selected.State.ActiveAgentRole
+            : selected.Mode == TerminalMode.Plan ? CodeBadgerRoles.Planner : CodeBadgerRoles.Worker;
+        var roleKey = GetRoleSessionKey(selected, modeRole);
+        if (selected.State.AgentSessionIds.TryGetValue(roleKey, out var preferred) && OpenCodeSessions.ContainsKey(preferred))
+            return preferred;
+        if (selected.State.AgentSessionIds.TryGetValue("SingleAgent", out preferred) && OpenCodeSessions.ContainsKey(preferred))
+            return preferred;
+        return OpenCodeSessions.Keys.FirstOrDefault() ?? string.Empty;
+    }
+
+    private async Task SelectOpenCodeSessionAsync(string sessionId)
+    {
+        if (!OpenCodeSessions.ContainsKey(sessionId))
+            return;
+        _terminalState.SelectedOpenCodeSessionId = sessionId;
+        await PersistTerminalStateAsync();
+        await InvokeAsync(StateHasChanged);
+    }
 
     private void SelectTerminalSession(Guid id)
     {

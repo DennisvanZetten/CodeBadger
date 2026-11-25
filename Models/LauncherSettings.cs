@@ -216,6 +216,7 @@ public sealed class CodeBadgerTerminalState
 {
     public Guid RepositoryId { get; set; }
     public Guid SelectedSessionId { get; set; }
+    public string SelectedOpenCodeSessionId { get; set; } = string.Empty;
     public List<CodeBadgerTerminalSessionState> Sessions { get; set; } = [];
 }
 

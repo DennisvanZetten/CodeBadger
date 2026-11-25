@@ -2225,6 +2225,30 @@ h1:focus {
     border-radius: var(--mud-default-borderradius);
 }
 
+.repository-opencode-session-group,
+.repository-opencode-session-terminal,
+.repository-opencode-session-terminal > .repository-terminal {
+    min-height: 0;
+    height: 100%;
+}
+
+.repository-opencode-session-group {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.repository-opencode-session-tabs {
+    flex: 0 0 auto;
+    overflow-x: auto;
+    padding: 0.25rem 0.5rem;
+}
+
+.repository-opencode-session-terminal {
+    flex: 1 1 auto;
+    overflow: hidden;
+}
+
 .repository-terminal-stack {
     display: grid;
     grid-template-rows: minmax(120px, var(--ai-terminal-height, 38%)) minmax(8.5rem, auto) minmax(120px, 1fr);

@@ -74,23 +74,9 @@
                             @foreach (var session in _terminalSessions)
                             {
                                 <div class="repository-codebadger-session-tab @(session.Id == _selectedTerminalSessionId ? "selected" : string.Empty)" data-session-id="@session.Id">
-                                    @if (_renamingTerminalSessionId == session.Id)
-                                    {
-                                        <input class="repository-codebadger-session-title-input" aria-label="@L.T("Rename session")"
-                                               @bind="_terminalSessionTitleDraft" @onkeydown="args => HandleTerminalSessionRenameKeyDownAsync(session, args)" />
-                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Check" aria-label="@L.T("Save")"
-                                                       OnClick="@(() => SaveTerminalSessionTitleAsync(session))" />
-                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close" aria-label="@L.T("Cancel")"
-                                                       OnClick="CancelTerminalSessionRename" />
-                                    }
-                                    else
-                                    {
-                                        <button type="button" class="repository-codebadger-session-select" @onclick="() => SelectTerminalSession(session.Id)">
-                                            @GetTerminalSessionDisplayTitle(session)
-                                        </button>
-                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit" aria-label="@L.T("Rename session")"
-                                                       OnClick="@(() => StartRenameTerminalSession(session))" />
-                                    }
+                                    <button type="button" class="repository-codebadger-session-select" @onclick="() => SelectTerminalSession(session.Id)">
+                                        @GetTerminalSessionDisplayTitle(session)
+                                    </button>
                                     <div class="repository-codebadger-session-role-statuses" aria-label="@L.T("Agent role status")">
                                         @foreach (var role in GetSessionAgentRoles(session))
                                         {
@@ -595,8 +581,6 @@
     private LauncherSettings _settings = new();
     private IReadOnlyList<OpenCodeActivityService.AvailableModel> _availableOpenCodeModels = [];
     private Guid _selectedTerminalSessionId;
-    private Guid _renamingTerminalSessionId;
-    private string _terminalSessionTitleDraft = string.Empty;
     private double _aiPanelHeight = 38;
     private AiPanelMode _aiPanelMode = AiPanelMode.Collapsed;
     private bool _splitterAttached;
@@ -1370,38 +1354,6 @@
 
     private string GetTerminalSessionDisplayTitle(CodeBadgerTerminalSession session) =>
         string.IsNullOrWhiteSpace(session.Title) ? L.T("Terminal session") : session.Title;
-
-    private void StartRenameTerminalSession(CodeBadgerTerminalSession session)
-    {
-        _renamingTerminalSessionId = session.Id;
-        _terminalSessionTitleDraft = session.State.Title;
-    }
-
-    private void CancelTerminalSessionRename()
-    {
-        _renamingTerminalSessionId = Guid.Empty;
-        _terminalSessionTitleDraft = string.Empty;
-    }
-
-    private async Task SaveTerminalSessionTitleAsync(CodeBadgerTerminalSession session)
-    {
-        var title = _terminalSessionTitleDraft.Trim();
-        if (title.Length == 0)
-            return;
-
-        session.State.Title = title.Length > 120 ? title[..120].TrimEnd() : title;
-        CancelTerminalSessionRename();
-        await PersistTerminalStateAsync();
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private async Task HandleTerminalSessionRenameKeyDownAsync(CodeBadgerTerminalSession session, KeyboardEventArgs args)
-    {
-        if (args.Key == "Enter")
-            await SaveTerminalSessionTitleAsync(session);
-        else if (args.Key == "Escape")
-            CancelTerminalSessionRename();
-    }
 
     private static string GetTerminalSessionTitle(string prompt)
     {

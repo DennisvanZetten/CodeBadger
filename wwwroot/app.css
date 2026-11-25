@@ -3390,8 +3390,8 @@ body.repository-terminal-resizing * {
 }
 
 .repository-git-panel {
-    min-height: 72px;
-    padding: 0.5rem 0.75rem;
+    min-height: 40px;
+    padding: 0.2rem 0.75rem;
     box-sizing: border-box;
 }
 

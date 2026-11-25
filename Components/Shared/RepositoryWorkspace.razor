@@ -69,8 +69,7 @@
                 </section>
 
                 <div class="repository-terminal-splitter">
-                    <div class="repository-codebadger-session-area">
-                        <div class="repository-codebadger-session-tabs-viewport">
+                    <div class="repository-codebadger-session-tabs-viewport">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="repository-codebadger-session-tabs">
                             @foreach (var session in _terminalSessions)
                             {
@@ -127,7 +126,9 @@
                                                aria-label="@L.T("New session")" OnClick="AddTerminalSession" />
                             </MudTooltip>
                         </MudStack>
-                        </div>
+                    </div>
+                    <div class="repository-terminal-splitter-footer">
+                    <div class="repository-codebadger-session-area">
                         @if (_aiPanelMode != AiPanelMode.Collapsed &&
                              _terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is { } currentTerminalSession)
                         {
@@ -199,6 +200,7 @@
                                            aria-label="@L.T(_aiPanelMode == AiPanelMode.Expanded ? "Restore split view" : "Expand AI terminal")"
                                            OnClick="ToggleAiPanelExpanded" />
                         </MudTooltip>
+                    </div>
                     </div>
                 </div>
 

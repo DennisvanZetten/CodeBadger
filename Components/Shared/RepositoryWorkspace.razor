@@ -235,6 +235,7 @@
                                         <div class="repository-codebadger-input-row">
                                             <span class="repository-codebadger-prompt" aria-hidden="true">›</span>
                                             <textarea class="repository-codebadger-input" data-session-id="@session.Id" rows="1" autocomplete="off" spellcheck="false"
+                                                      data-mode-toggle-enabled="@(CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.Full ? "true" : "false")"
                                                       disabled="@session.IsRotatingAgentRole"
                                                       aria-label="@L.T("Universal command")" placeholder="@L.T("Type a universal command...")"
                                                       @bind="session.Input" @bind:event="oninput"></textarea>
@@ -246,6 +247,7 @@
                                     {
                                         <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.SwapHoriz"
                                                    aria-label="@L.T("Switch between Plan and Build mode")"
+                                                   title="@L.T("Switch between Plan and Build mode (Shift+Tab)")"
                                                    OnClick="() => ToggleSessionMode(session)">
                                             @L.T(session.Mode == TerminalMode.Plan ? "Plan" : "Build")
                                         </MudButton>
@@ -740,6 +742,17 @@
     }
 
     [JSInvokable]
+    public async Task ToggleTerminalModeAsync(string sessionId)
+    {
+        if (CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) == CodeBadgerOrchestrationModes.Full ||
+            !Guid.TryParse(sessionId, out var id) ||
+            _terminalSessions.FirstOrDefault(candidate => candidate.Id == id) is not { } session)
+            return;
+        await ToggleSessionMode(session);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
     public async Task SubmitTerminalInputAsync(string sessionId)
     {
         if (!Guid.TryParse(sessionId, out var id) || _terminalSessions.FirstOrDefault(candidate => candidate.Id == id) is not { } session ||
@@ -1113,7 +1126,15 @@
         IReadOnlyList<CodeBadgerRolePreference> preferences, CancellationToken cancellationToken)
     {
         var available = _availableOpenCodeModels.Where(model => model.Enabled && model.Status == "active").ToArray();
-        foreach (var preferred in preference.PreferredModels.Where(model => !string.IsNullOrWhiteSpace(model)))
+        var orchestrationMode = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode);
+        var preferredModels = orchestrationMode switch
+        {
+            CodeBadgerOrchestrationModes.SingleAgent => _settings.CodeBadgerSingleAgentPreferredModels,
+            CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Planner => _settings.CodeBadgerPlanPreferredModels,
+            CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Worker => _settings.CodeBadgerBuildPreferredModels,
+            _ => preference.PreferredModels
+        };
+        foreach (var preferred in preferredModels.Where(model => !string.IsNullOrWhiteSpace(model)))
             if (available.Any(model => string.Equals(model.Reference, preferred, StringComparison.OrdinalIgnoreCase)))
                 return available.First(model => string.Equals(model.Reference, preferred, StringComparison.OrdinalIgnoreCase)).Reference;
 

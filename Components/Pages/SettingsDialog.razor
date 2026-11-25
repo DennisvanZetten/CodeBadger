@@ -321,14 +321,79 @@
                                        OnClick="LoadCodeBadgerModelsAsync" Disabled="@_isLoadingCodeBadgerModels">
                                 @(_isLoadingCodeBadgerModels ? L.T("Loading models...") : L.T("Load OpenCode models"))
                             </MudButton>
-                            @foreach (var preference in Settings.CodeBadgerRolePreferences)
-                            {
-                                <MudPaper @key="preference.Role" Outlined="true" Elevation="0" Class="pa-3">
-                                    <MudStack Spacing="2">
-                                        <MudText Typo="Typo.subtitle1">@CodeBadgerRoleDisplayName(preference.Role)</MudText>
+                            <MudPaper Outlined="true" Elevation="0" Class="pa-3">
+                                <MudStack Spacing="2">
+                                    <MudText Typo="Typo.subtitle1">@L.T("One agent for everything")</MudText>
+                                    @for (var priorityIndex = 0; priorityIndex < 3; priorityIndex++)
+                                    {
+                                        var slot = priorityIndex;
+                                        <MudSelect T="string" Value="@GetPreferredModel(Settings.CodeBadgerSingleAgentPreferredModels, slot)"
+                                                   ValueChanged="@(value => SetPreferredModel(Settings.CodeBadgerSingleAgentPreferredModels, slot, value))"
+                                                   Label="@L.T("Model priority {0}", slot + 1)" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                            <MudSelectItem T="string" Value="@string.Empty">@L.T("Automatic selection")</MudSelectItem>
+                                            @foreach (var model in _openCodeModels)
+                                            {
+                                                <MudSelectItem T="string" Value="@model.Reference" Disabled="@(!model.Enabled)">
+                                                    @ModelOptionLabel(model)
+                                                </MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                    }
+                                </MudStack>
+                            </MudPaper>
+
+                            <MudPaper Outlined="true" Elevation="0" Class="pa-3">
+                                <MudStack Spacing="2">
+                                    <MudText Typo="Typo.subtitle1">@L.T("Plan and build")</MudText>
+                                    <MudText Typo="Typo.body2">@CodeBadgerRoleDisplayName(CodeBadgerRoles.Planner)</MudText>
+                                    @for (var priorityIndex = 0; priorityIndex < 3; priorityIndex++)
+                                    {
+                                        var slot = priorityIndex;
+                                        <MudSelect T="string" Value="@GetPreferredModel(Settings.CodeBadgerPlanPreferredModels, slot)"
+                                                   ValueChanged="@(value => SetPreferredModel(Settings.CodeBadgerPlanPreferredModels, slot, value))"
+                                                   Label="@L.T("Plan model priority {0}", slot + 1)" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                            <MudSelectItem T="string" Value="@string.Empty">@L.T("Automatic selection")</MudSelectItem>
+                                            @foreach (var model in _openCodeModels)
+                                            {
+                                                <MudSelectItem T="string" Value="@model.Reference" Disabled="@(!model.Enabled)">
+                                                    @ModelOptionLabel(model)
+                                                </MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                    }
+                                    <MudText Typo="Typo.body2">@CodeBadgerRoleDisplayName(CodeBadgerRoles.Worker)</MudText>
+                                    @for (var priorityIndex = 0; priorityIndex < 3; priorityIndex++)
+                                    {
+                                        var slot = priorityIndex;
+                                        <MudSelect T="string" Value="@GetPreferredModel(Settings.CodeBadgerBuildPreferredModels, slot)"
+                                                   ValueChanged="@(value => SetPreferredModel(Settings.CodeBadgerBuildPreferredModels, slot, value))"
+                                                   Label="@L.T("Build model priority {0}", slot + 1)" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                            <MudSelectItem T="string" Value="@string.Empty">@L.T("Automatic selection")</MudSelectItem>
+                                            @foreach (var model in _openCodeModels)
+                                            {
+                                                <MudSelectItem T="string" Value="@model.Reference" Disabled="@(!model.Enabled)">
+                                                    @ModelOptionLabel(model)
+                                                </MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                    }
+                                </MudStack>
+                            </MudPaper>
+
+                            <MudPaper Outlined="true" Elevation="0" Class="pa-3">
+                                <MudStack Spacing="2">
+                                    <MudText Typo="Typo.subtitle1">@L.T("Full orchestration")</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                        @L.T("Configure the agent and model priorities used by each role in full orchestration.")
+                                    </MudText>
+                                    <MudExpansionPanels Elevation="0" Outlined="true" MultiExpansion="true">
+                                        @foreach (var preference in Settings.CodeBadgerRolePreferences)
+                                        {
+                                            <MudExpansionPanel @key="preference.Role" Text="@CodeBadgerRoleDisplayName(preference.Role)">
+                                                <MudStack Spacing="2" Class="pa-3">
                                         <MudSelect T="string" Value="@(GetAgentTypeForDisplay(preference))"
                                                    ValueChanged="@(value => preference.AgentType = value)"
-                                                       Label="@L.T("Agent type")" Margin="Margin.Dense" Variant="Variant.Outlined">
+                                                        Label="@L.T("Agent type")" Margin="Margin.Dense" Variant="Variant.Outlined">
                                             @foreach (var type in CodeBadgerRoles.AgentTypes)
                                             {
                                                 <MudSelectItem T="string" Value="@type">@AgentTypeLabel(type)</MudSelectItem>
@@ -381,9 +446,12 @@
                                         <MudText Typo="Typo.caption" Color="Color.Secondary">
                                             @L.T("Higher-priority selections are preferred. Missing, disabled, or unavailable models are skipped.")
                                         </MudText>
-                                    </MudStack>
-                                </MudPaper>
-                            }
+                                                </MudStack>
+                                            </MudExpansionPanel>
+                                        }
+                                    </MudExpansionPanels>
+                                </MudStack>
+                            </MudPaper>
                         </MudStack>
                     </MudPaper>
                 </MudStack>
@@ -622,20 +690,28 @@
     private static string GetPreferredModel(CodeBadgerRolePreference preference, int index) =>
         preference.PreferredModels.ElementAtOrDefault(index) ?? string.Empty;
 
+    private static string GetPreferredModel(IReadOnlyList<string> preferredModels, int index) =>
+        preferredModels.ElementAtOrDefault(index) ?? string.Empty;
+
     private static void SetPreferredModel(CodeBadgerRolePreference preference, int index, string? model)
     {
-        while (preference.PreferredModels.Count <= index)
-            preference.PreferredModels.Add(string.Empty);
-        preference.PreferredModels[index] = model ?? string.Empty;
+        SetPreferredModel(preference.PreferredModels, index, model);
+    }
+
+    private static void SetPreferredModel(List<string> preferredModels, int index, string? model)
+    {
+        while (preferredModels.Count <= index)
+            preferredModels.Add(string.Empty);
+        preferredModels[index] = model ?? string.Empty;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        for (var slot = 0; slot < preference.PreferredModels.Count; slot++)
+        for (var slot = 0; slot < preferredModels.Count; slot++)
         {
-            var value = preference.PreferredModels[slot];
+            var value = preferredModels[slot];
             if (!string.IsNullOrWhiteSpace(value) && !seen.Add(value))
-                preference.PreferredModels[slot] = string.Empty;
+                preferredModels[slot] = string.Empty;
         }
-        while (preference.PreferredModels.Count > 0 && string.IsNullOrEmpty(preference.PreferredModels[^1]))
-            preference.PreferredModels.RemoveAt(preference.PreferredModels.Count - 1);
+        while (preferredModels.Count > 0 && string.IsNullOrEmpty(preferredModels[^1]))
+            preferredModels.RemoveAt(preferredModels.Count - 1);
     }
 
     private string ModelOptionLabel(OpenCodeActivityService.AvailableModel model)

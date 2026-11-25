@@ -34,6 +34,7 @@ public sealed class LauncherSettingsService
                 MigrateLoggingDefaults(root);
                 MigrateLegacyTicketSettings(root);
                 MigrateLegacyAiCommitInstruction(root);
+                MigrateCodeBadgerModelPreferences(root);
                 settings = root?.Deserialize<LauncherSettings>(JsonOptions) ?? new LauncherSettings();
             }
             catch (JsonException)
@@ -55,6 +56,7 @@ public sealed class LauncherSettingsService
             settings.TaskBranchPrefix = NormalizeBranchPrefix(settings.TaskBranchPrefix);
             settings.CodeBadgerRolePreferences ??= CodeBadgerRoles.CreateDefaults();
             CodeBadgerRoles.Normalize(settings.CodeBadgerRolePreferences);
+            NormalizeCodeBadgerModelPreferences(settings);
             foreach (var repository in settings.Repositories)
             {
                 repository.AgentTool = AgentTools.Normalize(repository.AgentTool);
@@ -112,6 +114,7 @@ public sealed class LauncherSettingsService
             }
             settings.CodeBadgerRolePreferences ??= CodeBadgerRoles.CreateDefaults();
             CodeBadgerRoles.Normalize(settings.CodeBadgerRolePreferences);
+            NormalizeCodeBadgerModelPreferences(settings);
             settings.NotificationChannel = settings.NotificationChannel is "Slack" or "Discord"
                 ? settings.NotificationChannel : "Slack";
             Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
@@ -182,6 +185,43 @@ public sealed class LauncherSettingsService
         }
 
         settings.Remove("AiCustomInstruction");
+    }
+
+    private static void MigrateCodeBadgerModelPreferences(JsonNode? root)
+    {
+        if (root is not JsonObject settings)
+            return;
+
+        var rolePreferences = settings["CodeBadgerRolePreferences"] as JsonArray;
+        JsonArray? ModelsForRole(string role) => rolePreferences?.OfType<JsonObject>()
+            .FirstOrDefault(preference => string.Equals(preference["Role"]?.GetValue<string>(), role, StringComparison.Ordinal))?
+            ["PreferredModels"] as JsonArray;
+
+        if (!settings.ContainsKey("CodeBadgerSingleAgentPreferredModels"))
+            settings["CodeBadgerSingleAgentPreferredModels"] = CloneArray(ModelsForRole(CodeBadgerRoles.Worker));
+        if (!settings.ContainsKey("CodeBadgerPlanPreferredModels"))
+            settings["CodeBadgerPlanPreferredModels"] = CloneArray(ModelsForRole(CodeBadgerRoles.Planner));
+        if (!settings.ContainsKey("CodeBadgerBuildPreferredModels"))
+            settings["CodeBadgerBuildPreferredModels"] = CloneArray(ModelsForRole(CodeBadgerRoles.Worker));
+    }
+
+    private static JsonArray CloneArray(JsonArray? source)
+    {
+        var copy = new JsonArray();
+        if (source is not null)
+            foreach (var item in source)
+                copy.Add(item?.DeepClone());
+        return copy;
+    }
+
+    private static void NormalizeCodeBadgerModelPreferences(LauncherSettings settings)
+    {
+        settings.CodeBadgerSingleAgentPreferredModels = CodeBadgerRoles.NormalizePreferredModels(
+            settings.CodeBadgerSingleAgentPreferredModels);
+        settings.CodeBadgerPlanPreferredModels = CodeBadgerRoles.NormalizePreferredModels(
+            settings.CodeBadgerPlanPreferredModels);
+        settings.CodeBadgerBuildPreferredModels = CodeBadgerRoles.NormalizePreferredModels(
+            settings.CodeBadgerBuildPreferredModels);
     }
 
     private static void ClearLegacyTicketMcpServer(RepositoryEntry repository)

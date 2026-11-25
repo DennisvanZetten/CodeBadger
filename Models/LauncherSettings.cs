@@ -24,6 +24,9 @@ public sealed class LauncherSettings
     public string AiModel { get; set; } = "gpt-4o-mini";
     public string AiConflictModel { get; set; } = "gpt-4o-mini";
     public List<CodeBadgerRolePreference> CodeBadgerRolePreferences { get; set; } = CodeBadgerRoles.CreateDefaults();
+    public List<string> CodeBadgerSingleAgentPreferredModels { get; set; } = [];
+    public List<string> CodeBadgerPlanPreferredModels { get; set; } = [];
+    public List<string> CodeBadgerBuildPreferredModels { get; set; } = [];
     public int AiMaxInputTokens { get; set; } = 12000;
     public int SandboxMaxFileMb { get; set; } = 64;
     public int SandboxMaxTotalMb { get; set; } = 1024;
@@ -144,6 +147,18 @@ public static class CodeBadgerRoles
                 preference.PreferredModels.RemoveAt(preference.PreferredModels.Count - 1);
             preferences.Add(preference);
         }
+    }
+
+    public static List<string> NormalizePreferredModels(IEnumerable<string>? preferredModels)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var normalized = (preferredModels ?? [])
+            .Select(model => string.IsNullOrWhiteSpace(model) ? string.Empty : model.Trim())
+            .Select(model => model.Length == 0 || seen.Add(model) ? model : string.Empty)
+            .ToList();
+        while (normalized.Count > 0 && string.IsNullOrEmpty(normalized[^1]))
+            normalized.RemoveAt(normalized.Count - 1);
+        return normalized;
     }
 
     public static string DefaultAgentType(string role) => role switch

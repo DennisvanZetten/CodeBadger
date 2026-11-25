@@ -54,7 +54,14 @@ export function attach(root, dotNetReference) {
     };
     const onKeyDown = event => {
         const textarea = event.target.closest?.(".repository-codebadger-input");
-        if (!textarea || event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+        if (!textarea || event.isComposing) return;
+        if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey &&
+            textarea.dataset.modeToggleEnabled === "true") {
+            event.preventDefault();
+            dotNetReference.invokeMethodAsync("ToggleTerminalModeAsync", textarea.dataset.sessionId);
+            return;
+        }
+        if (event.key !== "Enter" || event.shiftKey) return;
         event.preventDefault();
         dotNetReference.invokeMethodAsync("SubmitTerminalInputAsync", textarea.dataset.sessionId)
             .then(() => resize(textarea));

@@ -267,8 +267,8 @@
                                                                     }
                                                                     @if (field.AllowsCustomValue)
                                                                     {
-                                                                        <MudTextField T="string" Label="@L.T("Add a custom answer")"
-                                                                                      @bind-Value="session.InteractionAnswers[InteractionAnswerKey(interaction, field)]" />
+                                                                        <MudTextField T="string" Label="@L.T("Custom answer for {0}", string.IsNullOrWhiteSpace(field.Title) ? field.Key : field.Title)"
+                                                                                      @bind-Value="session.InteractionAnswers[CustomInteractionAnswerKey(interaction, field)]" />
                                                                     }
                                                                 }
                                                                 else if (field.Options.Count > 0 || field.Type == "boolean")
@@ -292,7 +292,7 @@
                                                                     @if (field.AllowsCustomValue)
                                                                     {
                                                                         <MudTextField T="string" Label="@L.T("Custom answer for {0}", string.IsNullOrWhiteSpace(field.Title) ? field.Key : field.Title)"
-                                                                                      @bind-Value="session.InteractionAnswers[InteractionAnswerKey(interaction, field)]" />
+                                                                                      @bind-Value="session.InteractionAnswers[CustomInteractionAnswerKey(interaction, field)]" />
                                                                     }
                                                                 }
                                                                 else
@@ -647,6 +647,9 @@
     private static string InteractionAnswerKey(CodeBadgerAgentInteraction interaction,
         CodeBadgerAgentInteractionField field) => interaction.Id + ":" + field.Key;
 
+    private static string CustomInteractionAnswerKey(CodeBadgerAgentInteraction interaction,
+        CodeBadgerAgentInteractionField field) => InteractionAnswerKey(interaction, field) + ":custom";
+
     private static bool IsInteractionOptionSelected(CodeBadgerTerminalSession session,
         CodeBadgerAgentInteraction interaction, CodeBadgerAgentInteractionField field, string option) =>
         session.InteractionAnswers.TryGetValue(InteractionAnswerKey(interaction, field), out var current) &&
@@ -674,7 +677,20 @@
             var values = new Dictionary<string, object?>(StringComparer.Ordinal);
             foreach (var field in interaction.Fields)
             {
-                session.InteractionAnswers.TryGetValue(InteractionAnswerKey(interaction, field), out var value);
+                string? value;
+                if (field.Type == "multiselect")
+                {
+                    session.InteractionAnswers.TryGetValue(InteractionAnswerKey(interaction, field), out var selectedValues);
+                    var selected = (selectedValues ?? string.Empty).Split('|', StringSplitOptions.RemoveEmptyEntries).ToList();
+                    session.InteractionAnswers.TryGetValue(CustomInteractionAnswerKey(interaction, field), out var customValue);
+                    if (!string.IsNullOrWhiteSpace(customValue))
+                        selected.Add(customValue);
+                    value = selected.Count == 0 ? null : string.Join('|', selected);
+                }
+                else
+                {
+                    session.InteractionAnswers.TryGetValue(InteractionAnswerKey(interaction, field), out value);
+                }
                 if (field.Required && string.IsNullOrWhiteSpace(value))
                 {
                     Snackbar.Add(L.T("Complete the required field: {0}", string.IsNullOrWhiteSpace(field.Title) ? field.Key : field.Title), Severity.Warning);
@@ -693,6 +709,10 @@
                     "multiselect" => value.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
                     _ => value
                 };
+                if (field.Type is not "multiselect" && field.Options.Count > 0 &&
+                    !field.Options.Any(option => option.Value == value) && !(field.AllowsCustomValue &&
+                        !string.IsNullOrWhiteSpace(session.InteractionAnswers.GetValueOrDefault(CustomInteractionAnswerKey(interaction, field)))))
+                    throw new InvalidOperationException(L.T("Please select one of the available choices."));
                 values[field.Key] = parsed;
             }
             await HandleInteractionReplyAsync(session, interaction, new CodeBadgerAgentInteractionAnswer(Values: values));

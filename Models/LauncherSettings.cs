@@ -11,6 +11,7 @@ public sealed class LauncherSettings
     public bool QuestionSoundEnabled { get; set; } = true;
     public string QuestionSound { get; set; } = "chime";
     public int ToastDurationSeconds { get; set; } = 1;
+    public double CodeBadgerChatScale { get; set; } = 1.0;
     public int LogRetentionDays { get; set; } = 30;
     public string GeneralLogLevel { get; set; } = "Warning";
     public string GitLogLevel { get; set; } = "Warning";

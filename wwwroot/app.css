@@ -2768,8 +2768,8 @@ h1:focus {
 }
 
 .repository-codebadger-message {
-    margin: 0 0 1rem;
-    padding: 0.85rem 1rem;
+    margin: 0 0 calc(1rem * var(--codebadger-chat-scale, 1));
+    padding: calc(0.85rem * var(--codebadger-chat-scale, 1)) calc(1rem * var(--codebadger-chat-scale, 1));
     border: 1px solid var(--mud-palette-divider);
     border-radius: 0.65rem;
 }
@@ -2846,10 +2846,10 @@ h1:focus {
 .repository-codebadger-message-author {
     display: flex;
     align-items: center;
-    gap: 0.45rem;
-    margin-bottom: 0.45rem;
+    gap: calc(0.45rem * var(--codebadger-chat-scale, 1));
+    margin-bottom: calc(0.45rem * var(--codebadger-chat-scale, 1));
     color: var(--mud-palette-text-secondary);
-    font-size: 0.75rem;
+    font-size: calc(0.75rem * var(--codebadger-chat-scale, 1));
     font-weight: 600;
 }
 
@@ -2891,6 +2891,7 @@ h1:focus {
 
 .repository-codebadger-message-content {
     color: var(--mud-palette-text-primary);
+    font-size: calc(0.9rem * var(--codebadger-chat-scale, 1));
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
@@ -3136,8 +3137,59 @@ h1:focus {
 }
 
 .repository-codebadger-statusbar > .mud-typography {
+    margin-left: 0;
+    text-align: left;
+}
+
+.repository-codebadger-statusbar-right {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.3rem;
     margin-left: auto;
+}
+
+.repository-codebadger-session-info {
+    position: relative;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+}
+
+.repository-codebadger-session-info-panel {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 0.45rem);
+    z-index: 5;
+    width: max-content;
+    max-width: min(30rem, 75vw);
+    padding: 0.45rem 0.7rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 0.45rem;
+    background: var(--mud-palette-surface);
+    box-shadow: var(--mud-elevation-4);
+}
+
+.repository-codebadger-session-info-panel .mud-typography {
+    overflow-wrap: anywhere;
     text-align: right;
+}
+
+.repository-codebadger-chat-scale {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.1rem;
+    padding-left: 0.25rem;
+    border-left: 1px solid var(--mud-palette-divider);
+}
+
+.repository-codebadger-chat-scale-value {
+    min-width: 2.6rem;
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.68rem;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
 }
 
 body.repository-terminal-resizing,

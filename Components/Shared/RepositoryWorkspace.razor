@@ -223,7 +223,7 @@
                     <div class="repository-codebadger-session-content">
                         @foreach (var session in _terminalSessions)
                         {
-                            <div @key="session.Id" class="repository-codebadger-terminal-view" style="display:@(session.Id == _selectedTerminalSessionId ? "flex" : "none")">
+                            <div @key="session.Id" class="repository-codebadger-terminal-view" style="display:@(session.Id == _selectedTerminalSessionId ? "flex" : "none");--codebadger-chat-scale:@(_settings.CodeBadgerChatScale.ToString(System.Globalization.CultureInfo.InvariantCulture))">
                                 <div class="repository-codebadger-conversation-shell">
                                     <div class="repository-codebadger-conversation" aria-live="polite">
                                         @if (session.Messages.Count > 0)
@@ -479,7 +479,32 @@
                                             @L.T("Stop agent")
                                         </MudButton>
                                     }
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@SessionAgentModelLabel(session)</MudText>
+                                    <div class="repository-codebadger-statusbar-right">
+                                        <div class="repository-codebadger-session-info">
+                                            @if (_showSessionInfo)
+                                            {
+                                                <div class="repository-codebadger-session-info-panel">
+                                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@SessionAgentModelLabel(session)</MudText>
+                                                </div>
+                                            }
+                                            <MudTooltip Text="@L.T(_showSessionInfo ? "Hide session information" : "Show session information")">
+                                                <MudIconButton Size="Size.Small" Icon="@(_showSessionInfo ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.Info)"
+                                                               aria-label="@L.T(_showSessionInfo ? "Hide session information" : "Show session information")"
+                                                               aria-expanded="@(_showSessionInfo ? "true" : "false")" OnClick="ToggleSessionInfo" />
+                                            </MudTooltip>
+                                        </div>
+                                        <div class="repository-codebadger-chat-scale" aria-label="@L.T("Chat size")">
+                                            <MudTooltip Text="@L.T("Decrease chat size")">
+                                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Remove" aria-label="@L.T("Decrease chat size")"
+                                                               Disabled="@(_settings.CodeBadgerChatScale <= 0.7)" OnClick="() => ChangeChatScaleAsync(-0.1)" />
+                                            </MudTooltip>
+                                            <span class="repository-codebadger-chat-scale-value">@((int)Math.Round(_settings.CodeBadgerChatScale * 100))%</span>
+                                            <MudTooltip Text="@L.T("Increase chat size")">
+                                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add" aria-label="@L.T("Increase chat size")"
+                                                               Disabled="@(_settings.CodeBadgerChatScale >= 1.5)" OnClick="() => ChangeChatScaleAsync(0.1)" />
+                                            </MudTooltip>
+                                        </div>
+                                    </div>
                                 </footer>
                             </div>
                         }
@@ -608,6 +633,7 @@
     private double _aiPanelHeight = 38;
     private AiPanelMode _aiPanelMode = AiPanelMode.Collapsed;
     private bool _showAgentContext = true;
+    private bool _showSessionInfo;
     private bool _splitterAttached;
     private bool _conversationScrollAttached;
     private bool _composerAttached;
@@ -1157,6 +1183,21 @@
     private void ToggleAiPanel() => _aiPanelMode = _aiPanelMode == AiPanelMode.Collapsed ? AiPanelMode.Split : AiPanelMode.Collapsed;
 
     private void ToggleAgentContext() => _showAgentContext = !_showAgentContext;
+
+    private void ToggleSessionInfo() => _showSessionInfo = !_showSessionInfo;
+
+    private async Task ChangeChatScaleAsync(double delta)
+    {
+        _settings.CodeBadgerChatScale = Math.Round(Math.Clamp(_settings.CodeBadgerChatScale + delta, 0.7, 1.5), 1);
+        try
+        {
+            await SettingsService.SaveAsync(_settings);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogWarning(exception, "Could not save the CodeBadger chat size preference.");
+        }
+    }
 
     private void ToggleAiPanelExpanded() => _aiPanelMode = _aiPanelMode == AiPanelMode.Expanded ? AiPanelMode.Split : AiPanelMode.Expanded;
 

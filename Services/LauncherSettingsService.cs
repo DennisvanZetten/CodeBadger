@@ -48,6 +48,7 @@ public sealed class LauncherSettingsService
             settings.CompletionSound = CompletionSounds.Normalize(settings.CompletionSound);
             settings.QuestionSound = CompletionSounds.Normalize(settings.QuestionSound);
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
+            settings.CodeBadgerChatScale = NormalizeCodeBadgerChatScale(settings.CodeBadgerChatScale);
             NormalizeLogSettings(settings);
             settings.GitOverviewStartSize = NormalizeGitOverviewStartSize(settings.GitOverviewStartSize);
             settings.AiConflictModel = string.IsNullOrWhiteSpace(settings.AiConflictModel) ? settings.AiModel : settings.AiConflictModel;
@@ -94,6 +95,7 @@ public sealed class LauncherSettingsService
             settings.CompletionSound = CompletionSounds.Normalize(settings.CompletionSound);
             settings.QuestionSound = CompletionSounds.Normalize(settings.QuestionSound);
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
+            settings.CodeBadgerChatScale = NormalizeCodeBadgerChatScale(settings.CodeBadgerChatScale);
             NormalizeLogSettings(settings);
             settings.GitOverviewStartSize = NormalizeGitOverviewStartSize(settings.GitOverviewStartSize);
             settings.AiConflictModel = string.IsNullOrWhiteSpace(settings.AiConflictModel) ? settings.AiModel : settings.AiConflictModel;
@@ -148,6 +150,9 @@ public sealed class LauncherSettingsService
 
         SettingsSaved?.Invoke();
     }
+
+    private static double NormalizeCodeBadgerChatScale(double scale) =>
+        Math.Round(Math.Clamp(double.IsFinite(scale) ? scale : 1.0, 0.7, 1.5), 1);
 
     private static void MigrateLegacyTicketSettings(JsonNode? root)
     {

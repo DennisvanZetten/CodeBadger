@@ -231,6 +231,8 @@ public sealed class CodeBadgerTerminalSessionState
     public Dictionary<string, int> AgentSessionGenerations { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, long> AgentContextTokens { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, string> AgentContextModels { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, string> RoleModelOverrides { get; set; } = new(StringComparer.Ordinal);
+    public List<string> RecentModels { get; set; } = [];
     public List<CodeBadgerTerminalMessage> Messages { get; set; } = [];
 }
 

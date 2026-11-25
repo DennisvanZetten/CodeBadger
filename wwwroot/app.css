@@ -3143,36 +3143,26 @@ h1:focus {
 
 .repository-codebadger-statusbar-right {
     display: flex;
-    flex: 0 0 auto;
+    flex: 0 1 auto;
     align-items: center;
     gap: 0.3rem;
+    min-width: 0;
     margin-left: auto;
 }
 
 .repository-codebadger-session-info {
-    position: relative;
-    display: flex;
-    flex: 0 0 auto;
+    display: block;
+    flex: 0 1 auto;
     align-items: center;
+    min-width: 0;
+    max-width: min(30rem, 30vw);
 }
 
-.repository-codebadger-session-info-panel {
-    position: absolute;
-    right: 0;
-    bottom: calc(100% + 0.45rem);
-    z-index: 5;
-    width: max-content;
-    max-width: min(30rem, 75vw);
-    padding: 0.45rem 0.7rem;
-    border: 1px solid var(--mud-palette-divider);
-    border-radius: 0.45rem;
-    background: var(--mud-palette-surface);
-    box-shadow: var(--mud-elevation-4);
-}
-
-.repository-codebadger-session-info-panel .mud-typography {
-    overflow-wrap: anywhere;
+.repository-codebadger-session-info .mud-typography {
+    overflow: hidden;
+    text-overflow: ellipsis;
     text-align: right;
+    white-space: nowrap;
 }
 
 .repository-codebadger-chat-scale {

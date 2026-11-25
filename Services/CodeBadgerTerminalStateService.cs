@@ -29,6 +29,8 @@ public sealed class CodeBadgerTerminalStateService
                 session.AgentSessionGenerations ??= new Dictionary<string, int>(StringComparer.Ordinal);
                 session.AgentContextTokens ??= new Dictionary<string, long>(StringComparer.Ordinal);
                 session.AgentContextModels ??= new Dictionary<string, string>(StringComparer.Ordinal);
+                session.RoleModelOverrides ??= new Dictionary<string, string>(StringComparer.Ordinal);
+                session.RecentModels ??= [];
                 session.Messages ??= [];
                 foreach (var message in session.Messages)
                     message.Images ??= [];

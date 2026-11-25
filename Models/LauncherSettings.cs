@@ -240,6 +240,7 @@ public sealed class CodeBadgerTerminalMessage
     public List<string> Images { get; set; } = [];
     public string AgentRole { get; set; } = string.Empty;
     public string ModelReference { get; set; } = string.Empty;
+    public bool IsCodeBadgerMessage { get; set; }
 }
 
 public static class TicketSystems

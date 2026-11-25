@@ -199,9 +199,10 @@
                                                     <div class="repository-codebadger-message-author">
                                                         @if (message.Role == "assistant")
                                                         {
-                                                            <img class="repository-agent-logo" src="@AgentLogoPath" alt="" />
-                                                            @L.T("Assistant")
-                                                            @if (!string.IsNullOrWhiteSpace(message.AgentRole))
+                                                            var isCodeBadgerMessage = message.IsCodeBadgerMessage || message.Text.StartsWith("CodeBadger commands:", StringComparison.Ordinal);
+                                                            <img class="repository-agent-logo" src="@(isCodeBadgerMessage ? "codebadger.svg" : AgentLogoPath)" alt="" />
+                                                            @L.T(isCodeBadgerMessage ? "CodeBadger terminal" : "Assistant")
+                                                            @if (!isCodeBadgerMessage && !string.IsNullOrWhiteSpace(message.AgentRole))
                                                             {
                                                                 <span>· @RoleDisplayName(message.AgentRole)</span>
                                                             }
@@ -1342,7 +1343,8 @@
                 session.State.Messages.Add(new CodeBadgerTerminalMessage
                 {
                     Role = "assistant",
-                    Text = BuildTerminalCommandHelp()
+                    Text = BuildTerminalCommandHelp(),
+                    IsCodeBadgerMessage = true
                 });
                 return TerminalCommandResult.Handled;
 

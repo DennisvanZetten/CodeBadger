@@ -54,6 +54,7 @@ public sealed class LocalizationService
         ["Terminal session {0}"] = ["Terminal session {0}", "Terminalsessie {0}", "Terminalsitzung {0}", "Session de terminal {0}"],
         ["Universal commands for {0} will be available in a future update."] = ["Universal commands for {0} will be available in a future update.", "Universele commando's voor {0} zijn beschikbaar in een toekomstige update.", "Universelle Befehle für {0} sind in einem zukünftigen Update verfügbar.", "Les commandes universelles pour {0} seront disponibles dans une prochaine mise à jour."],
         ["Universal command"] = ["Universal command", "Universeel commando", "Universeller Befehl", "Commande universelle"],
+        ["CodeBadger terminal"] = ["CodeBadger terminal", "CodeBadger-terminal", "CodeBadger-Terminal", "Terminal CodeBadger"],
         ["Ask anything or type /help for commands..."] = ["Ask anything or type /help for commands...", "Stel je vraag of typ /help voor commando's...", "Stelle eine Frage oder gib /help für Befehle ein...", "Posez une question ou saisissez /help pour afficher les commandes..."],
         ["Show terminal commands"] = ["Show terminal commands", "Toon terminalcommando's", "Terminalbefehle anzeigen", "Afficher les commandes du terminal"],
         ["Available terminal commands"] = ["Available terminal commands", "Beschikbare terminalcommando's", "Verfügbare Terminalbefehle", "Commandes du terminal disponibles"],

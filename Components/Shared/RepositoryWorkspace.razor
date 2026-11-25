@@ -102,7 +102,8 @@
                                                aria-label="@L.T("New session")" OnClick="AddTerminalSession" />
                             </MudTooltip>
                         </MudStack>
-                        @if (_terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is { } currentTerminalSession)
+                        @if (_aiPanelMode != AiPanelMode.Collapsed &&
+                             _terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is { } currentTerminalSession)
                         {
                             <div class="repository-codebadger-agent-links">
                                 @foreach (var role in GetTrackedAgentRoles(currentTerminalSession))
@@ -279,17 +280,21 @@
                                                                     {
                                                                         <MudCheckBox T="bool" Label="@option.Label"
                                                                                      Value="@IsInteractionOptionSelected(session, interaction, field, option.Value)"
+                                                                                     Disabled="@IsInteractionOptionDisabled(session, interaction, field, option.Value)"
                                                                                      ValueChanged="@(selected => ToggleInteractionOption(session, interaction, field, option.Value, selected))" />
                                                                     }
                                                                     @if (field.AllowsCustomValue)
                                                                     {
                                                                         <MudTextField T="string" Label="@L.T("Custom answer for {0}", string.IsNullOrWhiteSpace(field.Title) ? field.Key : field.Title)"
+                                                                                      Disabled="@HasSelectedInteractionOption(session, interaction, field)"
+                                                                                      Immediate="true"
                                                                                       @bind-Value="session.InteractionAnswers[CustomInteractionAnswerKey(interaction, field)]" />
                                                                     }
                                                                 }
                                                                 else if (field.Options.Count > 0 || field.Type == "boolean")
                                                                 {
                                                                     <MudSelect T="string" Label="@(string.IsNullOrWhiteSpace(field.Title) ? field.Key : field.Title)"
+                                                                               Disabled="@HasInteractionAnswer(session, interaction, field)"
                                                                                Required="@field.Required"
                                                                                @bind-Value="session.InteractionAnswers[InteractionAnswerKey(interaction, field)]">
                                                                         @if (field.Options.Count > 0)
@@ -308,6 +313,8 @@
                                                                     @if (field.AllowsCustomValue)
                                                                     {
                                                                         <MudTextField T="string" Label="@L.T("Custom answer for {0}", string.IsNullOrWhiteSpace(field.Title) ? field.Key : field.Title)"
+                                                                                      Disabled="@HasSelectedInteractionOption(session, interaction, field)"
+                                                                                      Immediate="true"
                                                                                       @bind-Value="session.InteractionAnswers[CustomInteractionAnswerKey(interaction, field)]" />
                                                                     }
                                                                 }
@@ -316,6 +323,11 @@
                                                                     <MudTextField T="string" Label="@(string.IsNullOrWhiteSpace(field.Title) ? field.Key : field.Title)"
                                                                                   Required="@field.Required"
                                                                                   @bind-Value="session.InteractionAnswers[InteractionAnswerKey(interaction, field)]" />
+                                                                }
+                                                                @if (HasInteractionAnswer(session, interaction, field))
+                                                                {
+                                                                    <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.RestartAlt"
+                                                                               OnClick="() => ResetInteractionAnswer(session, interaction, field)">@L.T("Reset answer")</MudButton>
                                                                 }
                                                                 @if (!string.IsNullOrWhiteSpace(field.Description))
                                                                 {
@@ -709,18 +721,40 @@
         session.InteractionAnswers.TryGetValue(InteractionAnswerKey(interaction, field), out var current) &&
         (current ?? string.Empty).Split('|', StringSplitOptions.RemoveEmptyEntries).Contains(option, StringComparer.Ordinal);
 
+    private static bool HasSelectedInteractionOption(CodeBadgerTerminalSession session,
+        CodeBadgerAgentInteraction interaction, CodeBadgerAgentInteractionField field) =>
+        session.InteractionAnswers.TryGetValue(InteractionAnswerKey(interaction, field), out var current) &&
+        !string.IsNullOrWhiteSpace(current);
+
+    private static bool HasCustomInteractionAnswer(CodeBadgerTerminalSession session,
+        CodeBadgerAgentInteraction interaction, CodeBadgerAgentInteractionField field) =>
+        session.InteractionAnswers.TryGetValue(CustomInteractionAnswerKey(interaction, field), out var current) &&
+        !string.IsNullOrWhiteSpace(current);
+
+    private static bool HasInteractionAnswer(CodeBadgerTerminalSession session,
+        CodeBadgerAgentInteraction interaction, CodeBadgerAgentInteractionField field) =>
+        HasSelectedInteractionOption(session, interaction, field) || HasCustomInteractionAnswer(session, interaction, field);
+
+    private static bool IsInteractionOptionDisabled(CodeBadgerTerminalSession session,
+        CodeBadgerAgentInteraction interaction, CodeBadgerAgentInteractionField field, string option) =>
+        HasCustomInteractionAnswer(session, interaction, field) ||
+        HasSelectedInteractionOption(session, interaction, field) && !IsInteractionOptionSelected(session, interaction, field, option);
+
+    private static void ResetInteractionAnswer(CodeBadgerTerminalSession session,
+        CodeBadgerAgentInteraction interaction, CodeBadgerAgentInteractionField field)
+    {
+        session.InteractionAnswers[InteractionAnswerKey(interaction, field)] = null;
+        session.InteractionAnswers[CustomInteractionAnswerKey(interaction, field)] = null;
+    }
+
     private static void ToggleInteractionOption(CodeBadgerTerminalSession session,
         CodeBadgerAgentInteraction interaction, CodeBadgerAgentInteractionField field, string option, bool selected)
     {
         var key = InteractionAnswerKey(interaction, field);
-        session.InteractionAnswers.TryGetValue(key, out var current);
-        var values = (current ?? string.Empty).Split('|', StringSplitOptions.RemoveEmptyEntries)
-            .ToHashSet(StringComparer.Ordinal);
         if (selected)
-            values.Add(option);
-        else
-            values.Remove(option);
-        session.InteractionAnswers[key] = string.Join('|', values);
+            session.InteractionAnswers[key] = option;
+        else if (IsInteractionOptionSelected(session, interaction, field, option))
+            session.InteractionAnswers[key] = null;
     }
 
     private async Task SubmitInteractionAnswerAsync(CodeBadgerTerminalSession session,
@@ -738,12 +772,15 @@
                     var selected = (selectedValues ?? string.Empty).Split('|', StringSplitOptions.RemoveEmptyEntries).ToList();
                     session.InteractionAnswers.TryGetValue(CustomInteractionAnswerKey(interaction, field), out var customValue);
                     if (!string.IsNullOrWhiteSpace(customValue))
-                        selected.Add(customValue);
+                        selected = [customValue];
                     value = selected.Count == 0 ? null : string.Join('|', selected);
                 }
                 else
                 {
                     session.InteractionAnswers.TryGetValue(InteractionAnswerKey(interaction, field), out value);
+                    session.InteractionAnswers.TryGetValue(CustomInteractionAnswerKey(interaction, field), out var customValue);
+                    if (!string.IsNullOrWhiteSpace(customValue))
+                        value = customValue;
                 }
                 if (field.Required && string.IsNullOrWhiteSpace(value))
                 {

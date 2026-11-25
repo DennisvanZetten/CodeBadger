@@ -380,9 +380,28 @@
                                             <textarea class="repository-codebadger-input" data-session-id="@session.Id" rows="1" autocomplete="off" spellcheck="false"
                                                       data-mode-toggle-enabled="@(CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.Full ? "true" : "false")"
                                                       disabled="@session.IsRotatingAgentRole"
-                                                      aria-label="@L.T("Universal command")" placeholder="@L.T("Type a prompt or /help for commands...")"
+                                                      aria-label="@L.T("Universal command")" placeholder="@L.T("Ask anything or type /help for commands...")"
                                                       @bind="session.Input" @bind:event="oninput"></textarea>
+                                            <MudTooltip Text="@L.T("Show terminal commands")">
+                                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.HelpOutline"
+                                                               Color="@(session.ShowCommands ? Color.Primary : Color.Default)"
+                                                               aria-label="@L.T("Show terminal commands")"
+                                                               OnClick="() => ToggleTerminalCommands(session)" />
+                                            </MudTooltip>
                                         </div>
+                                        @if (session.ShowCommands)
+                                        {
+                                            <div class="repository-codebadger-command-list" role="list" aria-label="@L.T("Available terminal commands")">
+                                                @foreach (var command in TerminalCommands)
+                                                {
+                                                    <button type="button" class="repository-codebadger-command-option"
+                                                            @onclick="() => SelectTerminalCommand(session, command.Command)">
+                                                        <code>@command.Command</code>
+                                                        <span>@L.T(command.Description)</span>
+                                                    </button>
+                                                }
+                                            </div>
+                                        }
                                     </div>
                                 </div>
                                 <footer class="repository-codebadger-statusbar">
@@ -1096,6 +1115,29 @@
 
     private void ToggleAiPanelExpanded() => _aiPanelMode = _aiPanelMode == AiPanelMode.Expanded ? AiPanelMode.Split : AiPanelMode.Expanded;
 
+    private static readonly (string Command, string Description)[] TerminalCommands =
+    [
+        ("/help", "Show this command list"),
+        ("/plan", "Switch to Plan mode; add a task to ask for a plan"),
+        ("/build", "Switch to Build mode; add a task to implement it"),
+        ("/review", "Review current repository changes"),
+        ("/test", "Identify and run relevant tests"),
+        ("/clear", "Clear this CodeBadger session")
+    ];
+
+    private static void ToggleTerminalCommands(CodeBadgerTerminalSession session) =>
+        session.ShowCommands = !session.ShowCommands;
+
+    private static void SelectTerminalCommand(CodeBadgerTerminalSession session, string command)
+    {
+        session.Input = command;
+        session.ShowCommands = false;
+    }
+
+    private string BuildTerminalCommandHelp() => string.Join('\n',
+        new[] { L.T("CodeBadger commands:") }
+            .Concat(TerminalCommands.Select(command => $"{command.Command} — {L.T(command.Description)}")));
+
     private async Task AddTerminalSessionAsync()
     {
         var sessionState = new CodeBadgerTerminalSessionState
@@ -1233,7 +1275,7 @@
                 session.State.Messages.Add(new CodeBadgerTerminalMessage
                 {
                     Role = "assistant",
-                    Text = L.T("CodeBadger commands:\n/help — show this list\n/plan [task] — switch to Plan mode, or ask for a plan\n/build [task] — switch to Build mode, or plan and implement a task\n/review — review the current repository changes\n/test — identify and run relevant tests\n/clear — clear this CodeBadger session")
+                    Text = BuildTerminalCommandHelp()
                 });
                 return TerminalCommandResult.Handled;
 
@@ -1915,6 +1957,7 @@
         public Guid Id => State.Id;
         public string Title => State.Title;
         public string Input { get; set; } = string.Empty;
+        public bool ShowCommands { get; set; }
         public List<string> InputImages { get; } = [];
         public Dictionary<string, string?> InteractionAnswers { get; } = new(StringComparer.Ordinal);
         public TerminalMode Mode { get; set; } = TerminalMode.Plan;

@@ -2952,6 +2952,52 @@ h1:focus {
     gap: 0.65rem;
 }
 
+.repository-codebadger-input-row > .mud-icon-button {
+    flex: 0 0 auto;
+    margin-top: 0.25rem;
+}
+
+.repository-codebadger-command-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+    gap: 0.25rem 0.65rem;
+    margin: 0.35rem 0 0 1.9rem;
+    padding-top: 0.45rem;
+    border-top: 1px solid var(--mud-palette-divider);
+}
+
+.repository-codebadger-command-option {
+    display: flex;
+    align-items: baseline;
+    gap: 0.55rem;
+    min-width: 0;
+    padding: 0.2rem 0.35rem;
+    border: 0;
+    border-radius: 0.35rem;
+    background: transparent;
+    color: var(--mud-palette-text-secondary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.repository-codebadger-command-option:hover,
+.repository-codebadger-command-option:focus-visible {
+    outline: 0;
+    background: color-mix(in srgb, var(--mud-palette-primary) 9%, transparent);
+}
+
+.repository-codebadger-command-option code {
+    flex: 0 0 auto;
+    color: var(--mud-palette-primary);
+    font-family: Consolas, "Cascadia Mono", monospace;
+}
+
+.repository-codebadger-command-option span {
+    min-width: 0;
+    font-size: 0.78rem;
+}
+
 .repository-codebadger-prompt {
     flex: 0 0 auto;
     line-height: 1.45rem;

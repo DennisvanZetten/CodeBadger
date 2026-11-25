@@ -74,9 +74,23 @@
                             @foreach (var session in _terminalSessions)
                             {
                                 <div class="repository-codebadger-session-tab @(session.Id == _selectedTerminalSessionId ? "selected" : string.Empty)">
-                                    <button type="button" class="repository-codebadger-session-select" @onclick="() => SelectTerminalSession(session.Id)">
-                                        @session.Title
-                                    </button>
+                                    @if (_renamingTerminalSessionId == session.Id)
+                                    {
+                                        <input class="repository-codebadger-session-title-input" aria-label="@L.T("Rename session")"
+                                               @bind="_terminalSessionTitleDraft" @onkeydown="args => HandleTerminalSessionRenameKeyDownAsync(session, args)" />
+                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Check" aria-label="@L.T("Save")"
+                                                       OnClick="@(() => SaveTerminalSessionTitleAsync(session))" />
+                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close" aria-label="@L.T("Cancel")"
+                                                       OnClick="CancelTerminalSessionRename" />
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="repository-codebadger-session-select" @onclick="() => SelectTerminalSession(session.Id)">
+                                            @GetTerminalSessionDisplayTitle(session)
+                                        </button>
+                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit" aria-label="@L.T("Rename session")"
+                                                       OnClick="@(() => StartRenameTerminalSession(session))" />
+                                    }
                                     <div class="repository-codebadger-session-role-statuses" aria-label="@L.T("Agent role status")">
                                         @foreach (var role in GetSessionAgentRoles(session))
                                         {
@@ -102,7 +116,7 @@
                                     @if (_terminalSessions.Count > 1)
                                     {
                                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close"
-                                                       aria-label="@L.T("Close session {0}", session.Title)"
+                                                       aria-label="@L.T("Close session {0}", GetTerminalSessionDisplayTitle(session))"
                                                        OnClick="@(() => CloseTerminalSessionAsync(session.Id))" />
                                     }
                                 </div>
@@ -577,7 +591,8 @@
     private LauncherSettings _settings = new();
     private IReadOnlyList<OpenCodeActivityService.AvailableModel> _availableOpenCodeModels = [];
     private Guid _selectedTerminalSessionId;
-    private int _nextTerminalSessionNumber;
+    private Guid _renamingTerminalSessionId;
+    private string _terminalSessionTitleDraft = string.Empty;
     private double _aiPanelHeight = 38;
     private AiPanelMode _aiPanelMode = AiPanelMode.Collapsed;
     private bool _splitterAttached;
@@ -977,9 +992,6 @@
                     Mode = storedSession.Mode == "Build" ? TerminalMode.Build : TerminalMode.Plan
                 };
                 _terminalSessions.Add(terminalSession);
-                var digits = storedSession.Title.Where(char.IsAsciiDigit).ToArray();
-                if (int.TryParse(digits, out var number))
-                    _nextTerminalSessionNumber = Math.Max(_nextTerminalSessionNumber, number);
             }
             if (Repository.CodeBadgerTerminalEnabled && _terminalSessions.Count == 0)
                 await AddTerminalSessionAsync();
@@ -1211,7 +1223,6 @@
         var sessionState = new CodeBadgerTerminalSessionState
         {
             Id = Guid.NewGuid(),
-            Title = L.T("Terminal session {0}", ++_nextTerminalSessionNumber),
             Mode = "Plan"
         };
         _terminalState.Sessions.Add(sessionState);
@@ -1298,6 +1309,7 @@
             return;
 
         var prompt = session.Input.Trim();
+        var titlePrompt = prompt;
         var images = session.InputImages.ToArray();
         var forceBuildRequest = false;
         string? forcedRole = null;
@@ -1317,8 +1329,15 @@
 
         session.IsSubmitting = true;
         if (string.IsNullOrWhiteSpace(prompt))
+        {
             prompt = L.T("Please inspect the attached image and help me with it.");
+            if (string.IsNullOrWhiteSpace(titlePrompt))
+                titlePrompt = prompt;
+        }
         session.State.Mode = session.Mode == TerminalMode.Plan ? "Plan" : "Build";
+        var isFirstUserMessage = !session.State.Messages.Any(message => message.Role == "user");
+        if (isFirstUserMessage && IsGenericTerminalSessionTitle(session.State.Title))
+            session.State.Title = GetTerminalSessionTitle(titlePrompt);
         session.State.Messages.Add(new CodeBadgerTerminalMessage { Role = "user", Text = session.Input.Trim(), Images = images.ToList() });
         session.Input = string.Empty;
         session.InputImages.Clear();
@@ -1328,6 +1347,75 @@
         _ = RunPromptAsync(session, prompt, images, forceBuildRequest, forcedRole);
         if (_composerModule is not null)
             await _composerModule.InvokeVoidAsync("clear", _terminalStack, sessionId);
+    }
+
+    private static bool IsGenericTerminalSessionTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return true;
+
+        foreach (var prefix in new[] { "Terminal session ", "Terminalsessie ", "Terminalsitzung ", "Session de terminal " })
+        {
+            if (title.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+                title[prefix.Length..].All(char.IsAsciiDigit))
+                return true;
+        }
+
+        return false;
+    }
+
+    private string GetTerminalSessionDisplayTitle(CodeBadgerTerminalSession session) =>
+        string.IsNullOrWhiteSpace(session.Title) ? L.T("Terminal session") : session.Title;
+
+    private void StartRenameTerminalSession(CodeBadgerTerminalSession session)
+    {
+        _renamingTerminalSessionId = session.Id;
+        _terminalSessionTitleDraft = session.State.Title;
+    }
+
+    private void CancelTerminalSessionRename()
+    {
+        _renamingTerminalSessionId = Guid.Empty;
+        _terminalSessionTitleDraft = string.Empty;
+    }
+
+    private async Task SaveTerminalSessionTitleAsync(CodeBadgerTerminalSession session)
+    {
+        var title = _terminalSessionTitleDraft.Trim();
+        if (title.Length == 0)
+            return;
+
+        session.State.Title = title.Length > 120 ? title[..120].TrimEnd() : title;
+        CancelTerminalSessionRename();
+        await PersistTerminalStateAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task HandleTerminalSessionRenameKeyDownAsync(CodeBadgerTerminalSession session, KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+            await SaveTerminalSessionTitleAsync(session);
+        else if (args.Key == "Escape")
+            CancelTerminalSessionRename();
+    }
+
+    private static string GetTerminalSessionTitle(string prompt)
+    {
+        foreach (var command in new[] { "/plan ", "/build " })
+        {
+            if (prompt.StartsWith(command, StringComparison.OrdinalIgnoreCase))
+            {
+                prompt = prompt[command.Length..].TrimStart();
+                break;
+            }
+        }
+
+        var line = prompt.Split(['\r', '\n'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault(value => !value.StartsWith("Ticket:", StringComparison.OrdinalIgnoreCase) &&
+                                     !value.StartsWith("Branch:", StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(line))
+            return string.Empty;
+        return line.Length > 120 ? line[..120].TrimEnd() + "…" : line;
     }
 
     private TerminalCommandResult ProcessTerminalCommand(CodeBadgerTerminalSession session, ref string prompt,

@@ -62,6 +62,12 @@
                 <legend>@L.T("Terminals")</legend>
                 <MudSwitch T="bool" @bind-Value="Repository.CodeBadgerTerminalEnabled" Color="Color.Primary"
                            Label="@L.T("Enable CodeBadger terminal")" />
+                <MudNumericField T="decimal?" @bind-Value="Repository.CodeBadgerSessionCostLimitUsd"
+                                 Label="@L.T("CodeBadger session cost limit (USD)")" Min="0" Step="1"
+                                 Adornment="Adornment.Start" AdornmentText="$" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    @L.T("Limits reported OpenCode costs per CodeBadger session tab. Leave empty or set to zero to disable. Direct AI-terminal usage is not included. A running request may exceed the limit, and costs omitted by OpenCode cannot be counted.")
+                </MudText>
                 @if (Repository.CodeBadgerTerminalEnabled)
                 {
                     <MudSelect T="string" @bind-Value="Repository.CodeBadgerOrchestrationMode" Label="@L.T("AI team orchestration")"

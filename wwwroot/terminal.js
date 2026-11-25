@@ -27,6 +27,10 @@ export function create(id, element, dotnet) {
     const fitAddon = new FitAddon.FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.open(element);
+    const focusOnPointerDown = () => terminal.focus();
+    const focusOnClick = () => terminal.focus();
+    element.addEventListener('pointerdown', focusOnPointerDown, true);
+    element.addEventListener('click', focusOnClick);
     let resizeFrame = 0;
     const fitWhenVisible = () => {
         if (resizeFrame) return;
@@ -43,7 +47,7 @@ export function create(id, element, dotnet) {
         fitWhenVisible();
     });
     observer.observe(element);
-    terminals.set(id, { terminal, fitAddon, observer, dotnet, fitWhenVisible, get resizeFrame() { return resizeFrame; } });
+    terminals.set(id, { terminal, fitAddon, observer, dotnet, element, fitWhenVisible, focusOnPointerDown, focusOnClick, get resizeFrame() { return resizeFrame; } });
     fitWhenVisible();
 }
 
@@ -60,6 +64,8 @@ export function dispose(id) {
     const entry = terminals.get(id);
     if (!entry) return;
     entry.observer.disconnect();
+    entry.element.removeEventListener('pointerdown', entry.focusOnPointerDown, true);
+    entry.element.removeEventListener('click', entry.focusOnClick);
     if (entry.resizeFrame) cancelAnimationFrame(entry.resizeFrame);
     entry.terminal.dispose();
     terminals.delete(id);

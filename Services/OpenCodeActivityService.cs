@@ -309,6 +309,52 @@ public sealed class OpenCodeActivityService
     }
 
     public sealed record PromptTextMessage(string Id, string Text, bool IsFinal);
+    public sealed record PromptMessageCost(string Id, decimal CostUsd);
+
+    public async Task<IReadOnlyList<PromptMessageCost>> GetCompletedPromptCostsAsync(string sessionId, string directory,
+        string promptMessageId, IReadOnlySet<string> previousMessageIds, CancellationToken cancellationToken)
+    {
+        if (!IsValidSessionId(sessionId) || !IsValidMessageId(promptMessageId))
+            return [];
+        using var response = await RequestAsync($"/api/session/{sessionId}/message?order=desc&limit=100", cancellationToken,
+            workingDirectory: directory);
+        if (response?.RootElement.TryGetProperty("data", out var messages) != true || messages.ValueKind != JsonValueKind.Array)
+            return [];
+
+        var result = new List<(long Created, PromptMessageCost Cost)>();
+        foreach (var message in messages.EnumerateArray())
+        {
+            var info = TryGetPropertyIgnoreCase(message, "info", out var infoValue) && infoValue.ValueKind == JsonValueKind.Object
+                ? infoValue : TryGetPropertyIgnoreCase(message, "message", out var messageValue) && messageValue.ValueKind == JsonValueKind.Object
+                    ? messageValue : message;
+            if (!string.Equals(ReadRole(info, message), "assistant", StringComparison.Ordinal))
+                continue;
+            var id = GetStringIgnoreCase(info, "id");
+            if (id.Length == 0)
+                id = GetStringIgnoreCase(message, "id");
+            if (id.Length == 0 || id == promptMessageId || previousMessageIds.Contains(id))
+                continue;
+
+            if (TryGetPropertyIgnoreCase(info, "error", out var error) && error.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
+                continue;
+            var finish = GetStringIgnoreCase(info, "finish");
+            if (!string.IsNullOrEmpty(finish) && finish is not ("stop" or "length"))
+                continue;
+            var hasCompletionTimestamp = TryGetPropertyIgnoreCase(info, "time", out var time) && time.ValueKind == JsonValueKind.Object &&
+                TryGetPropertyIgnoreCase(time, "completed", out var completed) && completed.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined);
+            if (finish is not ("stop" or "length") && !hasCompletionTimestamp)
+                continue;
+            if (!TryGetPropertyIgnoreCase(info, "cost", out var costValue) || costValue.ValueKind != JsonValueKind.Number ||
+                !costValue.TryGetDecimal(out var cost) || cost < 0)
+                continue;
+
+            var created = TryGetPropertyIgnoreCase(info, "time", out time) && time.ValueKind == JsonValueKind.Object
+                ? GetInt64(time, "created") : 0;
+            result.Add((created, new PromptMessageCost(id, cost)));
+        }
+        return result.OrderBy(item => item.Created).ThenBy(item => item.Cost.Id, StringComparer.Ordinal)
+            .Select(item => item.Cost).ToArray();
+    }
 
     public async Task<IReadOnlyList<PromptTextMessage>> GetPromptTextMessagesAsync(string sessionId, string directory,
         string promptMessageId, IReadOnlySet<string> previousMessageIds, CancellationToken cancellationToken)

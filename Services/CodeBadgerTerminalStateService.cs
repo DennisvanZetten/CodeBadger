@@ -32,6 +32,7 @@ public sealed class CodeBadgerTerminalStateService
                 session.RoleModelOverrides ??= new Dictionary<string, string>(StringComparer.Ordinal);
                 session.RecentModels ??= [];
                 session.Messages ??= [];
+                session.CostMessageIds ??= [];
                 foreach (var message in session.Messages)
                     message.Images ??= [];
                 session.Mode = session.Mode == "Build" ? "Build" : "Plan";

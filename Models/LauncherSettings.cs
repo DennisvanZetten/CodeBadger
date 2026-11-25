@@ -75,6 +75,7 @@ public sealed class RepositoryEntry
     public string AgentTool { get; set; } = AgentTools.OpenCode;
     public bool OpenCodeSandboxEnabled { get; set; }
     public bool CodeBadgerTerminalEnabled { get; set; }
+    public decimal? CodeBadgerSessionCostLimitUsd { get; set; }
     public string CodeBadgerOrchestrationMode { get; set; } = CodeBadgerOrchestrationModes.SingleAgent;
     public string OpenCodeSandboxModel { get; set; } = "bonzai/gpt-6-luna";
     public string OpenCodeSandboxFiles { get; set; } = string.Empty;
@@ -233,6 +234,8 @@ public sealed class CodeBadgerTerminalSessionState
     public Dictionary<string, string> RoleModelOverrides { get; set; } = new(StringComparer.Ordinal);
     public List<string> RecentModels { get; set; } = [];
     public List<CodeBadgerTerminalMessage> Messages { get; set; } = [];
+    public decimal CostUsd { get; set; }
+    public List<string> CostMessageIds { get; set; } = [];
 }
 
 public sealed class CodeBadgerTerminalMessage

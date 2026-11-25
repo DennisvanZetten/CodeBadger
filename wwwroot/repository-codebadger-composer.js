@@ -52,6 +52,20 @@ export function attach(root, dotNetReference) {
         const textarea = event.target.closest?.(".repository-codebadger-input");
         if (textarea) resize(textarea);
     };
+    const onPointerDown = event => {
+        const textarea = event.target.closest?.(".repository-codebadger-input");
+        if (textarea && !textarea.disabled && document.activeElement !== textarea)
+            textarea.focus({ preventScroll: true });
+    };
+    const onClick = event => {
+        const target = event.target;
+        if (target.closest?.("button, a, input, select, [role='button']")) return;
+        const composer = target.closest?.(".repository-codebadger-composer");
+        const textarea = target.closest?.(".repository-codebadger-input")
+            ?? composer?.querySelector(".repository-codebadger-input");
+        if (textarea && !textarea.disabled && document.activeElement !== textarea)
+            textarea.focus({ preventScroll: true });
+    };
     const onKeyDown = event => {
         const textarea = event.target.closest?.(".repository-codebadger-input");
         if (!textarea || event.isComposing) return;
@@ -84,12 +98,14 @@ export function attach(root, dotNetReference) {
     };
     const scan = () => root.querySelectorAll(".repository-codebadger-input").forEach(resize);
     root.addEventListener("input", onInput);
+    root.addEventListener("pointerdown", onPointerDown, true);
+    root.addEventListener("click", onClick);
     root.addEventListener("keydown", onKeyDown);
     root.addEventListener("paste", onPaste);
     const observer = new MutationObserver(scan);
     observer.observe(root, { childList: true, subtree: true });
     scan();
-    observers.set(root, { observer, onInput, onKeyDown, onPaste });
+    observers.set(root, { observer, onInput, onPointerDown, onClick, onKeyDown, onPaste });
 }
 
 export function clear(root, sessionId) {
@@ -104,6 +120,8 @@ export function detach(root) {
     if (!state) return;
     state.observer.disconnect();
     root.removeEventListener("input", state.onInput);
+    root.removeEventListener("pointerdown", state.onPointerDown, true);
+    root.removeEventListener("click", state.onClick);
     root.removeEventListener("keydown", state.onKeyDown);
     root.removeEventListener("paste", state.onPaste);
     observers.delete(root);

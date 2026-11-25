@@ -79,10 +79,11 @@
                                         <button type="button" class="repository-codebadger-session-select" @onclick="() => SelectTerminalSession(session.Id)">
                                             @GetTerminalSessionDisplayTitle(session)
                                         </button>
-                                        <div class="repository-codebadger-session-role-statuses" aria-label="@L.T("Agent role status")">
-                                            @foreach (var role in GetSessionAgentRoles(session))
-                                            {
-                                                var status = GetAgentRoleProgress(session, role);
+                                        @if (GetActiveSessionAgentRoles(session) is { Count: > 0 } activeRoles)
+                                        {
+                                            var role = activeRoles[_agentStatusRotationIndex % activeRoles.Count];
+                                            var status = GetAgentRoleProgress(session, role);
+                                            <div class="repository-codebadger-session-role-statuses" aria-label="@L.T("Agent role status")">
                                                 <span class="repository-codebadger-role-status @RoleProgressCssClass(status)"
                                                       title="@L.T("{0}: {1}", RoleDisplayName(role), RoleProgressLabel(status))"
                                                       aria-label="@L.T("{0}: {1}", RoleDisplayName(role), RoleProgressLabel(status))">
@@ -99,8 +100,8 @@
                                                         <MudIcon Icon="@RoleProgressIcon(status)" Class="repository-codebadger-role-status-icon" aria-hidden="true" />
                                                     }
                                                 </span>
-                                            }
-                                        </div>
+                                            </div>
+                                        }
                                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close"
                                                        aria-label="@L.T("Close session {0}", GetTerminalSessionDisplayTitle(session))"
                                                        OnClick="@(() => CloseTerminalSessionAsync(session.Id))" />
@@ -145,6 +146,21 @@
                                      title="@L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })">
                                 @L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })
                             </MudText>
+                            @if (_terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is { } costSession)
+                            {
+                                var costLimit = Repository.CodeBadgerSessionCostLimitUsd.GetValueOrDefault();
+                                <MudText Typo="Typo.caption" Color="@(costLimit > 0 && costSession.State.CostUsd >= costLimit ? Color.Warning : Color.Secondary)"
+                                         Class="repository-codebadger-cost" aria-label="@L.T("Session cost")">
+                                    @if (costLimit > 0)
+                                    {
+                                        @($"{FormatUsd(costSession.State.CostUsd)} / {FormatUsd(costLimit)}")
+                                    }
+                                    else
+                                    {
+                                        @FormatUsd(costSession.State.CostUsd)
+                                    }
+                                </MudText>
+                            }
                             <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Open AI terminal full screen" : "Close AI terminal")">
                                 <MudIconButton Size="Size.Small"
                                                Icon="@(_aiPanelMode == AiPanelMode.Collapsed ? Icons.Material.Filled.Fullscreen : Icons.Material.Filled.Close)"
@@ -636,6 +652,9 @@
     private bool _conversationScrollAttached;
     private bool _composerAttached;
     private bool _wasCodeBadgerTerminalEnabled;
+    private Timer? _agentStatusRotationTimer;
+    private int _agentStatusRotationIndex;
+    private bool _isDisposed;
     private string? _agentModelReference;
     private string _agentModelLookupKey = string.Empty;
     private string _contextModelLookupKey = string.Empty;
@@ -706,6 +725,41 @@
             CodeBadgerOrchestrationModes.PlanBuild => [CodeBadgerRoles.Planner, CodeBadgerRoles.Worker],
             _ => [session.Mode == TerminalMode.Plan ? CodeBadgerRoles.Planner : CodeBadgerRoles.Worker]
         };
+
+    private List<string> GetActiveSessionAgentRoles(CodeBadgerTerminalSession session) =>
+        GetSessionAgentRoles(session)
+            .Where(role => GetAgentRoleProgress(session, role) is AgentRoleProgress.Working or AgentRoleProgress.Waiting)
+            .ToList();
+
+    private void SynchronizeAgentStatusRotationTimer()
+    {
+        var shouldRotate = Repository.CodeBadgerTerminalEnabled &&
+            _terminalSessions.Any(session => GetActiveSessionAgentRoles(session).Count > 1);
+        if (shouldRotate && _agentStatusRotationTimer is null)
+        {
+            _agentStatusRotationTimer = new Timer(async _ =>
+            {
+                try
+                {
+                    await InvokeAsync(() =>
+                    {
+                        if (_isDisposed)
+                            return;
+                        _agentStatusRotationIndex++;
+                        StateHasChanged();
+                    });
+                }
+                catch (ObjectDisposedException) { }
+                catch (InvalidOperationException) { }
+            }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+        }
+        else if (!shouldRotate)
+        {
+            _agentStatusRotationTimer?.Dispose();
+            _agentStatusRotationTimer = null;
+            _agentStatusRotationIndex = 0;
+        }
+    }
 
     private AgentRoleProgress GetAgentRoleProgress(CodeBadgerTerminalSession session, string role)
     {
@@ -1107,6 +1161,8 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        SynchronizeAgentStatusRotationTimer();
+
         if (firstRender && DetachedWindows.IsDocking(Repository.Id))
             DetachedWindows.MarkWorkspaceAttached(Repository.Id);
 
@@ -1745,6 +1801,39 @@
             session.InputImages.RemoveAt(index);
     }
 
+    private static string FormatUsd(decimal amount) =>
+        amount.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-US"));
+
+    private void EnsureSessionBudgetAvailable(CodeBadgerTerminalSession session)
+    {
+        var limit = Repository.CodeBadgerSessionCostLimitUsd.GetValueOrDefault();
+        if (limit > 0 && session.State.CostUsd >= limit)
+            throw new SessionCostLimitReachedException(L.T("The CodeBadger session cost limit of {0} has been reached. No more agent requests will be started.", FormatUsd(limit)));
+    }
+
+    private async Task RecordPromptCostsAsync(CodeBadgerTerminalSession session, string agentSessionId,
+        string promptMessageId, IReadOnlySet<string> previousMessageIds, CancellationToken cancellationToken)
+    {
+        var costs = await OpenCodeActivity.GetCompletedPromptCostsAsync(agentSessionId, Repository.Path,
+            promptMessageId, previousMessageIds, cancellationToken);
+        var knownIds = session.State.CostMessageIds.ToHashSet(StringComparer.Ordinal);
+        var added = false;
+        foreach (var cost in costs)
+        {
+            var key = agentSessionId + ":" + cost.Id;
+            if (!knownIds.Add(key))
+                continue;
+            session.State.CostMessageIds.Add(key);
+            session.State.CostUsd += cost.CostUsd;
+            added = true;
+        }
+        if (added)
+        {
+            await PersistTerminalStateAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
     private async Task RunPromptAsync(CodeBadgerTerminalSession session, string prompt, IReadOnlyList<string> images,
         bool forceBuildRequest = false, string? forcedRole = null)
     {
@@ -1813,6 +1902,11 @@
                 session.RoleProgress[session.State.ActiveAgentRole] = AgentRoleProgress.Stopped;
             Snackbar.Add(L.T("The agent request was stopped."), Severity.Info);
         }
+        catch (SessionCostLimitReachedException exception)
+        {
+            session.Error = exception.Message;
+            Snackbar.Add(exception.Message, Severity.Warning);
+        }
         catch (Exception exception)
         {
             if (!string.IsNullOrWhiteSpace(session.State.ActiveAgentRole))
@@ -1868,6 +1962,7 @@
         IReadOnlyList<string>? images = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        EnsureSessionBudgetAvailable(session);
         session.State.ActiveAgentRole = role;
         session.RoleProgress[role] = AgentRoleProgress.Working;
         if (session.Id == _selectedTerminalSessionId)
@@ -1878,6 +1973,7 @@
         var preferenceAgent = await ResolvePreferenceAgentAsync(preference, role, cancellationToken);
         var model = await ResolveRoleModelAsync(session, preference, role, prompt, preferences, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
+        EnsureSessionBudgetAvailable(session);
         var parentId = parentRole is not null && session.State.AgentSessionIds.TryGetValue(parentRole, out var existingParent)
             ? existingParent : null;
         var orchestrationMode = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode);
@@ -1895,9 +1991,11 @@
         else
         {
             if (!string.IsNullOrWhiteSpace(model))
-                await OpenCodeActivity.SwitchModelAsync(agentSessionId, Repository.Path, model, cancellationToken);
-            await OpenCodeActivity.SwitchAgentAsync(agentSessionId, Repository.Path, preferenceAgent, cancellationToken);
+                await OpenCodeActivity.SwitchModelAsync(agentSessionId!, Repository.Path, model, cancellationToken);
+            await OpenCodeActivity.SwitchAgentAsync(agentSessionId!, Repository.Path, preferenceAgent, cancellationToken);
         }
+        if (string.IsNullOrWhiteSpace(agentSessionId))
+            throw new InvalidOperationException("OpenCode did not return an agent session ID.");
         cancellationToken.ThrowIfCancellationRequested();
         session.ActiveAgentSessionId = agentSessionId;
         session.ActiveAgentTool = Repository.AgentTool;
@@ -1976,7 +2074,9 @@
             }
             await WaitForAgentCompletionAsync(session, role, Repository.AgentTool, agentSessionId, cancellationToken,
                 RefreshPromptMessagesAsync);
-            response = await WaitForPromptAnswerAsync(agentSessionId, promptMessageId, previousMessageIds, cancellationToken)
+            var completedResponse = await WaitForPromptAnswerAsync(agentSessionId, promptMessageId, previousMessageIds, cancellationToken);
+            await RecordPromptCostsAsync(session, agentSessionId, promptMessageId, previousMessageIds, cancellationToken);
+            response = completedResponse
                 ?? throw new InvalidOperationException(L.T("The AI session finished without a completed text response for this request."));
             await RefreshPromptMessagesAsync();
             await RefreshAgentContextAsync(session, role, sessionKey, agentSessionId, cancellationToken);
@@ -2277,17 +2377,23 @@
                     model.InputCost, model.OutputCost, model.HasPublishedCost
                 });
                 var request = $"Choose the best model for the AI role '{RoleDisplayName(role)}' and the task below. Infer task suitability from model name/family and context/output limits. Treat price as a cost tradeoff, never assume an unpriced model is free. Prefer a priced model when quality looks comparable; choose an unpriced model only when its likely task quality is materially better. Choose exactly one Reference from the candidate JSON; if metadata cannot establish a quality advantage, choose the cheapest capable model with a published price. Return only JSON {{\"model\":\"provider/model\"}}.\nTask:\n{taskDescription}\nCandidates (prices USD per million tokens):\n{System.Text.Json.JsonSerializer.Serialize(candidates)}";
+                EnsureSessionBudgetAvailable(session);
                 var selectorPromptId = await OpenCodeActivity.SendPromptAsync(selectorSessionId, Repository.Path,
                     request, cancellationToken, routerAgent);
                 if (string.IsNullOrWhiteSpace(selectorPromptId))
                     throw new InvalidOperationException("OpenCode did not return a message ID for model selection.");
                 await OpenCodeActivity.WaitForSessionAsync(selectorSessionId, Repository.Path, cancellationToken);
                 var result = await WaitForPromptAnswerAsync(selectorSessionId, selectorPromptId, previousMessageIds, cancellationToken);
+                await RecordPromptCostsAsync(session, selectorSessionId, selectorPromptId, previousMessageIds, cancellationToken);
                 var selected = ReadStringField(result ?? string.Empty, "model");
                 var match = available.FirstOrDefault(model => string.Equals(model.Reference, selected, StringComparison.OrdinalIgnoreCase));
                 if (match is not null) return match.Reference;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (SessionCostLimitReachedException)
             {
                 throw;
             }
@@ -2401,6 +2507,10 @@
 
     public async ValueTask DisposeAsync()
     {
+        _isDisposed = true;
+        _agentStatusRotationTimer?.Dispose();
+        _agentStatusRotationTimer = null;
+
         if (_splitterModule is not null)
         {
             try
@@ -2429,6 +2539,8 @@
     private enum TerminalMode { Plan, Build }
     private enum TerminalCommandResult { NotACommand, Handled, SubmitPrompt }
     private enum AgentRoleProgress { NotStarted, Working, Waiting, Completed, Stopped, Failed }
+
+    private sealed class SessionCostLimitReachedException(string message) : InvalidOperationException(message);
 
     private sealed class CodeBadgerTerminalSession
     {

@@ -70,47 +70,46 @@
 
                 <div class="repository-terminal-splitter">
                     <div class="repository-codebadger-session-tabs-row">
-                    <div class="repository-codebadger-session-tabs-viewport">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="repository-codebadger-session-tabs">
-                            @foreach (var session in _terminalSessions)
-                            {
-                                <div class="repository-codebadger-session-tab @(session.Id == _selectedTerminalSessionId ? "selected" : string.Empty)" data-session-id="@session.Id"
-                                     @oncontextmenu:preventDefault="true" @oncontextmenu="@(args => OpenTerminalSessionContextMenu(session.Id, args))">
-                                    <button type="button" class="repository-codebadger-session-select" @onclick="() => SelectTerminalSession(session.Id)">
-                                        @GetTerminalSessionDisplayTitle(session)
-                                    </button>
-                                    <div class="repository-codebadger-session-role-statuses" aria-label="@L.T("Agent role status")">
-                                        @foreach (var role in GetSessionAgentRoles(session))
-                                        {
-                                            var status = GetAgentRoleProgress(session, role);
-                                            <span class="repository-codebadger-role-status @RoleProgressCssClass(status)"
-                                                  title="@L.T("{0}: {1}", RoleDisplayName(role), RoleProgressLabel(status))"
-                                                  aria-label="@L.T("{0}: {1}", RoleDisplayName(role), RoleProgressLabel(status))">
-                                                @ShortRoleDisplayName(role)
-                                                @if (status == AgentRoleProgress.Working)
-                                                {
-                                                    <span class="repository-codebadger-mascot-progress" aria-hidden="true">
-                                                        <img src="codebadger.svg" alt="" />
-                                                        <span>✦</span>
-                                                    </span>
-                                                }
-                                                else
-                                                {
-                                                    <MudIcon Icon="@RoleProgressIcon(status)" Class="repository-codebadger-role-status-icon" aria-hidden="true" />
-                                                }
-                                            </span>
-                                        }
-                                    </div>
-                                    @if (_terminalSessions.Count > 1)
-                                    {
+                        <div class="repository-codebadger-session-tabs-viewport">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="repository-codebadger-session-tabs">
+                                @foreach (var session in _terminalSessions)
+                                {
+                                    <div class="repository-codebadger-session-tab @(session.Id == _selectedTerminalSessionId ? "selected" : string.Empty)" data-session-id="@session.Id"
+                                         @oncontextmenu:preventDefault="true" @oncontextmenu="@(args => OpenTerminalSessionContextMenu(session.Id, args))">
+                                        <button type="button" class="repository-codebadger-session-select" @onclick="() => SelectTerminalSession(session.Id)">
+                                            @GetTerminalSessionDisplayTitle(session)
+                                        </button>
+                                        <div class="repository-codebadger-session-role-statuses" aria-label="@L.T("Agent role status")">
+                                            @foreach (var role in GetSessionAgentRoles(session))
+                                            {
+                                                var status = GetAgentRoleProgress(session, role);
+                                                <span class="repository-codebadger-role-status @RoleProgressCssClass(status)"
+                                                      title="@L.T("{0}: {1}", RoleDisplayName(role), RoleProgressLabel(status))"
+                                                      aria-label="@L.T("{0}: {1}", RoleDisplayName(role), RoleProgressLabel(status))">
+                                                    @ShortRoleDisplayName(role)
+                                                    @if (status == AgentRoleProgress.Working)
+                                                    {
+                                                        <span class="repository-codebadger-mascot-progress" aria-hidden="true">
+                                                            <img src="codebadger.svg" alt="" />
+                                                            <span>✦</span>
+                                                        </span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <MudIcon Icon="@RoleProgressIcon(status)" Class="repository-codebadger-role-status-icon" aria-hidden="true" />
+                                                    }
+                                                </span>
+                                            }
+                                        </div>
                                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close"
+                                                       Class="@(_terminalSessions.Count > 1 ? string.Empty : "repository-codebadger-session-close-placeholder")"
+                                                       Disabled="@(_terminalSessions.Count <= 1)"
                                                        aria-label="@L.T("Close session {0}", GetTerminalSessionDisplayTitle(session))"
                                                        OnClick="@(() => CloseTerminalSessionAsync(session.Id))" />
-                                    }
-                                </div>
-                            }
-                        </MudStack>
-                    </div>
+                                    </div>
+                                }
+                            </MudStack>
+                        </div>
                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add" Class="repository-codebadger-session-add"
                                        title="@L.T("New session")" aria-label="@L.T("New session")" OnClick="AddTerminalSession" />
                     </div>
@@ -132,25 +131,33 @@
                             </button>
                         </div>
                     }
-                    <div class="repository-terminal-splitter-footer">
                     <div class="repository-terminal-splitter-grip" role="separator" aria-orientation="horizontal"
                          aria-label="@L.T("Resize terminal panels")" tabindex="0"></div>
-                    <div class="repository-terminal-splitter-actions">
-                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="repository-codebadger-mode-label"
-                                 title="@L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })">
-                            @L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })
-                        </MudText>
-                        <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal" : "Hide AI terminal")">
-                            <MudIconButton Size="Size.Small" Icon="@(_aiPanelMode == AiPanelMode.Collapsed ? Icons.Material.Filled.Visibility : Icons.Material.Filled.VisibilityOff)"
-                                           aria-label="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal" : "Hide AI terminal")"
-                                           OnClick="ToggleAiPanel" />
-                        </MudTooltip>
-                        <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Expanded ? "Restore split view" : "Expand AI terminal")">
-                            <MudIconButton Size="Size.Small" Icon="@(_aiPanelMode == AiPanelMode.Expanded ? Icons.Material.Filled.CloseFullscreen : Icons.Material.Filled.OpenInFull)"
-                                           aria-label="@L.T(_aiPanelMode == AiPanelMode.Expanded ? "Restore split view" : "Expand AI terminal")"
-                                           OnClick="ToggleAiPanelExpanded" />
-                        </MudTooltip>
-                    </div>
+                    <div class="repository-terminal-splitter-footer">
+                        @if (_aiPanelMode != AiPanelMode.Expanded)
+                        {
+                            <MudIconButton Size="Size.Small" Class="repository-codebadger-agent-toggle"
+                                           Icon="@(_showAgentContext ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                           title="@L.T(_showAgentContext ? "Hide agent context bars" : "Show agent context bars")"
+                                           aria-label="@L.T(_showAgentContext ? "Hide agent context bars" : "Show agent context bars")"
+                                           aria-expanded="@(_showAgentContext ? "true" : "false")" OnClick="ToggleAgentContext" />
+                        }
+                        <div class="repository-terminal-splitter-actions">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="repository-codebadger-mode-label"
+                                     title="@L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })">
+                                @L.T(Repository.CodeBadgerOrchestrationMode switch { CodeBadgerOrchestrationModes.PlanBuild => "Plan and build", CodeBadgerOrchestrationModes.Full => "Full orchestration", _ => "One agent for everything" })
+                            </MudText>
+                            <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal" : "Hide AI terminal")">
+                                <MudIconButton Size="Size.Small" Icon="@(_aiPanelMode == AiPanelMode.Collapsed ? Icons.Material.Filled.Visibility : Icons.Material.Filled.VisibilityOff)"
+                                               aria-label="@L.T(_aiPanelMode == AiPanelMode.Collapsed ? "Show AI terminal" : "Hide AI terminal")"
+                                               OnClick="ToggleAiPanel" />
+                            </MudTooltip>
+                            <MudTooltip Text="@L.T(_aiPanelMode == AiPanelMode.Expanded ? "Restore split view" : "Expand AI terminal")">
+                                <MudIconButton Size="Size.Small" Icon="@(_aiPanelMode == AiPanelMode.Expanded ? Icons.Material.Filled.CloseFullscreen : Icons.Material.Filled.OpenInFull)"
+                                               aria-label="@L.T(_aiPanelMode == AiPanelMode.Expanded ? "Restore split view" : "Expand AI terminal")"
+                                               OnClick="ToggleAiPanelExpanded" />
+                            </MudTooltip>
+                        </div>
                     </div>
                 </div>
 
@@ -159,11 +166,6 @@
                              _terminalSessions.FirstOrDefault(session => session.Id == _selectedTerminalSessionId) is { } currentTerminalSession)
                         {
                             <div class="repository-codebadger-agent-sidebar">
-                                <MudIconButton Size="Size.Small" Class="repository-codebadger-agent-toggle"
-                                               Icon="@(_showAgentContext ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
-                                               title="@L.T(_showAgentContext ? "Hide agent context bars" : "Show agent context bars")"
-                                               aria-label="@L.T(_showAgentContext ? "Hide agent context bars" : "Show agent context bars")"
-                                               aria-expanded="@(_showAgentContext ? "true" : "false")" OnClick="ToggleAgentContext" />
                             @if (_showAgentContext)
                             {
                             <div class="repository-codebadger-agent-links">
@@ -224,15 +226,7 @@
                             <div @key="session.Id" class="repository-codebadger-terminal-view" style="display:@(session.Id == _selectedTerminalSessionId ? "flex" : "none")">
                                 <div class="repository-codebadger-conversation-shell">
                                     <div class="repository-codebadger-conversation" aria-live="polite">
-                                        @if (session.Messages.Count == 0)
-                                        {
-                                            <div class="repository-codebadger-empty-state">
-                                                <MudText Typo="Typo.body2" Color="Color.Secondary">
-                                                    @L.T("Your submitted commands will appear here, followed by the assistant response.")
-                                                </MudText>
-                                            </div>
-                                        }
-                                        else
+                                        @if (session.Messages.Count > 0)
                                         {
                                             @foreach (var message in session.Messages)
                                             {

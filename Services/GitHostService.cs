@@ -264,7 +264,7 @@ public sealed class GitHostService(LocalizationService localization, ILogger<Git
                 logger.LogInformation("Git host CLI {Executable} error response: {CommandResponse}", executable, TruncateLogOutput(error));
             return new CommandResult(process.ExitCode == 0, output.Trim(), message);
         }
-        catch (Win32Exception exception)
+        catch (Exception exception) when (exception is Win32Exception or InvalidOperationException)
         {
             logger.LogWarning("Could not start Git host CLI {Executable}: {ErrorMessage}", executable, exception.Message);
             return new CommandResult(false, string.Empty, localization.T("{0} is not installed or is not available in PATH.", executable));
@@ -316,7 +316,7 @@ public sealed class GitHostService(LocalizationService localization, ILogger<Git
                     TruncateLogOutput(process.ExitCode == 0 || string.IsNullOrWhiteSpace(error) ? output : error));
             return new CommandResult(process.ExitCode == 0, output.Trim(), message);
         }
-        catch (Win32Exception exception)
+        catch (Exception exception) when (exception is Win32Exception or InvalidOperationException)
         {
             logger.LogWarning("Could not start Git host CLI {Executable}: {ErrorMessage}", executable, exception.Message);
             return new CommandResult(false, string.Empty, localization.T("{0} is not installed or is not available in PATH.", executable));

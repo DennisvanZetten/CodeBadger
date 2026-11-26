@@ -58,6 +58,8 @@
                 }
             </MudStack>
 
+            @if (!OperatingSystem.IsMacCatalyst())
+            {
             <fieldset class="repository-dialog-section">
                 <legend>@L.T("Terminals")</legend>
                 <MudSwitch T="bool" @bind-Value="Repository.CodeBadgerTerminalEnabled" Color="Color.Primary"
@@ -81,8 +83,9 @@
                     @L.T("Show a CodeBadger terminal alongside the selected AI terminal. The AI terminal is collapsed by default.")
                 </MudText>
             </fieldset>
+            }
 
-            @if (Repository.CodeBadgerTerminalEnabled)
+            @if (Repository.CodeBadgerTerminalEnabled && !OperatingSystem.IsMacCatalyst())
             {
                 <fieldset class="repository-dialog-section">
                     <legend>@L.T("AI team roles")</legend>
@@ -152,7 +155,7 @@
                           HelperText="@L.T("For example: use Conventional Commits and write in English.")"
                           Lines="10" MaxLines="18" Sizing="InputSizing.Auto" Class="repository-instruction-editor" Variant="Variant.Outlined" />
 
-            @if (AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode)
+            @if (AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode && !OperatingSystem.IsMacCatalyst())
             {
                 <fieldset class="repository-dialog-section">
                     <legend>Sandbox</legend>
@@ -164,6 +167,9 @@
                                    OnClick="OpenSandboxSettingsAsync">@L.T("Settings")</MudButton>
                     </MudStack>
                 </fieldset>
+            }
+            @if (AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode)
+            {
                 <fieldset class="repository-dialog-section">
                     <legend>@L.T("Slack notifications")</legend>
                     <MudSwitch T="bool" @bind-Value="Repository.SlackNotificationsMuted" Color="Color.Primary"

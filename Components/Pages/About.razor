@@ -229,22 +229,25 @@
 
     private static async Task<string> GetCommandVersionAsync(string command, string argument)
     {
-        if (!OperatingSystem.IsWindows())
-            return string.Empty;
         try
         {
             var startInfo = new System.Diagnostics.ProcessStartInfo
             {
-                FileName = "cmd.exe",
+                FileName = OperatingSystem.IsWindows() ? "cmd.exe" : command,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true
             };
-            startInfo.ArgumentList.Add("/d");
-            startInfo.ArgumentList.Add("/s");
-            startInfo.ArgumentList.Add("/c");
-            startInfo.ArgumentList.Add($"\"{command} {argument}\"");
+            if (OperatingSystem.IsWindows())
+            {
+                startInfo.ArgumentList.Add("/d");
+                startInfo.ArgumentList.Add("/s");
+                startInfo.ArgumentList.Add("/c");
+                startInfo.ArgumentList.Add($"\"{command} {argument}\"");
+            }
+            else
+                startInfo.ArgumentList.Add(argument);
             using var process = System.Diagnostics.Process.Start(startInfo);
             if (process is null) return string.Empty;
             var output = await process.StandardOutput.ReadToEndAsync();

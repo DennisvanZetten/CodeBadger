@@ -1314,9 +1314,8 @@ public sealed class OpenCodeActivityService
         using var repositoryScope = !string.IsNullOrWhiteSpace(workingDirectory)
             ? _logger.BeginScope(new Dictionary<string, object?> { ["RepositoryPath"] = workingDirectory })
             : null;
-        if (!OperatingSystem.IsWindows())
+        if (OperatingSystem.IsAndroid() || OperatingSystem.IsIOS())
             return null;
-
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
         string executable;

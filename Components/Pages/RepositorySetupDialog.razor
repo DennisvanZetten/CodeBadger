@@ -140,6 +140,10 @@
                     <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" aria-label="@L.T("Browse for destination folder")"
                                    Disabled="@(!FolderPicker.IsSupported || _busy)" OnClick="BrowseDestinationAsync" />
                 </MudStack>
+                @if (FolderPicker.IsSupported)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("On Mac, choose the repository parent folder in the file picker to grant CodeBadger access.")</MudText>
+                }
                 <MudTextField @bind-Value="_folderName" Label="@L.T(_mode == SetupMode.Clone ? "Local folder name" : "Repository name")" Variant="Variant.Outlined" />
                 @if (_mode == SetupMode.Clone)
                 {

@@ -150,13 +150,7 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
             if (!OperatingSystem.IsWindows())
                 return;
 
-            var tasks = Agents.Select(agent => CheckAgentAsync(agent, cancellationToken));
-            var results = await Task.WhenAll(tasks);
-            lock (_sync)
-            {
-                _statuses = results.Where(status => status is not null).Cast<AgentUpdateStatus>().ToArray();
-                _hasChecked = true;
-            }
+            await CheckAgentsAsync(cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -170,6 +164,17 @@ public sealed class AgentUpdateService(ILogger<AgentUpdateService> logger)
         {
             lock (_sync) _isChecking = false;
             UpdatesChanged?.Invoke();
+        }
+    }
+
+    private async Task CheckAgentsAsync(CancellationToken cancellationToken)
+    {
+        var tasks = Agents.Select(agent => CheckAgentAsync(agent, cancellationToken));
+        var results = await Task.WhenAll(tasks);
+        lock (_sync)
+        {
+            _statuses = results.Where(status => status is not null).Cast<AgentUpdateStatus>().ToArray();
+            _hasChecked = true;
         }
     }
 

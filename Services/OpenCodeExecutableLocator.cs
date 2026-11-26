@@ -41,7 +41,6 @@ public static class OpenCodeExecutableLocator
 
     public static string Find()
     {
-        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("OpenCode sandbox requires Windows.");
         if (PreferredExecutable is { } preferred && File.Exists(preferred))
             return preferred;
         if (HealthCheckCompleted)
@@ -60,13 +59,23 @@ public static class OpenCodeExecutableLocator
             if (!Path.IsPathFullyQualified(root))
                 continue;
 
-            foreach (var candidate in new[]
-            {
-                Path.Combine(root, "opencode.exe"),
-                Path.Combine(root, "node_modules", "@opencode", "cli", "bin", "opencode.exe"),
-                Path.Combine(root, "node_modules", "opencode-ai", "bin", "opencode.exe"),
-                Path.Combine(root, "node_modules", "opencode-ai", "node_modules", "opencode-windows-x64", "bin", "opencode.exe")
-            })
+            var executableName = OperatingSystem.IsWindows() ? "opencode.exe" : "opencode";
+            var candidates = OperatingSystem.IsWindows()
+                ? new[]
+                {
+                    Path.Combine(root, executableName),
+                    Path.Combine(root, "node_modules", "@opencode", "cli", "bin", executableName),
+                    Path.Combine(root, "node_modules", "opencode-ai", "bin", executableName),
+                    Path.Combine(root, "node_modules", "opencode-ai", "node_modules", "opencode-windows-x64", "bin", executableName)
+                }
+                : new[]
+                {
+                    Path.Combine(root, executableName),
+                    Path.Combine(root, "node_modules", "@opencode", "cli", "bin", executableName),
+                    Path.Combine(root, "node_modules", "opencode-ai", "bin", executableName)
+                };
+
+            foreach (var candidate in candidates)
             {
                 if (File.Exists(candidate))
                 {
@@ -105,11 +114,12 @@ public static class OpenCodeExecutableLocator
 
     public static bool AreSameFile(string first, string second)
     {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         if (!OperatingSystem.IsWindows())
-            return string.Equals(Path.GetFullPath(first), Path.GetFullPath(second), StringComparison.OrdinalIgnoreCase);
+            return string.Equals(Path.GetFullPath(first), Path.GetFullPath(second), comparison);
         if (!File.Exists(first) || !File.Exists(second))
             return false;
-        if (string.Equals(Path.GetFullPath(first), Path.GetFullPath(second), StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(Path.GetFullPath(first), Path.GetFullPath(second), comparison))
             return true;
         try
         {

@@ -368,14 +368,16 @@ public sealed class StartupDetectionService(
     private static (string Method, string? NodeVersion) DetectOpenCodeInstallMethod(string executablePath)
     {
         var normalized = executablePath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
-        if (normalized.Contains("\\node_modules\\", StringComparison.OrdinalIgnoreCase) ||
-            normalized.Contains("\\nvm4w\\", StringComparison.OrdinalIgnoreCase))
+        if (normalized.Contains("node_modules", OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) ||
+            normalized.Contains(OperatingSystem.IsWindows() ? "\\nvm4w\\" : "/.nvm/", OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
         {
-            if (normalized.Contains("\\nvm4w\\", StringComparison.OrdinalIgnoreCase))
+            if (OperatingSystem.IsWindows() && normalized.Contains("\\nvm4w\\", StringComparison.OrdinalIgnoreCase))
                 return ("npm", null);
             var nvmRoot = Environment.GetEnvironmentVariable("NVM_HOME");
             if (string.IsNullOrWhiteSpace(nvmRoot))
-                nvmRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "AppData", "Local", "nvm");
+                nvmRoot = OperatingSystem.IsWindows()
+                    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "AppData", "Local", "nvm")
+                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nvm", "versions", "node");
             string? installRoot = null;
             try
             {
@@ -393,9 +395,9 @@ public sealed class StartupDetectionService(
                 ? ("npm", firstSegment)
                 : ("npm", null);
         }
-        if (normalized.Contains("\\scoop\\apps\\", StringComparison.OrdinalIgnoreCase))
+        if (normalized.Contains(OperatingSystem.IsWindows() ? "\\scoop\\apps\\" : "/scoop/apps/", OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
             return ("Scoop", null);
-        if (normalized.Contains("\\WinGet\\Packages\\", StringComparison.OrdinalIgnoreCase))
+        if (OperatingSystem.IsWindows() && normalized.Contains("\\WinGet\\Packages\\", StringComparison.OrdinalIgnoreCase))
             return ("WinGet", null);
         return ("Standalone executable", null);
     }
@@ -404,6 +406,8 @@ public sealed class StartupDetectionService(
     {
         try
         {
+            if (!OperatingSystem.IsWindows())
+                return Path.GetFullPath(path);
             var canonical = OpenCodeExecutableLocator.CanonicalizePath(path);
             var nvmHome = Environment.GetEnvironmentVariable("NVM_HOME") ??
                           Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "AppData", "Local", "nvm");
@@ -422,15 +426,36 @@ public sealed class StartupDetectionService(
     {
         var fullPath = Path.GetFullPath(path);
         var fullDirectory = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        return fullPath.StartsWith(fullDirectory, StringComparison.OrdinalIgnoreCase);
+        return fullPath.StartsWith(fullDirectory, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
     }
 
     private static IEnumerable<string> GetKnownManagedOpenCodeExecutables()
     {
-        if (!OperatingSystem.IsWindows())
-            yield break;
-
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!OperatingSystem.IsWindows())
+        {
+            var unixCandidates = new List<string>
+            {
+                Path.Combine(home, ".opencode", "bin", "opencode"),
+                Path.Combine(home, ".local", "bin", "opencode"),
+                "/opt/homebrew/bin/opencode",
+                "/usr/local/bin/opencode"
+            };
+            var nvmVersions = Path.Combine(home, ".nvm", "versions", "node");
+            try
+            {
+                if (Directory.Exists(nvmVersions))
+                    unixCandidates.AddRange(Directory.EnumerateDirectories(nvmVersions)
+                        .Select(versionDirectory => Path.Combine(versionDirectory, "lib", "node_modules", "@opencode", "cli", "bin", "opencode")));
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+
+            foreach (var candidate in unixCandidates.Where(File.Exists))
+                yield return candidate;
+            yield break;
+        }
+
         var candidates = new List<string>
         {
             Path.Combine(Environment.GetEnvironmentVariable("NVM_HOME") ?? Path.Combine(home, "AppData", "Local", "nvm"),

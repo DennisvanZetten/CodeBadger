@@ -4,6 +4,8 @@ public sealed class RepositoryFolderPicker
 {
 #if WINDOWS
     public bool IsSupported => true;
+#elif MACCATALYST
+    public bool IsSupported => true;
 #else
     public bool IsSupported => false;
 #endif
@@ -21,6 +23,8 @@ public sealed class RepositoryFolderPicker
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(nativeWindow));
         var folder = await picker.PickSingleFolderAsync();
         return folder?.Path;
+#elif MACCATALYST
+        return await MacCatalystFolderPicker.PickFolderAsync();
 #else
         await Task.CompletedTask;
         return null;

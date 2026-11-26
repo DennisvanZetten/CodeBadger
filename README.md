@@ -32,6 +32,21 @@ Monitor the run under the repository's Actions tab. When it succeeds, open Relea
 
 **Migration note:** previous local builds used temporary certificates. Install the first GitHub release manually from its setup ZIP. That release pins the permanent signing certificate; future versions can then be offered in-app.
 
+## Local Mac Catalyst debugging
+
+The Mac Catalyst target supports local Debug builds on macOS with Xcode and the .NET MAUI workload. Debug builds do not enable the App Sandbox, so CodeBadger can access selected repositories, user agent configuration, and installed command-line tools (`git`, `gh`, `az`, and AI agents). Release builds keep the sandboxed entitlements for Mac App Store compatibility; repository access and external tool launching need a separate design before distributing such builds.
+
+Select the repository folder with the native folder picker when opening a repository or choosing a clone/create destination. The app adds common Homebrew, npm, Node, and agent install folders to its process `PATH`; if a tool is installed elsewhere, launch CodeBadger from a shell whose `PATH` includes it.
+
+Build from a Mac with:
+
+```bash
+dotnet workload install maui
+dotnet build CodeBadger.csproj -f net10.0-maccatalyst -c Debug
+```
+
+The Windows AppContainer sandbox, Windows Terminal, and application updater remain Windows-only.
+
 ## Local Windows build
 
 ### OpenCode sandbox modes

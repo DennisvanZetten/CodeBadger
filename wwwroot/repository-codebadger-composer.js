@@ -19,7 +19,7 @@ function attachDebug(root) {
     let lastPointerMove = performance.now();
     let lastFrame = performance.now();
     let maxFrameDelay = 0;
-    let lastReport = expectedFrame;
+    let lastReport = lastFrame;
     let frame = 0;
     let reportTimer = 0;
 

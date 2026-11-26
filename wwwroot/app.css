@@ -2281,6 +2281,10 @@ h1:focus {
     grid-template-rows: minmax(0, 1fr) auto 0;
 }
 
+.repository-terminal-stack.codebadger-chat-only {
+    grid-template-rows: minmax(0, 1fr);
+}
+
 .repository-ai-pane,
 .repository-codebadger-pane {
     display: flex;

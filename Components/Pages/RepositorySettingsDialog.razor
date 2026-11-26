@@ -58,12 +58,12 @@
                 }
             </MudStack>
 
-            @if (!OperatingSystem.IsMacCatalyst())
+            @if (!OperatingSystem.IsMacCatalyst() || AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode)
             {
             <fieldset class="repository-dialog-section">
                 <legend>@L.T("Terminals")</legend>
                 <MudSwitch T="bool" @bind-Value="Repository.CodeBadgerTerminalEnabled" Color="Color.Primary"
-                           Label="@L.T("Enable CodeBadger terminal")" />
+                            Label="@L.T(OperatingSystem.IsMacCatalyst() ? "Enable CodeBadger chat" : "Enable CodeBadger terminal")" />
                 <MudNumericField T="decimal?" @bind-Value="Repository.CodeBadgerSessionCostLimitUsd"
                                  Label="@L.T("CodeBadger session cost limit (USD)")" Min="0" Step="1"
                                  Adornment="Adornment.Start" AdornmentText="$" Variant="Variant.Outlined" Margin="Margin.Dense" />
@@ -80,12 +80,15 @@
                     </MudSelect>
                 }
                 <MudText Typo="Typo.caption" Color="Color.Secondary">
-                    @L.T("Show a CodeBadger terminal alongside the selected AI terminal. The AI terminal is collapsed by default.")
+                    @L.T(OperatingSystem.IsMacCatalyst()
+                        ? "Use the CodeBadger chat with OpenCode. It runs in this window; the interactive agent terminal is not available on Mac."
+                        : "Show a CodeBadger terminal alongside the selected AI terminal. The AI terminal is collapsed by default.")
                 </MudText>
             </fieldset>
             }
 
-            @if (Repository.CodeBadgerTerminalEnabled && !OperatingSystem.IsMacCatalyst())
+            @if (Repository.CodeBadgerTerminalEnabled &&
+                 (!OperatingSystem.IsMacCatalyst() || AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode))
             {
                 <fieldset class="repository-dialog-section">
                     <legend>@L.T("AI team roles")</legend>

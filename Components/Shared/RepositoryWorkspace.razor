@@ -10,6 +10,8 @@
 @inject IEnumerable<ICodeBadgerAgentInteractionProvider> AgentInteractionProviders
 @inject CodeBadgerTerminalStateService TerminalStateService
 @inject LauncherSettingsService SettingsService
+@inject GitBranchService GitBranchService
+@inject AiCommitMessageService AiCommitMessageService
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 
@@ -1286,8 +1288,8 @@
 
     private IReadOnlyList<(string Command, string Description)> GetAvailableTerminalCommands() =>
         AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode
-            ? TerminalCommands
-            : TerminalCommands.Where(command => command.Command != "/model").ToArray();
+            ? TerminalCommands.Where(command => command.Command != "/commit" || !Repository.OpenCodeSandboxEnabled).ToArray()
+            : TerminalCommands.Where(command => command.Command is not ("/model" or "/commit")).ToArray();
 
     private IReadOnlyList<OpenCodeActivityService.AvailableModel> GetTerminalModelOptions(CodeBadgerTerminalSession session, string query) =>
         _availableOpenCodeModels
@@ -1609,6 +1611,22 @@
 
         var prompt = session.Input.Trim();
         var images = session.InputImages.ToArray();
+
+        if (session.PendingCommitMessage)
+        {
+            var commitReply = session.Input.Trim();
+            session.IsSubmitting = true;
+            session.Messages.Add(new CodeBadgerTerminalMessage { Role = "user", Text = commitReply });
+            session.Input = string.Empty;
+            session.InputImages.Clear();
+            await PersistTerminalStateAsync();
+            await InvokeAsync(StateHasChanged);
+            _ = CompleteTerminalCommitAsync(session, commitReply);
+            if (_composerModule is not null)
+                await _composerModule.InvokeVoidAsync("clear", _terminalStack, sessionId);
+            return;
+        }
+
         var forceBuildRequest = false;
         string? forcedRole = null;
         if (images.Length == 0)
@@ -1655,6 +1673,19 @@
                 session.Input = string.Empty;
                 await PersistTerminalStateAsync();
                 await InvokeAsync(StateHasChanged);
+                if (_composerModule is not null)
+                    await _composerModule.InvokeVoidAsync("clear", _terminalStack, sessionId);
+                return;
+            }
+
+            if (commandResult == TerminalCommandResult.Commit)
+            {
+                session.IsSubmitting = true;
+                session.Messages.Add(new CodeBadgerTerminalMessage { Role = "user", Text = session.Input.Trim() });
+                session.Input = string.Empty;
+                await PersistTerminalStateAsync();
+                await InvokeAsync(StateHasChanged);
+                _ = RunTerminalCommitAsync(session, prompt);
                 if (_composerModule is not null)
                     await _composerModule.InvokeVoidAsync("clear", _terminalStack, sessionId);
                 return;
@@ -1771,9 +1802,8 @@
                 return TerminalCommandResult.SubmitPrompt;
 
             case "/commit":
-                forcedRole = CodeBadgerRoles.Critic;
-                prompt = L.T("Review the current staged and unstaged changes and suggest a concise commit message that summarizes them. Do not create a commit or modify files. {0}", argument);
-                return TerminalCommandResult.SubmitPrompt;
+                prompt = argument;
+                return TerminalCommandResult.Commit;
 
             default:
                 return TerminalCommandResult.NotACommand;
@@ -1829,6 +1859,136 @@
         if (limit > 0 && session.State.CostUsd >= limit)
             throw new SessionCostLimitReachedException(L.T("The CodeBadger session cost limit of {0} has been reached. No more agent requests will be started.", FormatUsd(limit)));
     }
+
+    private async Task RunTerminalCommitAsync(CodeBadgerTerminalSession session, string customInstruction)
+    {
+        try
+        {
+            if (AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode || Repository.OpenCodeSandboxEnabled)
+            {
+                AddTerminalCommandResponse(session,
+                    L.T("The /commit command requires a configured, non-sandboxed OpenCode repository."));
+                return;
+            }
+
+            var settings = await SettingsService.LoadAsync();
+            var repository = settings.Repositories.FirstOrDefault(candidate =>
+                AgentTools.Normalize(candidate.AgentTool) == AgentTools.OpenCode && !candidate.OpenCodeSandboxEnabled &&
+                string.Equals(OpenCodeActivityService.NormalizePath(candidate.Path),
+                    OpenCodeActivityService.NormalizePath(Repository.Path), StringComparison.OrdinalIgnoreCase));
+            if (repository is null)
+            {
+                AddTerminalCommandResponse(session,
+                    L.T("The /commit command requires a configured, non-sandboxed OpenCode repository."));
+                return;
+            }
+
+            var stage = await GitBranchService.StageAllChangesAsync(Repository.Path);
+            if (!stage.Success)
+            {
+                AddTerminalCommandResponse(session, L.T("Could not stage repository changes: {0}", stage.Message));
+                return;
+            }
+
+            var diff = await GitBranchService.GetStagedDiffAsync(Repository.Path);
+            if (!diff.Success)
+            {
+                AddTerminalCommandResponse(session, L.T("Could not read staged changes: {0}", diff.Message));
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(diff.Output))
+            {
+                AddTerminalCommandResponse(session, L.T("There are no changes to commit."));
+                return;
+            }
+
+            var canGenerate = !string.IsNullOrWhiteSpace(settings.AiApiKey) ||
+                settings.AiProvider.Equals("Ollama", StringComparison.OrdinalIgnoreCase) ||
+                settings.AiProvider.Equals("Custom URL", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(settings.AiCustomUrl);
+            if (canGenerate)
+            {
+                var branch = await GitBranchService.GetCurrentBranchAsync(Repository.Path);
+                var generated = await AiCommitMessageService.GenerateAsync(settings, diff.Output, branch.Branch,
+                    string.Join("\n", new[] { repository.AiCustomInstruction, customInstruction }
+                        .Where(instruction => !string.IsNullOrWhiteSpace(instruction))), Repository.Path);
+                if (generated.Success && !string.IsNullOrWhiteSpace(generated.Title) && generated.Title.Trim().Length <= 72)
+                {
+                    await CommitTerminalStagedChangesAsync(session, generated.Title, generated.Description);
+                    return;
+                }
+
+                AddTerminalCommandResponse(session, L.T(
+                    "AI could not generate a valid commit message ({0}). Reply with a commit title of 1–72 characters; you may add a description on the next line.",
+                    generated.Success ? L.T("The provider returned no commit title.") : generated.Error));
+                session.PendingCommitMessage = true;
+                return;
+            }
+
+            AddTerminalCommandResponse(session,
+                L.T("Changes are staged. Reply with a commit title of 1–72 characters; you may add a description on the next line."));
+            session.PendingCommitMessage = true;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogWarning(exception, "Could not run the CodeBadger terminal commit command for repository {RepositoryPath}.", Repository.Path);
+            AddTerminalCommandResponse(session, L.T("Could not run the commit command: {0}", exception.Message));
+        }
+        finally
+        {
+            session.IsSubmitting = false;
+            await PersistTerminalStateAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task CompleteTerminalCommitAsync(CodeBadgerTerminalSession session, string message)
+    {
+        try
+        {
+            var lines = message.Split('\n', 2, StringSplitOptions.TrimEntries);
+            var title = lines[0].Trim();
+            if (string.IsNullOrWhiteSpace(title) || title.Length > 72)
+            {
+                AddTerminalCommandResponse(session,
+                    L.T("Commit title must contain 1–72 characters. Reply with a title and optional description."));
+                return;
+            }
+
+            var description = lines.Length > 1 ? lines[1].Trim() : string.Empty;
+            await CommitTerminalStagedChangesAsync(session, title, description);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogWarning(exception, "Could not complete the CodeBadger terminal commit for repository {RepositoryPath}.", Repository.Path);
+            AddTerminalCommandResponse(session, L.T("Commit failed: {0}", exception.Message));
+        }
+        finally
+        {
+            session.IsSubmitting = false;
+            await PersistTerminalStateAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task CommitTerminalStagedChangesAsync(CodeBadgerTerminalSession session, string title, string description)
+    {
+        var message = string.IsNullOrWhiteSpace(description) ? title.Trim() : $"{title.Trim()}\n\n{description.Trim()}";
+        var result = await GitBranchService.CommitAsync(Repository.Path, message);
+        if (result.Success)
+            session.PendingCommitMessage = false;
+        AddTerminalCommandResponse(session, result.Success
+            ? L.T("Commit created successfully: {0}", title.Trim())
+            : L.T("Commit failed: {0}", result.Message));
+    }
+
+    private void AddTerminalCommandResponse(CodeBadgerTerminalSession session, string text) =>
+        session.Messages.Add(new CodeBadgerTerminalMessage
+        {
+            Role = "assistant",
+            Text = text,
+            IsCodeBadgerMessage = true
+        });
 
     private async Task RecordPromptCostsAsync(CodeBadgerTerminalSession session, string agentSessionId,
         string promptMessageId, IReadOnlySet<string> previousMessageIds, CancellationToken cancellationToken)
@@ -2556,7 +2716,7 @@
 
     private enum AiPanelMode { Split, Collapsed, Expanded }
     private enum TerminalMode { Plan, Build }
-    private enum TerminalCommandResult { NotACommand, Handled, SubmitPrompt }
+    private enum TerminalCommandResult { NotACommand, Handled, SubmitPrompt, Commit }
     private enum AgentRoleProgress { NotStarted, Working, Waiting, Completed, Stopped, Failed }
 
     private sealed class SessionCostLimitReachedException(string message) : InvalidOperationException(message);
@@ -2576,6 +2736,7 @@
         public Dictionary<string, AgentRoleProgress> RoleProgress { get; } = new(StringComparer.Ordinal);
         public bool IsRotatingAgentRole { get; set; }
         public bool IsSubmitting { get; set; }
+        public bool PendingCommitMessage { get; set; }
         public string? Error { get; set; }
         public CancellationTokenSource? RunCancellation { get; set; }
         public string? ActiveAgentSessionId { get; set; }

@@ -243,6 +243,7 @@ public sealed class CodeBadgerTerminalMessage
 {
     public string Role { get; set; } = "user";
     public string Text { get; set; } = string.Empty;
+    public string SourceRequest { get; set; } = string.Empty;
     public List<string> Images { get; set; } = [];
     public string AgentRole { get; set; } = string.Empty;
     public string ModelReference { get; set; } = string.Empty;

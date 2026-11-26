@@ -2134,19 +2134,27 @@
                 case CodeBadgerOrchestrationModes.PlanBuild:
                     var requestedMode = session.Mode;
                     var currentUserIndex = session.State.Messages.FindLastIndex(message => message.Role == "user");
-                    var priorPlan = !forceBuildRequest && currentUserIndex > 0
+                    var priorPlan = !forceBuildRequest && requestedMode == TerminalMode.Build && currentUserIndex > 0
                         ? session.State.Messages.Take(currentUserIndex)
-                            .LastOrDefault(message => message.Role == "assistant" && message.AgentRole == CodeBadgerRoles.Planner)?.Text
+                            .LastOrDefault(message => message.Role == "assistant" &&
+                                message.AgentRole == CodeBadgerRoles.Planner &&
+                                PlanBuildHandoff.IsSameRequest(message.SourceRequest, prompt))?.Text
                         : null;
                     var plan = session.Mode == TerminalMode.Build && !string.IsNullOrWhiteSpace(priorPlan)
                         ? priorPlan
                         : await RunRoleAsync(session, CodeBadgerRoles.Planner,
                             session.Mode == TerminalMode.Plan ? prompt : "First produce an actionable plan for this implementation request. Do not edit files yet.\n\n" + prompt,
                             parentRole: null, preferences, cancellationToken, images);
+                    if (session.State.Messages.LastOrDefault(message =>
+                        message.Role == "assistant" && message.AgentRole == CodeBadgerRoles.Planner) is { } planMessage)
+                    {
+                        planMessage.SourceRequest = prompt;
+                        await PersistTerminalStateAsync();
+                    }
                     if (requestedMode == TerminalMode.Plan)
                         break;
                     await RunRoleAsync(session, CodeBadgerRoles.Worker,
-                        $"Implement the following plan in this repository. Make the required code changes, run appropriate checks, and report the result.\n\nPlan:\n{plan}",
+                        PlanBuildHandoff.CreateWorkerPrompt(prompt, plan),
                         CodeBadgerRoles.Planner, preferences, cancellationToken, images);
                     session.Mode = TerminalMode.Build;
                     session.State.Mode = "Build";

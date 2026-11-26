@@ -3050,6 +3050,9 @@ body.repository-terminal-resizing * {
 .repository-codebadger-composer-body { flex: 1 1 auto; min-width: 0; }
 
 .repository-codebadger-input-debug {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.85rem;
     margin: 0 0 0.2rem 1.9rem;
     color: var(--mud-palette-success);
     font-family: Consolas, "Cascadia Mono", monospace;
@@ -3059,6 +3062,11 @@ body.repository-terminal-resizing * {
 
 .repository-codebadger-input-debug.disabled {
     color: var(--mud-palette-error);
+}
+
+.repository-codebadger-input-debug .stalled {
+    color: var(--mud-palette-error);
+    font-weight: 700;
 }
 
 .repository-codebadger-input-row {

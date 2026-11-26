@@ -482,8 +482,12 @@
                                                 }
                                             </div>
                                         }
-                                        <div class="repository-codebadger-input-debug @(session.IsRotatingAgentRole ? "disabled" : "enabled")" aria-live="polite">
-                                            Input: @(session.IsRotatingAgentRole ? "DISABLED" : "ENABLED")
+                                        <div class="repository-codebadger-input-debug @(session.IsRotatingAgentRole ? "disabled" : "enabled")"
+                                             data-session-id="@session.Id" aria-live="polite">
+                                            <span>Input: @(session.IsRotatingAgentRole ? "DISABLED" : "ENABLED")</span>
+                                            <span data-debug-hover>Hover: waiting</span>
+                                            <span data-debug-focus>Focus: checking</span>
+                                            <span data-debug-loop>Loop delay: measuring</span>
                                         </div>
                                         <div class="repository-codebadger-input-row">
                                             <span class="repository-codebadger-prompt" aria-hidden="true">›</span>

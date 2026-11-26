@@ -5,6 +5,87 @@ function resize(textarea) {
     textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
 }
 
+function describeElement(element) {
+    if (!element) return "none";
+    const tag = element.tagName?.toLowerCase() ?? "element";
+    const id = element.id ? `#${element.id}` : "";
+    const className = typeof element.className === "string"
+        ? element.className.trim().split(/\s+/).filter(Boolean).slice(0, 2).map(name => `.${name}`).join("")
+        : "";
+    return `${tag}${id}${className}`;
+}
+
+function attachDebug(root) {
+    let lastPointerMove = performance.now();
+    let lastFrame = performance.now();
+    let maxFrameDelay = 0;
+    let lastReport = expectedFrame;
+    let frame = 0;
+    let reportTimer = 0;
+
+    const onPointerMove = event => {
+        lastPointerMove = performance.now();
+        const target = document.elementFromPoint(event.clientX, event.clientY);
+        root.querySelectorAll("[data-debug-hover]").forEach(label => {
+            const textarea = label.closest(".repository-codebadger-input-debug")
+                ?.parentElement?.querySelector(".repository-codebadger-input");
+            const composer = textarea?.closest(".repository-codebadger-composer");
+            const underComposer = composer && target?.closest?.(".repository-codebadger-composer") === composer;
+            const cursor = target ? getComputedStyle(target).cursor : "unknown";
+            label.textContent = `Hover: ${describeElement(target)} · cursor ${cursor}${underComposer ? " (composer)" : ""}`;
+        });
+    };
+    const onFocusChange = () => {
+        root.querySelectorAll("[data-debug-focus]").forEach(label => {
+            label.textContent = `Focus: ${describeElement(document.activeElement)}`;
+        });
+    };
+    const onVisibilityChange = () => {
+        lastFrame = performance.now();
+    };
+    const measureFrame = now => {
+        if (!document.hidden) {
+            const frameGap = now - lastFrame;
+            if (frameGap >= 100)
+                maxFrameDelay = Math.max(maxFrameDelay, frameGap);
+        }
+        lastFrame = now;
+        frame = requestAnimationFrame(measureFrame);
+    };
+    const report = () => {
+        const now = performance.now();
+        const elapsed = now - lastReport;
+        const stalled = maxFrameDelay >= 250;
+        const pointer = now - lastPointerMove < 1200 ? "moving" : "idle";
+        const delay = stalled ? `${Math.round(maxFrameDelay)}ms` : `${Math.round(maxFrameDelay)}ms max`;
+        root.querySelectorAll("[data-debug-loop]").forEach(label => {
+            label.textContent = `Loop delay: ${delay} · pointer ${pointer}`;
+            label.classList.toggle("stalled", stalled);
+        });
+        maxFrameDelay = 0;
+        lastReport = now;
+        reportTimer = window.setTimeout(report, Math.max(250, 1000 - elapsed % 1000));
+    };
+
+    root.addEventListener("pointermove", onPointerMove, true);
+    document.addEventListener("focusin", onFocusChange, true);
+    document.addEventListener("focusout", onFocusChange, true);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    lastFrame = performance.now();
+    frame = requestAnimationFrame(measureFrame);
+    reportTimer = window.setTimeout(report, 1000);
+    onFocusChange();
+
+    return () => {
+        root.removeEventListener("pointermove", onPointerMove, true);
+        document.removeEventListener("focusin", onFocusChange, true);
+        document.removeEventListener("focusout", onFocusChange, true);
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+        cancelAnimationFrame(frame);
+        clearTimeout(reportTimer);
+    };
+}
+
 function imageToJpeg(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -102,10 +183,19 @@ export function attach(root, dotNetReference) {
     root.addEventListener("click", onClick);
     root.addEventListener("keydown", onKeyDown);
     root.addEventListener("paste", onPaste);
-    const observer = new MutationObserver(scan);
+    const observer = new MutationObserver(records => {
+        for (const record of records) {
+            for (const node of record.addedNodes) {
+                if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                if (node.matches?.(".repository-codebadger-input")) resize(node);
+                node.querySelectorAll?.(".repository-codebadger-input").forEach(resize);
+            }
+        }
+    });
     observer.observe(root, { childList: true, subtree: true });
     scan();
-    observers.set(root, { observer, onInput, onPointerDown, onClick, onKeyDown, onPaste });
+    const detachDebug = attachDebug(root);
+    observers.set(root, { observer, onInput, onPointerDown, onClick, onKeyDown, onPaste, detachDebug });
 }
 
 export function clear(root, sessionId) {
@@ -124,5 +214,6 @@ export function detach(root) {
     root.removeEventListener("click", state.onClick);
     root.removeEventListener("keydown", state.onKeyDown);
     root.removeEventListener("paste", state.onPaste);
+    state.detachDebug();
     observers.delete(root);
 }

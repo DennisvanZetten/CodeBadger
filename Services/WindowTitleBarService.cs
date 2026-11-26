@@ -7,7 +7,9 @@ public sealed class WindowTitleBarService
     public event Action? SettingsRequested;
     public event Action? HelpRequested;
     public event Action? IdeasRequested;
+#if WINDOWS
     private bool _isDarkTheme;
+#endif
 
 #if WINDOWS
     private readonly Dictionary<Window, (TitleBar TitleBar, ImageButton? SettingsButton, BoxView? SettingsUpdateDot, ImageButton? IdeasButton, ImageButton? HelpButton)> _titleBars = [];

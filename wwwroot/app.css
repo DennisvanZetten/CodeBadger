@@ -266,6 +266,21 @@ h1:focus {
     opacity: 1;
 }
 
+@media (hover: hover) {
+    .appbar-action-button {
+        border-radius: 6px;
+        transition: background-color 120ms ease;
+    }
+
+    .appbar-action-button:hover {
+        background-color: var(--mud-palette-action-default-hover);
+    }
+}
+
+.appbar-action-button:active {
+    background-color: var(--mud-palette-action-default-hover);
+}
+
 .manual-page {
     min-height: calc(100vh - 8rem);
 }

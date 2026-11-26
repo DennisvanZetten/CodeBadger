@@ -130,6 +130,18 @@
                                 <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
                                 <span>@L.T("New session")</span>
                             </button>
+                            @if (_terminalState.RecentlyClosedSessions.Count > 0)
+                            {
+                                <div class="git-context-menu-separator" role="separator"></div>
+                                <div class="git-commit-context-menu-section-label">@L.T("Restore closed sessions")</div>
+                                @foreach (var closedSession in _terminalState.RecentlyClosedSessions)
+                                {
+                                    <button @key="closedSession.Id" class="git-commit-context-menu-item" @onclick="() => RestoreTerminalSessionAsync(closedSession.Id)">
+                                        <MudIcon Icon="@Icons.Material.Filled.Restore" Size="Size.Small" />
+                                        <span>@L.T("Restore session {0}", GetTerminalSessionDisplayTitle(closedSession))</span>
+                                    </button>
+                                }
+                            }
                         </div>
                     }
                     <div class="repository-terminal-splitter-grip" role="separator" aria-orientation="horizontal"
@@ -1503,6 +1515,7 @@
     private async Task CloseAllTerminalSessionsAsync()
     {
         CloseTerminalSessionContextMenu();
+        RememberClosedTerminalSessions(_terminalState.Sessions);
         _terminalSessions.Clear();
         _terminalState.Sessions.Clear();
         _terminalState.SelectedSessionId = Guid.Empty;
@@ -1516,10 +1529,45 @@
         if (keepSessionId is not { } id || !_terminalSessions.Any(session => session.Id == id))
             return;
 
+        var removedStates = _terminalState.Sessions.Where(session => session.Id != id).ToArray();
+        RememberClosedTerminalSessions(removedStates);
         _terminalSessions.RemoveAll(session => session.Id != id);
         _terminalState.Sessions.RemoveAll(session => session.Id != id);
         _selectedTerminalSessionId = id;
         _terminalState.SelectedSessionId = id;
+        await PersistTerminalStateAsync();
+    }
+
+    private void RememberClosedTerminalSessions(IEnumerable<CodeBadgerTerminalSessionState> sessions)
+    {
+        foreach (var session in sessions)
+        {
+            _terminalState.RecentlyClosedSessions.RemoveAll(closed => closed.Id == session.Id);
+            _terminalState.RecentlyClosedSessions.Insert(0, session);
+        }
+
+        const int maxRecentlyClosedSessions = 10;
+        if (_terminalState.RecentlyClosedSessions.Count > maxRecentlyClosedSessions)
+            _terminalState.RecentlyClosedSessions.RemoveRange(maxRecentlyClosedSessions,
+                _terminalState.RecentlyClosedSessions.Count - maxRecentlyClosedSessions);
+    }
+
+    private async Task RestoreTerminalSessionAsync(Guid id)
+    {
+        var closedSession = _terminalState.RecentlyClosedSessions.FirstOrDefault(session => session.Id == id);
+        if (closedSession is null)
+            return;
+
+        CloseTerminalSessionContextMenu();
+        _terminalState.RecentlyClosedSessions.Remove(closedSession);
+        _terminalState.Sessions.Add(closedSession);
+        var session = new CodeBadgerTerminalSession(closedSession)
+        {
+            Mode = closedSession.Mode == "Build" ? TerminalMode.Build : TerminalMode.Plan
+        };
+        _terminalSessions.Add(session);
+        _selectedTerminalSessionId = session.Id;
+        _terminalState.SelectedSessionId = session.Id;
         await PersistTerminalStateAsync();
     }
 
@@ -1573,6 +1621,8 @@
         var index = _terminalSessions.FindIndex(session => session.Id == id);
         if (index < 0)
             return;
+        if (_terminalState.Sessions.FirstOrDefault(session => session.Id == id) is { } closedSession)
+            RememberClosedTerminalSessions(new[] { closedSession });
         _terminalSessions.RemoveAt(index);
         _terminalState.Sessions.RemoveAll(session => session.Id == id);
         if (_terminalSessions.Count == 0)
@@ -1729,6 +1779,9 @@
     }
 
     private string GetTerminalSessionDisplayTitle(CodeBadgerTerminalSession session) =>
+        GetTerminalSessionDisplayTitle(session.State);
+
+    private string GetTerminalSessionDisplayTitle(CodeBadgerTerminalSessionState session) =>
         string.IsNullOrWhiteSpace(session.Title) ? L.T("Terminal session") : session.Title;
 
     private TerminalCommandResult ProcessTerminalCommand(CodeBadgerTerminalSession session, ref string prompt,

@@ -20,7 +20,12 @@ public sealed class AgentConfigService(
         if (AgentTools.Normalize(agentTool) == AgentTools.Codex)
             return codexConfigService.GetGlobalConfigPath();
         if (AgentTools.Normalize(agentTool) == AgentTools.ClaudeCode)
-            return Path.Combine(home, ".claude.json");
+        {
+            var configPath = Path.Combine(home, ".claude.json");
+            if (File.Exists(configPath) || !OperatingSystem.IsMacCatalyst())
+                return configPath;
+            return Path.Combine(home, ".claude", "settings.json");
+        }
         if (AgentTools.Normalize(agentTool) == AgentTools.Hermes)
             return Path.Combine(Environment.GetEnvironmentVariable("HERMES_HOME") is { Length: > 0 } hermesHome
                 ? hermesHome

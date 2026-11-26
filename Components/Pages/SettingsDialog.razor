@@ -126,14 +126,30 @@
                       @if (GetAgentStartupState(_selectedAgent) is { } agentState)
                      {
                          <MudStack Row="true" Spacing="1" Class="flex-wrap">
-                             <MudChip T="string" Size="Size.Small" Color="@(agentState.Installed ? Color.Success : Color.Warning)" Variant="Variant.Outlined">
-                                 @L.T(agentState.Installed ? "Agent command detected" : "Agent command not found")
-                             </MudChip>
-                             <MudChip T="string" Size="Size.Small" Color="@(agentState.HasGlobalConfig ? Color.Info : Color.Default)" Variant="Variant.Outlined">
-                                 @L.T(agentState.HasGlobalConfig ? "Global settings found" : "No global settings found")
-                             </MudChip>
-                         </MudStack>
-                      }
+                              <MudChip T="string" Size="Size.Small" Color="@(agentState.Installed ? Color.Success : Color.Warning)" Variant="Variant.Outlined">
+                                  @L.T(agentState.Installed ? "Agent command ready" : "Agent command unavailable")
+                              </MudChip>
+                              <MudChip T="string" Size="Size.Small" Color="@(agentState.HasGlobalConfig ? Color.Info : Color.Default)" Variant="Variant.Outlined">
+                                  @L.T(agentState.HasGlobalConfig ? "Global settings found" : "No global settings found")
+                              </MudChip>
+                          </MudStack>
+                          @if (!string.IsNullOrWhiteSpace(agentState.Version))
+                          {
+                              <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Detected version: {0}", agentState.Version)</MudText>
+                          }
+                          @if (!string.IsNullOrWhiteSpace(agentState.ExecutablePath))
+                          {
+                              <MudText Typo="Typo.caption" Color="Color.Secondary">@agentState.ExecutablePath</MudText>
+                          }
+                          @if (!string.IsNullOrWhiteSpace(agentState.Failure))
+                          {
+                              <MudAlert Dense="true" Severity="@(agentState.Installed ? Severity.Info : Severity.Warning)" Variant="Variant.Outlined">@agentState.Failure</MudAlert>
+                          }
+                          @if (OperatingSystem.IsMacCatalyst() && agentState.HasGlobalConfig)
+                          {
+                              <MudText Typo="Typo.caption" Color="Color.Secondary">@agentState.ConfigPath</MudText>
+                          }
+                       }
                       @if (GetAgentUpdateStatus(_selectedAgent) is { } updateStatus)
                       {
                           <MudPaper Outlined="true" Elevation="0" Class="pa-3">

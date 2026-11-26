@@ -6,7 +6,8 @@ using Microsoft.Extensions.Logging;
 
 namespace CodeBadger.Services;
 
-public sealed record AgentStartupState(bool Installed, bool HasGlobalConfig, string ConfigPath);
+public sealed record AgentStartupState(bool Installed, bool HasGlobalConfig, string ConfigPath,
+    string? ExecutablePath = null, string? Version = null, string? Failure = null);
 
 public sealed record OpenCodeInstanceState(
     string ExecutablePath,
@@ -113,19 +114,26 @@ public sealed class StartupDetectionService(
         await DetectOpenCodeInstancesAsync(CancellationToken.None);
         await reportProgress(localization.T("Detecting OpenCode..."), 0);
         var openCodePath = GetExistingGlobalConfigPath(AgentTools.OpenCode);
-        var openCode = new AgentStartupState(OpenCodeHealth.SelectedExecutablePath is not null, File.Exists(openCodePath), openCodePath);
+        var selectedOpenCode = OpenCodeHealth.SelectedExecutablePath;
+        var selectedOpenCodeInstance = OpenCodeHealth.Instances.FirstOrDefault(instance => instance.IsSelected);
+        var openCodeAvailable = selectedOpenCode is not null &&
+            (!OperatingSystem.IsMacCatalyst() || OpenCodeHealth.ServiceHealthy);
+        var openCodeFailure = selectedOpenCodeInstance?.Failure ??
+            (selectedOpenCode is not null && !OpenCodeHealth.ServiceHealthy ? OpenCodeHealth.Warning : null);
+        var openCode = new AgentStartupState(openCodeAvailable, File.Exists(openCodePath), openCodePath,
+            selectedOpenCode, selectedOpenCodeInstance?.Version, openCodeFailure);
         await Report(localization.T("Detecting Claude Code..."));
 
         var claudePath = GetExistingGlobalConfigPath(AgentTools.ClaudeCode);
-        var claude = new AgentStartupState(await IsCommandAvailableAsync("claude", logger), File.Exists(claudePath), claudePath);
+        var claude = await DetectAgentAsync("claude", claudePath);
         await Report(localization.T("Detecting Codex..."));
 
         var codexPath = GetExistingGlobalConfigPath(AgentTools.Codex);
-        var codex = new AgentStartupState(await IsCommandAvailableAsync("codex", logger), File.Exists(codexPath), codexPath);
+        var codex = await DetectAgentAsync("codex", codexPath);
         await Report(localization.T("Detecting Hermes..."));
 
         var hermesPath = GetExistingGlobalConfigPath(AgentTools.Hermes);
-        var hermes = new AgentStartupState(await IsCommandAvailableAsync("hermes", logger), File.Exists(hermesPath), hermesPath);
+        var hermes = await DetectAgentAsync("hermes", hermesPath);
         await Report(localization.T("Checking global agent settings..."));
 
         var repositoryStates = new Dictionary<Guid, RepositoryStartupState>();
@@ -151,6 +159,17 @@ public sealed class StartupDetectionService(
             repositoryStates.Values.Count(state => state.IsGitRepository), repositories.Count);
         await reportProgress(localization.T("Startup checks complete."), 100);
         return Result;
+
+        async Task<AgentStartupState> DetectAgentAsync(string command, string configPath)
+        {
+            var executable = await FindCommandPathAsync(command, logger);
+            if (OperatingSystem.IsWindows())
+                return new AgentStartupState(executable is not null, File.Exists(configPath), configPath, executable);
+
+            var result = await ProbeAgentAsync(command, executable, logger);
+            return new AgentStartupState(result.Available, File.Exists(configPath), configPath,
+                executable, result.Version, result.Failure);
+        }
     }
 
     public AgentStartupState? GetAgentState(string agentTool) => Result is null ? null
@@ -438,6 +457,11 @@ public sealed class StartupDetectionService(
             {
                 Path.Combine(home, ".opencode", "bin", "opencode"),
                 Path.Combine(home, ".local", "bin", "opencode"),
+                Path.Combine(home, ".claude", "local", "claude"),
+                Path.Combine(home, ".bun", "bin", "opencode"),
+                Path.Combine(home, ".volta", "bin", "opencode"),
+                Path.Combine(home, ".local", "share", "pnpm", "opencode"),
+                Path.Combine(home, "Library", "pnpm", "opencode"),
                 "/opt/homebrew/bin/opencode",
                 "/usr/local/bin/opencode"
             };
@@ -450,6 +474,17 @@ public sealed class StartupDetectionService(
             }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
+
+            foreach (var managerRoot in new[]
+                     {
+                         Path.Combine(home, ".bun", "install", "global", "node_modules"),
+                         Path.Combine(home, ".local", "share", "pnpm", "global", "5", "node_modules"),
+                         Path.Combine(home, "Library", "pnpm", "global", "5", "node_modules")
+                     })
+            {
+                unixCandidates.Add(Path.Combine(managerRoot, "@opencode", "cli", "bin", "opencode"));
+                unixCandidates.Add(Path.Combine(managerRoot, "opencode-ai", "bin", "opencode"));
+            }
 
             foreach (var candidate in unixCandidates.Where(File.Exists))
                 yield return candidate;
@@ -517,6 +552,17 @@ public sealed class StartupDetectionService(
             return candidates.FirstOrDefault(File.Exists) ?? configPath;
         }
 
+        if (AgentTools.Normalize(agentTool) == AgentTools.ClaudeCode && OperatingSystem.IsMacCatalyst())
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var candidates = new[]
+            {
+                Path.Combine(home, ".claude.json"),
+                Path.Combine(home, ".claude", "settings.json")
+            };
+            return candidates.FirstOrDefault(File.Exists) ?? configPath;
+        }
+
         if (AgentTools.Normalize(agentTool) == AgentTools.OpenCode)
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -539,34 +585,149 @@ public sealed class StartupDetectionService(
         return configPath;
     }
 
-    private static async Task<bool> IsCommandAvailableAsync(string command, ILogger logger)
-    {
-        if (OperatingSystem.IsIOS())
-            return false;
+    private sealed record AgentProbeResult(bool Available, string? Version, string? Failure);
 
+    private static async Task<AgentProbeResult> ProbeAgentAsync(string command, string? executable, ILogger logger)
+    {
+        if (OperatingSystem.IsIOS() || OperatingSystem.IsAndroid())
+            return new AgentProbeResult(false, null, "External agent processes are unavailable on this platform.");
+
+        if (string.IsNullOrWhiteSpace(executable))
+        {
+            return new AgentProbeResult(false, null, "Command was not found in PATH.");
+        }
+
+        Process? process = null;
         try
         {
+            var executableExtension = Path.GetExtension(executable);
+            var isWindowsScript = OperatingSystem.IsWindows() &&
+                (executableExtension.Equals(".cmd", StringComparison.OrdinalIgnoreCase) ||
+                 executableExtension.Equals(".bat", StringComparison.OrdinalIgnoreCase));
             var startInfo = new ProcessStartInfo
             {
-                FileName = OperatingSystem.IsWindows() ? "where.exe" : "which",
+                FileName = isWindowsScript ? "cmd.exe" : executable,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true
             };
-            startInfo.ArgumentList.Add(command);
-            using var process = Process.Start(startInfo);
+            if (isWindowsScript)
+            {
+                startInfo.ArgumentList.Add("/d");
+                startInfo.ArgumentList.Add("/s");
+                startInfo.ArgumentList.Add("/c");
+                startInfo.ArgumentList.Add($"\"{executable} --version\"");
+            }
+            else
+            {
+                startInfo.ArgumentList.Add("--version");
+            }
+            process = Process.Start(startInfo);
             if (process is null)
-                return false;
-            await process.WaitForExitAsync();
-            var available = process.ExitCode == 0;
-            logger.LogInformation("Agent executable probe for {CommandName}: {Availability}.", command, available ? "available" : "not found");
-            return available;
+                return new AgentProbeResult(false, null, "The command could not be started.");
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            var outputTask = process.StandardOutput.ReadToEndAsync(timeout.Token);
+            var errorTask = process.StandardError.ReadToEndAsync(timeout.Token);
+            await process.WaitForExitAsync(timeout.Token);
+            var output = await outputTask;
+            var error = await errorTask;
+            var versionResponse = (output + error).Trim();
+            var available = process.ExitCode == 0 && !string.IsNullOrWhiteSpace(versionResponse);
+            var version = available ? ExtractVersion(versionResponse) : null;
+            var failure = available ? null : $"Version check exited with code {process.ExitCode}: {Truncate(versionResponse, 180)}";
+            logger.LogInformation("Agent executable probe for {CommandName} at {ExecutablePath}: {Availability}. Version response: {VersionResponse}",
+                command, executable, available ? "available" : "not responding", Truncate(versionResponse, 180));
+            return new AgentProbeResult(available, version, failure);
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogInformation("Agent executable probe for {CommandName} timed out at {ExecutablePath}.", command, executable);
+            try { process?.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+            return new AgentProbeResult(false, null, "Version check timed out.");
         }
         catch (Exception exception)
         {
-            logger.LogInformation(exception, "Agent executable probe for {CommandName} failed.", command);
-            return false;
+            logger.LogInformation(exception, "Agent executable probe for {CommandName} failed at {ExecutablePath}.", command, executable);
+            return new AgentProbeResult(false, null, Truncate(exception.Message, 180));
+        }
+        finally
+        {
+            process?.Dispose();
+        }
+    }
+
+    private static string? ExtractVersion(string response)
+    {
+        var match = Regex.Match(response, @"(?i)(?:v(?:ersion)?\s*)?(\d+\.\d+(?:\.\d+){0,2})");
+        return match.Success ? match.Groups[1].Value : Truncate(response, 100);
+    }
+
+    private static string? FindUnixCommand(string command)
+    {
+        foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
+                     .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var candidate = Path.Combine(directory.Trim('"'), command);
+            try
+            {
+                if (File.Exists(candidate) && IsExecutable(candidate))
+                    return candidate;
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            catch (PlatformNotSupportedException) { }
+        }
+        return null;
+    }
+
+    private static async Task<string?> FindCommandPathAsync(string command, ILogger logger)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var windowsExecutable = await FindWindowsCommandAsync(command);
+            logger.LogInformation("Agent executable lookup for {CommandName}: {ExecutablePath}.",
+                command, windowsExecutable ?? "not found");
+            return windowsExecutable;
+        }
+
+        var unixExecutable = FindUnixCommand(command);
+        logger.LogInformation("Agent executable lookup for {CommandName}: {ExecutablePath}.",
+            command, unixExecutable ?? "not found");
+        return unixExecutable;
+    }
+
+    private static bool IsExecutable(string path)
+    {
+        if (OperatingSystem.IsMacCatalyst())
+            return (File.GetUnixFileMode(path) & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) != 0;
+        return true;
+    }
+
+    private static async Task<string?> FindWindowsCommandAsync(string command)
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "where.exe",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                ArgumentList = { command }
+            });
+            if (process is null)
+                return null;
+            var output = await process.StandardOutput.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            return process.ExitCode == 0
+                ? output.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.Trim()
+                : null;
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 }

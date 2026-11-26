@@ -83,7 +83,7 @@
                                         <button type="button" class="repository-codebadger-session-select" @onclick="() => SelectTerminalSession(session.Id)">
                                             @GetTerminalSessionDisplayTitle(session)
                                         </button>
-                                        @if (GetActiveSessionAgentRoles(session) is { Count: > 0 } activeRoles)
+                                        @if (GetDisplayedSessionAgentRoles(session) is { Count: > 0 } activeRoles)
                                         {
                                             var role = activeRoles[_agentStatusRotationIndex % activeRoles.Count];
                                             var status = GetAgentRoleProgress(session, role);
@@ -772,10 +772,20 @@
             .Where(role => GetAgentRoleProgress(session, role) is AgentRoleProgress.Working or AgentRoleProgress.Waiting)
             .ToList();
 
+    private List<string> GetDisplayedSessionAgentRoles(CodeBadgerTerminalSession session)
+    {
+        var activeRoles = GetActiveSessionAgentRoles(session);
+        return activeRoles.Count > 0
+            ? activeRoles
+            : GetSessionAgentRoles(session)
+                .Where(role => GetAgentRoleProgress(session, role) == AgentRoleProgress.Stopped)
+                .ToList();
+    }
+
     private void SynchronizeAgentStatusRotationTimer()
     {
         var shouldRotate = Repository.CodeBadgerTerminalEnabled &&
-            _terminalSessions.Any(session => GetActiveSessionAgentRoles(session).Count > 1);
+            _terminalSessions.Any(session => GetDisplayedSessionAgentRoles(session).Count > 1);
         if (shouldRotate && _agentStatusRotationTimer is null)
         {
             _agentStatusRotationTimer = new Timer(async _ =>
@@ -840,7 +850,7 @@
         AgentRoleProgress.Working => Icons.Material.Filled.Autorenew,
         AgentRoleProgress.Waiting => Icons.Material.Filled.QuestionAnswer,
         AgentRoleProgress.Completed => Icons.Material.Filled.CheckCircle,
-        AgentRoleProgress.Stopped => Icons.Material.Filled.PauseCircleFilled,
+        AgentRoleProgress.Stopped => Icons.Material.Filled.StopCircle,
         AgentRoleProgress.Failed => Icons.Material.Filled.Error,
         _ => Icons.Material.Filled.RadioButtonUnchecked
     };

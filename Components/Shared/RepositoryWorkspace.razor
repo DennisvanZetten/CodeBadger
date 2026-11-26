@@ -171,11 +171,7 @@
                                 }
                                 <div class="repository-codebadger-agent-context repository-codebadger-cost" aria-label="@L.T("Session cost")">
                                     <div class="repository-codebadger-agent-context-label">
-                                        <span>
-                                            @(costLimit > 0
-                                                ? $"{FormatUsd(currentTerminalSession.State.CostUsd)} / {FormatUsd(costLimit)}"
-                                                : FormatUsd(currentTerminalSession.State.CostUsd))
-                                        </span>
+                                        <span>@L.T("Session cost")</span>
                                     </div>
                                     @if (costLimit > 0)
                                     {
@@ -186,6 +182,15 @@
                                             <span style="width:@(costProgress.ToString(System.Globalization.CultureInfo.InvariantCulture))%"></span>
                                         </div>
                                     }
+                                    else
+                                    {
+                                        <div class="repository-codebadger-agent-context-track unavailable"><span></span></div>
+                                    }
+                                    <span class="repository-codebadger-agent-context-tokens">
+                                        @(costLimit > 0
+                                            ? $"{FormatUsd(currentTerminalSession.State.CostUsd)} / {FormatUsd(costLimit)}"
+                                            : FormatUsd(currentTerminalSession.State.CostUsd))
+                                    </span>
                                 </div>
                                 @foreach (var role in GetTrackedAgentRoles(currentTerminalSession))
                                 {

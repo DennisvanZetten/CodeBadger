@@ -480,6 +480,9 @@
                                                 }
                                             </div>
                                         }
+                                        <div class="repository-codebadger-input-debug @(session.IsRotatingAgentRole ? "disabled" : "enabled")" aria-live="polite">
+                                            Input: @(session.IsRotatingAgentRole ? "DISABLED" : "ENABLED")
+                                        </div>
                                         <div class="repository-codebadger-input-row">
                                             <span class="repository-codebadger-prompt" aria-hidden="true">›</span>
                                             <textarea class="repository-codebadger-input" data-session-id="@session.Id" rows="1" autocomplete="off" spellcheck="false"

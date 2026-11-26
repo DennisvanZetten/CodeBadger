@@ -268,7 +268,7 @@
                                             @foreach (var message in session.Messages)
                                             {
                                                 <article class="repository-codebadger-message @(message.Role == "user" ? "repository-codebadger-user-message" : "repository-codebadger-assistant-message")">
-                                                    <div class="repository-codebadger-message-author">
+                                                     <div class="repository-codebadger-message-author">
                                                         @if (message.Role == "assistant")
                                                         {
                                                             var isCodeBadgerMessage = message.IsCodeBadgerMessage || message.Text.StartsWith("CodeBadger commands:", StringComparison.Ordinal);
@@ -286,6 +286,15 @@
                                                         @if (!string.IsNullOrWhiteSpace(message.ModelReference))
                                                         {
                                                             <span>· @FormatModelReference(message.ModelReference)</span>
+                                                        }
+                                                        @if (!string.IsNullOrWhiteSpace(message.Text))
+                                                        {
+                                                            <MudTooltip Text="@L.T("Copy message")">
+                                                                <MudIconButton Size="Size.Small" Class="repository-codebadger-message-copy"
+                                                                               Icon="@Icons.Material.Filled.ContentCopy"
+                                                                               aria-label="@L.T("Copy message")"
+                                                                               OnClick="() => CopyTerminalMessageAsync(message.Text)" />
+                                                            </MudTooltip>
                                                         }
                                                     </div>
                                                     <div class="repository-codebadger-message-content">
@@ -1266,6 +1275,20 @@
         : AiPanelMode.Collapsed;
 
     private void ToggleAgentContext() => _showAgentContext = !_showAgentContext;
+
+    private async Task CopyTerminalMessageAsync(string text)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            Snackbar.Add(L.T("Message copied."), Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogWarning(exception, "Could not copy a CodeBadger chat message to the clipboard.");
+            Snackbar.Add(L.T("Could not copy to clipboard."), Severity.Error);
+        }
+    }
 
     private async Task ChangeChatScaleAsync(double delta)
     {

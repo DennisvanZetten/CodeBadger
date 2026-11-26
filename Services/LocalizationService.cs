@@ -1048,6 +1048,8 @@ public sealed class LocalizationService
         ["Could not check the working tree before reverting: {0}"] = ["Could not check the working tree before reverting: {0}", "Kan de werkboom niet controleren vóór het terugdraaien: {0}", "Arbeitsverzeichnis vor dem Rückgängigmachen kann nicht geprüft werden: {0}", "Impossible de vérifier l’arborescence avant l’annulation : {0}"],
         ["Commit or stash your changes before reverting a commit."] = ["Commit or stash your changes before reverting a commit.", "Commit of stash je wijzigingen voordat je een commit terugdraait.", "Committen oder stashen Sie Ihre Änderungen, bevor Sie einen Commit rückgängig machen.", "Validez ou stockez vos modifications avant d’annuler un commit."],
         ["Copy to clipboard"] = ["Copy to clipboard", "Kopiëren naar klembord", "In die Zwischenablage kopieren", "Copier dans le presse-papiers"],
+        ["Copy message"] = ["Copy message", "Bericht kopiëren", "Nachricht kopieren", "Copier le message"],
+        ["Message copied."] = ["Message copied.", "Bericht gekopieerd.", "Nachricht kopiert.", "Message copié."],
         ["Copy branch name"] = ["Copy branch name", "Branchnaam kopiëren", "Branchnamen kopieren", "Copier le nom de la branche"],
         ["Copy commit info"] = ["Copy commit info", "Commitinformatie kopiëren", "Commit-Informationen kopieren", "Copier les informations du commit"],
         ["Copy commit message"] = ["Copy commit message", "Commitbericht kopiëren", "Commit-Nachricht kopieren", "Copier le message du commit"],

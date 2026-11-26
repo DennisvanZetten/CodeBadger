@@ -2869,6 +2869,15 @@ body.repository-terminal-resizing * {
     font-weight: 600;
 }
 
+.repository-codebadger-message-copy {
+    margin-left: auto;
+    color: var(--mud-palette-text-secondary);
+}
+
+.repository-codebadger-message-copy:hover {
+    color: var(--mud-palette-primary);
+}
+
 .repository-codebadger-message-author .repository-agent-logo {
     width: 1rem;
     height: 1rem;

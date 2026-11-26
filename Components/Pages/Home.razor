@@ -7,6 +7,7 @@
 @inject StartupDetectionService StartupDetection
 @inject WindowsSandboxSessionService SandboxSessions
 @inject WindowsTerminalSessionService WindowsTerminalSessions
+@inject MacTerminalLauncher MacTerminal
 @inject AgentSessionNotificationService AgentSessionNotifications
 @inject SandboxApprovalService SandboxApprovals
 @inject IJSRuntime JS
@@ -93,6 +94,14 @@
                                        title="@L.T("Agent session is working", AgentTools.GetDisplayName(repository.AgentTool))"></span>
                             }
                             </span>
+                            @if (OperatingSystem.IsMacCatalyst())
+                            {
+                                <MudTooltip Text="@L.T("Open macOS Terminal and start agent")">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Terminal" Size="Size.Small"
+                                                   aria-label="@L.T("Open macOS Terminal and start agent")"
+                                                   OnClick="@(() => OpenMacTerminalAsync(repository))" />
+                                </MudTooltip>
+                            }
                             <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small"
                                            Class="repository-undock-button" aria-label="@L.T("Undock tab")"
                                            title="@L.T("Undock tab")" OnClick="@(() => UndockRepository(repository))" />
@@ -492,6 +501,18 @@
     private static string RepositoryTitle(RepositoryEntry repository) => string.IsNullOrWhiteSpace(repository.Name)
         ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path))
         : repository.Name;
+
+    private async Task OpenMacTerminalAsync(RepositoryEntry repository)
+    {
+        try
+        {
+            await MacTerminal.OpenRepositoryAsync(repository.Path, AgentTools.GetCommand(repository.AgentTool));
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(L.T("Could not open macOS Terminal: {0}", exception.Message), Severity.Error);
+        }
+    }
 
     private static string AgentLogo(RepositoryEntry repository) => AgentTools.Normalize(repository.AgentTool) switch
     {

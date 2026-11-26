@@ -38,6 +38,8 @@ The Mac Catalyst target supports local Debug builds on macOS with Xcode and the 
 
 Select the repository folder with the native folder picker when opening a repository or choosing a clone/create destination. The app adds common Homebrew, npm, Node, and agent install folders to its process `PATH`; if a tool is installed elsewhere, launch CodeBadger from a shell whose `PATH` includes it.
 
+Use the terminal icon on a repository tab to open Terminal.app in that repository and launch its configured agent. This opens a normal external zsh session; terminal input/output is not embedded in CodeBadger.
+
 Build from a Mac with:
 
 ```bash

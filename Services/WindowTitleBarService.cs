@@ -7,6 +7,7 @@ public sealed class WindowTitleBarService
     public event Action? SettingsRequested;
     public event Action? HelpRequested;
     public event Action? IdeasRequested;
+    private bool _isDarkTheme;
 
 #if WINDOWS
     private readonly Dictionary<Window, (TitleBar TitleBar, ImageButton? SettingsButton, BoxView? SettingsUpdateDot, ImageButton? IdeasButton, ImageButton? HelpButton)> _titleBars = [];
@@ -33,9 +34,11 @@ public sealed class WindowTitleBarService
             HeightRequest = 36,
             Margin = new Thickness(0, 0, 12, 0),
             Padding = 8,
+            CornerRadius = 6,
             BackgroundColor = Colors.Transparent,
             Source = new FontImageSource { FontFamily = "Segoe MDL2 Assets", Glyph = "\uE713", Size = 20 }
         };
+        AddHoverFeedback(settingsButton);
         settingsButton.Clicked += (_, _) => SettingsRequested?.Invoke();
         var settingsUpdateDot = new BoxView
         {
@@ -61,9 +64,11 @@ public sealed class WindowTitleBarService
             HeightRequest = 36,
             Margin = new Thickness(0, 0, 12, 0),
             Padding = 0,
+            CornerRadius = 6,
             BackgroundColor = Colors.Transparent,
             Source = new FontImageSource { FontFamily = "Segoe MDL2 Assets", Glyph = "\uE8FD", Size = 18 }
         };
+        AddHoverFeedback(ideasButton);
         SemanticProperties.SetDescription(ideasButton, "Ideas and tasks");
         ideasButton.Clicked += (_, _) => IdeasRequested?.Invoke();
         var helpButton = new ImageButton
@@ -72,9 +77,11 @@ public sealed class WindowTitleBarService
             HeightRequest = 36,
             Margin = new Thickness(0, 0, 2, 0),
             Padding = 0,
+            CornerRadius = 6,
             BackgroundColor = Colors.Transparent,
             Source = new FontImageSource { FontFamily = "Segoe UI", Glyph = "?", Size = 22 }
         };
+        AddHoverFeedback(helpButton);
         SemanticProperties.SetDescription(helpButton, "Help menu");
         helpButton.Clicked += (_, _) => HelpRequested?.Invoke();
         var titleBar = new TitleBar
@@ -108,6 +115,7 @@ public sealed class WindowTitleBarService
     public void ApplyTheme(LauncherTheme theme)
     {
 #if WINDOWS
+        _isDarkTheme = theme.IsDark;
         if (!MainThread.IsMainThread)
         {
             MainThread.BeginInvokeOnMainThread(() => ApplyTheme(theme));
@@ -131,6 +139,17 @@ public sealed class WindowTitleBarService
         }
 #endif
     }
+
+#if WINDOWS
+    private void AddHoverFeedback(ImageButton button)
+    {
+        var pointer = new PointerGestureRecognizer();
+        pointer.PointerEntered += (_, _) =>
+            button.BackgroundColor = Color.FromArgb(_isDarkTheme ? "#33FFFFFF" : "#22000000");
+        pointer.PointerExited += (_, _) => button.BackgroundColor = Colors.Transparent;
+        button.GestureRecognizers.Add(pointer);
+    }
+#endif
 
     public void SetSettingsState(bool enabled, string description)
     {

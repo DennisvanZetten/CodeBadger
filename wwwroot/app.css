@@ -2569,12 +2569,17 @@ body.repository-terminal-resizing * {
     bottom: 0.75rem;
     left: 0.5rem;
     z-index: 1;
+    pointer-events: none;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     width: min(20rem, calc((100% - 54rem) / 2 - 1rem));
     min-width: 0;
     min-height: 0;
+}
+
+.repository-codebadger-agent-sidebar button {
+    pointer-events: auto;
 }
 
 .repository-codebadger-agent-toggle {

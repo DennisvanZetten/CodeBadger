@@ -19,6 +19,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
     private readonly AiCommitMessageService _aiCommitMessageService;
     private readonly IdeaListService _ideaListService;
     private readonly WindowsTerminalSessionService _terminalSessions;
+    private readonly CodeBadgerSlackSessionService _codeBadgerSessions;
     private readonly ILogger<SlackNotificationService> _logger;
     private static readonly HttpClient Http = new() { BaseAddress = new Uri("https://slack.com/api/") };
     private static readonly HttpClient DiscordHttp = new() { BaseAddress = new Uri("https://discord.com/api/v10/") };
@@ -48,7 +49,8 @@ public sealed class SlackNotificationService : IAsyncDisposable
 
     public SlackNotificationService(LauncherSettingsService settingsService, OpenCodeActivityService openCodeActivity,
         GitBranchService gitBranchService, AiCommitMessageService aiCommitMessageService, IdeaListService ideaListService,
-        WindowsTerminalSessionService terminalSessions, ILogger<SlackNotificationService> logger)
+        WindowsTerminalSessionService terminalSessions, CodeBadgerSlackSessionService codeBadgerSessions,
+        ILogger<SlackNotificationService> logger)
     {
         _settingsService = settingsService;
         _openCodeActivity = openCodeActivity;
@@ -56,6 +58,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
         _aiCommitMessageService = aiCommitMessageService;
         _ideaListService = ideaListService;
         _terminalSessions = terminalSessions;
+        _codeBadgerSessions = codeBadgerSessions;
         _logger = logger;
     }
 
@@ -72,7 +75,8 @@ public sealed class SlackNotificationService : IAsyncDisposable
     public sealed record SessionNotification(string Id, string Title, string Agent, string Directory, bool IsMuted);
     private sealed record ThreadLink(string ThreadTs, string ChannelId, string Directory, string Agent, string Title,
         DateTime CreatedAt, bool InitialPromptPublished = false, bool RootMessageIsTitle = false,
-        string Platform = "Slack", string RootMessageId = "", string RepositoryName = "");
+        string Platform = "Slack", string RootMessageId = "", string RepositoryName = "",
+        Guid? CodeBadgerTerminalSessionId = null);
     private sealed class PendingNewSession(IReadOnlyList<RepositoryEntry> repositories, string rootMessageId = "")
     {
         public IReadOnlyList<RepositoryEntry> Repositories { get; } = repositories;
@@ -238,6 +242,8 @@ public sealed class SlackNotificationService : IAsyncDisposable
     {
         using var repositoryScope = _logger.BeginScope(new Dictionary<string, object?> { ["RepositoryPath"] = session.Directory });
         if (!CanSendNotifications || IsSessionMuted(session.Id))
+            return;
+        if (_sessionThreads.TryGetValue(session.Id, out var codeBadgerThread) && codeBadgerThread.CodeBadgerTerminalSessionId is not null)
             return;
         if ((session.Agent is "Claude Code" or "Hermes") && !_sessionThreads.ContainsKey(session.Id))
         {
@@ -1075,6 +1081,12 @@ public sealed class SlackNotificationService : IAsyncDisposable
             pair.Value.Platform == _activePlatform && pair.Value.ChannelId == (_activePlatform == "Discord" ? _discordChannelId : _channelId));
         if (string.IsNullOrWhiteSpace(linkedSession.Key))
             return;
+        if (linkedSession.Value.CodeBadgerTerminalSessionId is { } terminalSessionId && !string.IsNullOrWhiteSpace(text))
+        {
+            await HandleCodeBadgerTerminalReplyAsync(linkedSession.Key, linkedSession.Value, terminalSessionId,
+                text, threadTs, cancellationToken);
+            return;
+        }
         var isInteractiveAgentSession = linkedSession.Value.Agent is "Claude Code" or "Hermes";
         if (text.Equals("!help", StringComparison.OrdinalIgnoreCase))
         {
@@ -1143,6 +1155,49 @@ public sealed class SlackNotificationService : IAsyncDisposable
             }
         }
         await Task.CompletedTask;
+    }
+
+    private async Task HandleCodeBadgerTerminalReplyAsync(string openCodeSessionId, ThreadLink thread,
+        Guid terminalSessionId, string text, string threadTs, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (text.Equals("!status", StringComparison.OrdinalIgnoreCase))
+            {
+                var terminalStatus = await _openCodeActivity.IsSessionActiveAsync(openCodeSessionId, thread.Directory, cancellationToken);
+                var status = terminalStatus switch
+                {
+                    true => "⏳ CodeBadger Terminal is momenteel bezig.",
+                    false => "✅ CodeBadger Terminal is momenteel niet bezig; de sessie is idle.",
+                    _ => "⚠️ De actuele status van OpenCode kon niet worden opgehaald."
+                };
+                await PostMessageAsync(_botToken, thread.ChannelId, status, threadTs, cancellationToken);
+                return;
+            }
+
+            if (text.Equals("!help", StringComparison.OrdinalIgnoreCase))
+            {
+                await PostMessageAsync(_botToken, thread.ChannelId,
+                    "*CodeBadger Terminal commands*\n• `!status` — check whether OpenCode is working.\n• `!plan <task>` — use Plan mode.\n• `!build <task>` — use Build mode.\n\nAny other reply is sent to this CodeBadger Terminal session.",
+                    threadTs, cancellationToken);
+                return;
+            }
+
+            var response = await _codeBadgerSessions.ReplyAsync(thread.Directory, terminalSessionId, text, cancellationToken);
+            await PostLongThreadMessageAsync(thread, "✅ *CodeBadger Terminal klaar*", response, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (NotSupportedException exception)
+        {
+            await PostMessageAsync(_botToken, thread.ChannelId, "⚠️ " + EscapeSlack(exception.Message), threadTs, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Could not route a reply to CodeBadger terminal session {SessionId}.", terminalSessionId);
+            await PostMessageAsync(_botToken, thread.ChannelId,
+                "⚠️ Could not send this reply to the linked CodeBadger Terminal session: " + EscapeSlack(exception.Message),
+                threadTs, cancellationToken);
+        }
     }
 
     private static string? GetIncomingCommandName(string text)
@@ -1407,8 +1462,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
     {
         var settings = await _settingsService.LoadAsync();
         var repositories = settings.Repositories
-            .Where(repository => repository.IsActive && !repository.OpenCodeSandboxEnabled &&
-                AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && Directory.Exists(repository.Path))
+            .Where(repository => repository.IsActive && Directory.Exists(repository.Path))
             .OrderBy(repository => string.IsNullOrWhiteSpace(repository.Name)
                 ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path)) : repository.Name,
                 StringComparer.OrdinalIgnoreCase)
@@ -1416,7 +1470,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
         if (repositories.Length == 0)
         {
             await PostMessageAsync(_botToken, _channelId,
-                "No eligible repositories are available. Activate a non-sandboxed OpenCode repository in CodeBadger Settings.",
+                "No eligible repositories are available. Activate a repository in CodeBadger Settings.",
                 null, cancellationToken);
             return;
         }
@@ -1428,10 +1482,10 @@ public sealed class SlackNotificationService : IAsyncDisposable
             return $"{index + 1}. {EscapeSlack(name)}";
         });
         var rootMessageId = await PostMessageAsync(_botToken, _channelId,
-            "*Start a new OpenCode session*\nReply in this thread with a repository number:\n" + string.Join("\n", lines),
+            "*Start a new agent session*\nReply in this thread with a repository number:\n" + string.Join("\n", lines),
             null, cancellationToken);
         var threadTs = _activePlatform == "Discord"
-            ? await CreateDiscordThreadAsync(rootMessageId, "New OpenCode session", cancellationToken)
+            ? await CreateDiscordThreadAsync(rootMessageId, "New agent session", cancellationToken)
             : rootMessageId;
         _pendingNewSessions[threadTs] = new PendingNewSession(repositories, rootMessageId);
     }
@@ -1453,7 +1507,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
                 ? Path.GetFileName(Path.TrimEndingDirectorySeparator(pending.SelectedRepository.Path))
                 : pending.SelectedRepository.Name;
             await PostMessageAsync(_botToken, _channelId,
-                $"Selected *{EscapeSlack(selectedRepositoryName)}*. Reply in this thread with the task for OpenCode.",
+                $"Selected *{EscapeSlack(selectedRepositoryName)}*. Reply in this thread with the task.",
                 threadTs, cancellationToken);
             return;
         }
@@ -1468,12 +1522,37 @@ public sealed class SlackNotificationService : IAsyncDisposable
         var repository = pending.SelectedRepository;
         _pendingNewSessions.TryRemove(threadTs, out _);
         await PostMessageAsync(_botToken, _channelId,
-            "Starting a new OpenCode session and sending your task…", threadTs, cancellationToken);
+            "Starting a new session according to the repository settings…", threadTs, cancellationToken);
+
+        var agentTool = AgentTools.Normalize(repository.AgentTool);
+        if (repository.CodeBadgerTerminalEnabled && agentTool != AgentTools.OpenCode ||
+            !repository.CodeBadgerTerminalEnabled &&
+            (agentTool != AgentTools.OpenCode || repository.OpenCodeSandboxEnabled))
+        {
+            var displayName = AgentTools.GetDisplayName(agentTool);
+            await PostMessageAsync(_botToken, _channelId,
+                $"⚠️ Starting a {EscapeSlack(displayName)} session" +
+                (repository.CodeBadgerTerminalEnabled ? " through CodeBadger Terminal" : string.Empty) +
+                " is not implemented yet. No session was started.", threadTs, cancellationToken);
+            return;
+        }
 
         OpenCodeActivityService.ActiveSession session;
+        Guid? codeBadgerTerminalSessionId = null;
+        string? terminalResponse = null;
         try
         {
-            session = await _openCodeActivity.CreateSessionAsync(repository.Path, cancellationToken);
+            if (repository.CodeBadgerTerminalEnabled)
+            {
+                var started = await _codeBadgerSessions.StartAsync(repository, text, cancellationToken);
+                session = started.Session;
+                codeBadgerTerminalSessionId = started.TerminalSessionId;
+                terminalResponse = started.Response;
+            }
+            else
+            {
+                session = await _openCodeActivity.CreateSessionAsync(repository.Path, cancellationToken);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -1483,7 +1562,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
         {
             _pendingNewSessions.TryRemove(threadTs, out _);
             await PostMessageAsync(_botToken, _channelId,
-                "Could not start the OpenCode session: " + EscapeSlack(exception.Message) + "\nSend `!new` to try again.",
+                "Could not start the configured session: " + EscapeSlack(exception.Message) + "\nSend `!new` to try again.",
                 threadTs, cancellationToken);
             return;
         }
@@ -1493,36 +1572,50 @@ public sealed class SlackNotificationService : IAsyncDisposable
         var rootMessageId = string.IsNullOrWhiteSpace(pending.RootMessageId) ? threadTs : pending.RootMessageId;
         var repositoryName = string.IsNullOrWhiteSpace(repository.Name)
             ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path)) : repository.Name;
+        if (codeBadgerTerminalSessionId is not null)
+            session = session with { Agent = "CodeBadger Terminal" };
         _sessionThreads[session.Id] = new ThreadLink(threadTs,
             _activePlatform == "Discord" ? _discordChannelId : _channelId, session.Directory, session.Agent, title,
             DateTime.UtcNow, InitialPromptPublished: true, RootMessageIsTitle: true,
-            Platform: _activePlatform, RootMessageId: rootMessageId, RepositoryName: repositoryName);
+            Platform: _activePlatform, RootMessageId: rootMessageId, RepositoryName: repositoryName,
+            CodeBadgerTerminalSessionId: codeBadgerTerminalSessionId);
         RememberSlackSubmittedMessage(session.Id, text);
         await SaveThreadLinksAsync();
         SessionNotificationsChanged?.Invoke();
-        SessionStarted?.Invoke(session with { Title = title });
+        if (codeBadgerTerminalSessionId is null)
+            SessionStarted?.Invoke(session with { Title = title });
         await UpdateThreadTitleAsync(threadTs, FormatNotificationTitle(repositoryName, title), cancellationToken);
         await SaveThreadLinksAsync();
         var selectedName = string.IsNullOrWhiteSpace(repository.Name)
             ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path)) : repository.Name;
         await PostMessageAsync(_botToken, _channelId,
-            $"✅ Started a new OpenCode session in *{EscapeSlack(selectedName)}*. Session: `{EscapeSlack(session.Id)}`",
+            $"✅ Started a new {(codeBadgerTerminalSessionId is null ? "OpenCode" : "CodeBadger Terminal with OpenCode")} session in *{EscapeSlack(selectedName)}*. Session: `{EscapeSlack(session.Id)}`",
             threadTs, cancellationToken);
 
-        try
+        if (codeBadgerTerminalSessionId is null)
         {
-            await _openCodeActivity.SendPromptAsync(session.Id, session.Directory, text, cancellationToken, "plan");
-            await PostMessageAsync(_botToken, _channelId,
-                "✅ OpenCode accepted your task and started the session in Plan mode.", threadTs, cancellationToken);
+            try
+            {
+                await _openCodeActivity.SendPromptAsync(session.Id, session.Directory, text, cancellationToken, "plan");
+                await PostMessageAsync(_botToken, _channelId,
+                    "✅ OpenCode accepted your task and started the session in Plan mode.", threadTs, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                await PostMessageAsync(_botToken, _channelId,
+                    "Could not send the task to the new session: " + EscapeSlack(exception.Message), threadTs, cancellationToken);
+            }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception exception)
+        else
         {
             await PostMessageAsync(_botToken, _channelId,
-                "Could not send the task to the new session: " + EscapeSlack(exception.Message), threadTs, cancellationToken);
+                "✅ CodeBadger Terminal accepted your task according to the repository's orchestration settings.", threadTs, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(terminalResponse))
+                await PostLongThreadMessageAsync(_sessionThreads[session.Id], "✅ *CodeBadger Terminal klaar*", terminalResponse, cancellationToken);
         }
     }
 

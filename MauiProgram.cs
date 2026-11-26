@@ -48,6 +48,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<OpenCodeActivityService>();
 		builder.Services.AddSingleton<ICodeBadgerAgentInteractionProvider, OpenCodeAgentInteractionProvider>();
 		builder.Services.AddSingleton<CodeBadgerTerminalStateService>();
+		builder.Services.AddSingleton<CodeBadgerSlackSessionService>();
 		builder.Services.AddSingleton<SessionShareService>();
 		builder.Services.AddSingleton<SlackNotificationService>();
 		builder.Services.AddSingleton<AgentSessionNotificationService>();

@@ -34,7 +34,7 @@
                     .Groups[1].Value;
                 var label = string.IsNullOrWhiteSpace(language) ? L.T("Code") : language;
                 var linesLabel = lineCount == 1 ? L.T("{0} line", lineCount) : L.T("{0} lines", lineCount);
-                var summary = $"<summary title=\"{WebUtility.HtmlEncode(L.T("Show code"))}\"><span class=\"markdown-code-eye\" aria-hidden=\"true\">◉</span><span>{WebUtility.HtmlEncode(label)}</span><span class=\"markdown-code-lines\">{WebUtility.HtmlEncode(linesLabel)}</span></summary>";
+                var summary = $"<summary title=\"{WebUtility.HtmlEncode(L.T("Show code"))}\"><span class=\"markdown-code-eye\" aria-hidden=\"true\">◉</span><span>{WebUtility.HtmlEncode(label)}</span><span class=\"markdown-code-lines\">{WebUtility.HtmlEncode(linesLabel)}</span><button type=\"button\" class=\"markdown-code-copy\" title=\"{WebUtility.HtmlEncode(L.T("Copy code"))}\" aria-label=\"{WebUtility.HtmlEncode(L.T("Copy code"))}\"><span aria-hidden=\"true\">⧉</span></button></summary>";
                 return $"<details class=\"markdown-code-fold\">{summary}<pre><code{match.Groups["attributes"].Value}>{code}</code></pre></details>";
             }, RegexOptions.Singleline | RegexOptions.CultureInvariant);
         }

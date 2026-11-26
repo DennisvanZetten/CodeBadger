@@ -289,12 +289,14 @@
                                                         }
                                                         @if (!string.IsNullOrWhiteSpace(message.Text))
                                                         {
-                                                            <MudTooltip Text="@L.T("Copy message")">
-                                                                <MudIconButton Size="Size.Small" Class="repository-codebadger-message-copy"
-                                                                               Icon="@Icons.Material.Filled.ContentCopy"
-                                                                               aria-label="@L.T("Copy message")"
-                                                                               OnClick="() => CopyTerminalMessageAsync(message.Text)" />
-                                                            </MudTooltip>
+                                                            <div class="repository-codebadger-message-copy">
+                                                                <MudTooltip Text="@L.T("Copy message")">
+                                                                    <MudIconButton Size="Size.Small"
+                                                                                   Icon="@Icons.Material.Filled.ContentCopy"
+                                                                                   aria-label="@L.T("Copy message")"
+                                                                                   OnClick="() => CopyTerminalMessageAsync(message.Text)" />
+                                                                </MudTooltip>
+                                                            </div>
                                                         }
                                                     </div>
                                                     <div class="repository-codebadger-message-content">
@@ -1288,6 +1290,14 @@
             Logger.LogWarning(exception, "Could not copy a CodeBadger chat message to the clipboard.");
             Snackbar.Add(L.T("Could not copy to clipboard."), Severity.Error);
         }
+    }
+
+    [JSInvokable]
+    public Task NotifyCodeBlockCopiedAsync(bool success)
+    {
+        Snackbar.Add(L.T(success ? "Code copied." : "Could not copy to clipboard."),
+            success ? Severity.Success : Severity.Error);
+        return Task.CompletedTask;
     }
 
     private async Task ChangeChatScaleAsync(double delta)

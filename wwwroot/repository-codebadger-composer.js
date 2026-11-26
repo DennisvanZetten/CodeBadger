@@ -59,6 +59,17 @@ export function attach(root, dotNetReference) {
     };
     const onClick = event => {
         const target = event.target;
+        const codeCopyButton = target.closest?.(".markdown-code-copy");
+        if (codeCopyButton) {
+            event.preventDefault();
+            event.stopPropagation();
+            const code = codeCopyButton.closest(".markdown-code-fold")?.querySelector("pre code")?.textContent;
+            if (code === undefined) return;
+            navigator.clipboard.writeText(code)
+                .then(() => dotNetReference.invokeMethodAsync("NotifyCodeBlockCopiedAsync", true))
+                .catch(() => dotNetReference.invokeMethodAsync("NotifyCodeBlockCopiedAsync", false));
+            return;
+        }
         if (target.closest?.("button, a, input, select, [role='button']")) return;
         const composer = target.closest?.(".repository-codebadger-composer");
         const textarea = target.closest?.(".repository-codebadger-input")

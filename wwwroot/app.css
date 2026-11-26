@@ -2871,11 +2871,25 @@ body.repository-terminal-resizing * {
 
 .repository-codebadger-message-copy {
     margin-left: auto;
-    color: var(--mud-palette-text-secondary);
+    display: flex;
+    align-items: center;
 }
 
-.repository-codebadger-message-copy:hover {
-    color: var(--mud-palette-primary);
+.repository-codebadger-message-copy .mud-icon-button {
+    opacity: 0.12;
+    transition: opacity 120ms ease;
+}
+
+.repository-codebadger-message:hover .repository-codebadger-message-copy .mud-icon-button,
+.repository-codebadger-message-copy .mud-icon-button:hover,
+.repository-codebadger-message-copy .mud-icon-button:focus-visible {
+    opacity: 1;
+}
+
+@media (hover: none) {
+    .repository-codebadger-message-copy .mud-icon-button {
+        opacity: 0.65;
+    }
 }
 
 .repository-codebadger-message-author .repository-agent-logo {
@@ -3021,6 +3035,27 @@ body.repository-terminal-resizing * {
     list-style: none;
     font-family: Consolas, "Cascadia Mono", monospace;
     font-size: 0.8rem;
+}
+.markdown-content-terminal .markdown-code-copy {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    margin-left: 0.25rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0.3rem;
+    background: transparent;
+    color: var(--mud-palette-text-secondary);
+    font: inherit;
+    font-size: 1.05rem;
+    cursor: pointer;
+}
+.markdown-content-terminal .markdown-code-copy:hover {
+    background: color-mix(in srgb, var(--mud-palette-primary) 12%, transparent);
+    color: var(--mud-palette-primary);
 }
 .markdown-content-terminal .markdown-code-fold > summary::-webkit-details-marker { display: none; }
 .markdown-content-terminal .markdown-code-fold > summary::after {

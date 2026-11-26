@@ -1050,6 +1050,8 @@ public sealed class LocalizationService
         ["Copy to clipboard"] = ["Copy to clipboard", "Kopiëren naar klembord", "In die Zwischenablage kopieren", "Copier dans le presse-papiers"],
         ["Copy message"] = ["Copy message", "Bericht kopiëren", "Nachricht kopieren", "Copier le message"],
         ["Message copied."] = ["Message copied.", "Bericht gekopieerd.", "Nachricht kopiert.", "Message copié."],
+        ["Copy code"] = ["Copy code", "Code kopiëren", "Code kopieren", "Copier le code"],
+        ["Code copied."] = ["Code copied.", "Code gekopieerd.", "Code kopiert.", "Code copié."],
         ["Copy branch name"] = ["Copy branch name", "Branchnaam kopiëren", "Branchnamen kopieren", "Copier le nom de la branche"],
         ["Copy commit info"] = ["Copy commit info", "Commitinformatie kopiëren", "Commit-Informationen kopieren", "Copier les informations du commit"],
         ["Copy commit message"] = ["Copy commit message", "Commitbericht kopiëren", "Commit-Nachricht kopieren", "Copier le message du commit"],

@@ -2560,9 +2560,14 @@ body.repository-terminal-resizing * {
 }
 
 .repository-codebadger-role-status.stopped {
-    max-width: 7rem;
+    max-width: none;
+    overflow: visible;
     color: var(--mud-palette-warning);
     font-weight: 600;
+}
+
+.repository-codebadger-role-status-label {
+    white-space: nowrap;
 }
 
 @keyframes codebadger-role-pulse {

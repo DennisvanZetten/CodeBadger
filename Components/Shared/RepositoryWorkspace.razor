@@ -102,6 +102,10 @@
                                                     else
                                                     {
                                                         <MudIcon Icon="@RoleProgressIcon(status)" Class="repository-codebadger-role-status-icon" aria-hidden="true" />
+                                                        @if (status == AgentRoleProgress.Stopped)
+                                                        {
+                                                            <span class="repository-codebadger-role-status-label">@RoleProgressLabel(status)</span>
+                                                        }
                                                     }
                                                 </span>
                                             </div>
@@ -777,8 +781,9 @@
         var activeRoles = GetActiveSessionAgentRoles(session);
         return activeRoles.Count > 0
             ? activeRoles
-            : GetSessionAgentRoles(session)
-                .Where(role => GetAgentRoleProgress(session, role) == AgentRoleProgress.Stopped)
+            : session.RoleProgress
+                .Where(pair => pair.Value == AgentRoleProgress.Stopped)
+                .Select(pair => pair.Key)
                 .ToList();
     }
 

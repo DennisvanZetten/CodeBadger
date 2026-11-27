@@ -25,6 +25,16 @@
                 <MudText Typo="Typo.body2">@L.T("Choose an existing local repository folder.")</MudText>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.FolderOpen"
                            Disabled="@(!FolderPicker.IsSupported || _busy)" OnClick="BrowseOpenFolderAsync">@L.T("Browse for repository folder")</MudButton>
+                @if (_debugPath is not null)
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                        <MudText Typo="Typo.caption">Selected path: @_debugPath</MudText>
+                        @if (_debugResult is not null)
+                        {
+                            <MudText Typo="Typo.caption">Git check: @_debugResult</MudText>
+                        }
+                    </MudAlert>
+                }
             </MudStack>
         }
         else
@@ -196,6 +206,8 @@
     private GitHostConnection _azure = new("Azure DevOps", false, string.Empty);
     private bool _busy;
     private string? _error;
+    private string? _debugPath;
+    private string? _debugResult;
 
     protected override async Task OnInitializedAsync()
     {
@@ -223,10 +235,26 @@
     {
         var path = await FolderPicker.PickFolderAsync();
         if (string.IsNullOrWhiteSpace(path))
+        {
+            _debugPath = "<no path returned by folder picker>";
+            _debugResult = "Folder selection was cancelled or returned an empty path.";
             return;
+        }
+
+        _debugPath = path;
+        _debugResult = "Checking repository with git rev-parse --show-toplevel...";
         await RunBusyAsync(async () =>
         {
-            await GitHostService.ValidateGitRepositoryAsync(path);
+            try
+            {
+                var repositoryRoot = await GitHostService.ValidateGitRepositoryAsync(path);
+                _debugResult = $"Success. Repository root: {repositoryRoot}";
+            }
+            catch (Exception exception)
+            {
+                _debugResult = $"Failed: {exception.GetType().Name}: {exception.Message}";
+                throw;
+            }
             MudDialog.Close(DialogResult.Ok(new RepositorySetupResult(path)));
         });
     }

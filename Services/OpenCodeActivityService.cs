@@ -1350,15 +1350,21 @@ public sealed class OpenCodeActivityService
         timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
         string executable;
         try { executable = OpenCodeExecutableLocator.Find(); }
-        catch (FileNotFoundException) { return null; }
-        catch (PlatformNotSupportedException) { return null; }
+        catch (FileNotFoundException exception)
+        {
+            _logger.LogWarning(exception, "OpenCode executable is unavailable for API request {ApiPath}.", path);
+            return null;
+        }
+        catch (PlatformNotSupportedException exception)
+        {
+            _logger.LogWarning(exception, "OpenCode executable is unsupported for API request {ApiPath}.", path);
+            return null;
+        }
         using var process = new Process
         {
             StartInfo = new ProcessStartInfo
             {
                 FileName = executable,
-                WorkingDirectory = !string.IsNullOrWhiteSpace(workingDirectory) && Directory.Exists(workingDirectory)
-                    ? workingDirectory : Environment.CurrentDirectory,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
@@ -1367,6 +1373,11 @@ public sealed class OpenCodeActivityService
                 StandardErrorEncoding = Encoding.UTF8
             }
         };
+        // Mac Catalyst cannot spawn Process with an explicit working directory (errno 45).
+        // Location-scoped APIs and session creation pass the repository separately.
+        if (!OperatingSystem.IsMacCatalyst())
+            process.StartInfo.WorkingDirectory = !string.IsNullOrWhiteSpace(workingDirectory) && Directory.Exists(workingDirectory)
+                ? workingDirectory : Environment.CurrentDirectory;
         process.StartInfo.ArgumentList.Add("api");
         process.StartInfo.ArgumentList.Add(method?.Method.ToLowerInvariant() ?? "get");
         process.StartInfo.ArgumentList.Add(path);
@@ -1436,7 +1447,9 @@ public sealed class OpenCodeActivityService
         }
         catch (System.ComponentModel.Win32Exception exception)
         {
-            _logger.LogWarning("Could not start managed OpenCode API request {ApiPath} ({ExceptionType}).", path, exception.GetType().Name);
+            _logger.LogWarning(exception,
+                "Could not start managed OpenCode API request {ApiPath}. Executable={Executable}, RepositoryPath={RepositoryPath}, WorkingDirectory={WorkingDirectory}, NativeErrorCode={NativeErrorCode}.",
+                path, executable, workingDirectory, process.StartInfo.WorkingDirectory, exception.NativeErrorCode);
             return null;
         }
         catch (JsonException exception)

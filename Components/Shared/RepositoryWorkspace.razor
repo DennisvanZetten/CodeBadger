@@ -81,7 +81,7 @@
                                         <button type="button" class="repository-codebadger-session-select" @onclick="() => SelectTerminalSession(session.Id)">
                                             @GetTerminalSessionDisplayTitle(session)
                                         </button>
-                                        @if (GetDisplayedSessionAgentRoles(session) is { Count: > 0 } activeRoles)
+                                        @if (GetActiveSessionAgentRoles(session) is { Count: > 0 } activeRoles)
                                         {
                                             var role = activeRoles[_agentStatusRotationIndex % activeRoles.Count];
                                             var status = GetAgentRoleProgress(session, role);
@@ -89,20 +89,32 @@
                                                 <span class="repository-codebadger-role-status @RoleProgressCssClass(status)"
                                                       title="@L.T("{0}: {1}", RoleDisplayName(role), RoleProgressLabel(status))"
                                                       aria-label="@L.T("{0}: {1}", RoleDisplayName(role), RoleProgressLabel(status))">
-                                                    @ShortRoleDisplayName(role)
                                                     @if (status == AgentRoleProgress.Working)
                                                     {
+                                                        @ShortRoleDisplayName(role)
                                                         <span class="repository-codebadger-mascot-progress" aria-hidden="true">
                                                             <img src="codebadger.svg" alt="" />
                                                             <span>✦</span>
                                                         </span>
                                                     }
+                                                    else if (status == AgentRoleProgress.Stopped)
+                                                    {
+                                                        <MudIcon Icon="@RoleProgressIcon(status)" Class="repository-codebadger-role-status-icon" aria-hidden="true" />
+                                                    }
                                                     else
                                                     {
+                                                        @ShortRoleDisplayName(role)
                                                         <MudIcon Icon="@RoleProgressIcon(status)" Class="repository-codebadger-role-status-icon" aria-hidden="true" />
                                                     }
                                                 </span>
                                             </div>
+                                        }
+                                        else
+                                        {
+                                            <span class="repository-codebadger-role-status stopped"
+                                                  title="@L.T("Stopped")" aria-label="@L.T("Stopped")">
+                                                <MudIcon Icon="@RoleProgressIcon(AgentRoleProgress.Stopped)" Class="repository-codebadger-role-status-icon" aria-hidden="true" />
+                                            </span>
                                         }
                                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close"
                                                        aria-label="@L.T("Close session {0}", GetTerminalSessionDisplayTitle(session))"
@@ -764,25 +776,23 @@
             _ => [session.Mode == TerminalMode.Plan ? CodeBadgerRoles.Planner : CodeBadgerRoles.Worker]
         };
 
+    private string GetInitialAgentRole(CodeBadgerTerminalSession session, string? forcedRole) =>
+        forcedRole ?? (CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) switch
+        {
+            CodeBadgerOrchestrationModes.SingleAgent or CodeBadgerOrchestrationModes.PlanBuild =>
+                session.Mode == TerminalMode.Plan ? CodeBadgerRoles.Planner : CodeBadgerRoles.Worker,
+            _ => CodeBadgerRoles.Router
+        });
+
     private List<string> GetActiveSessionAgentRoles(CodeBadgerTerminalSession session) =>
         GetSessionAgentRoles(session)
             .Where(role => GetAgentRoleProgress(session, role) is AgentRoleProgress.Working or AgentRoleProgress.Waiting)
             .ToList();
 
-    private List<string> GetDisplayedSessionAgentRoles(CodeBadgerTerminalSession session)
-    {
-        var activeRoles = GetActiveSessionAgentRoles(session);
-        return activeRoles.Count > 0
-            ? activeRoles
-            : GetSessionAgentRoles(session)
-                .Where(role => GetAgentRoleProgress(session, role) == AgentRoleProgress.Stopped)
-                .ToList();
-    }
-
     private void SynchronizeAgentStatusRotationTimer()
     {
         var shouldRotate = Repository.CodeBadgerTerminalEnabled &&
-            _terminalSessions.Any(session => GetDisplayedSessionAgentRoles(session).Count > 1);
+            _terminalSessions.Any(session => GetActiveSessionAgentRoles(session).Count > 1);
         if (shouldRotate && _agentStatusRotationTimer is null)
         {
             _agentStatusRotationTimer = new Timer(async _ =>
@@ -1132,13 +1142,14 @@
                 };
                 _terminalSessions.Add(terminalSession);
             }
-            if (Repository.CodeBadgerTerminalEnabled && _terminalSessions.Count == 0)
-                await AddTerminalSessionAsync();
             if (_terminalSessions.Count > 0)
                 _selectedTerminalSessionId = _terminalState.SelectedSessionId != Guid.Empty &&
                     _terminalSessions.Any(session => session.Id == _terminalState.SelectedSessionId)
                         ? _terminalState.SelectedSessionId : _terminalSessions[0].Id;
         }
+
+        if (Repository.CodeBadgerTerminalEnabled && _terminalSessions.Count == 0)
+            await AddTerminalSessionAsync();
 
         var priorOpenCodeSessionId = _terminalState.SelectedOpenCodeSessionId;
         SynchronizeOpenCodeSessionSelection();
@@ -1185,7 +1196,7 @@
         var terminalAlreadyStarted = false;
         _agentCommand = AgentTools.GetCommand(Repository.AgentTool);
         if (!terminalAlreadyStarted &&
-            (AgentTools.Normalize(Repository.AgentTool) is AgentTools.ClaudeCode or AgentTools.Hermes))
+            (AgentTools.Normalize(Repository.AgentTool) is AgentTools.ClaudeCode or AgentTools.Hermes or AgentTools.Codex))
         {
             try
             {
@@ -1913,6 +1924,7 @@
         session.State.AgentContextTokens.Clear();
         session.State.AgentContextModels.Clear();
         session.State.ActiveAgentRole = string.Empty;
+        session.State.LastRequestStopped = false;
         session.Mode = TerminalMode.Plan;
         session.State.Mode = "Plan";
         session.RoleProgress.Clear();
@@ -2109,8 +2121,12 @@
     private async Task RunPromptAsync(CodeBadgerTerminalSession session, string prompt, IReadOnlyList<string> images,
         bool forceBuildRequest = false, string? forcedRole = null)
     {
+        // Set a role before asynchronous setup so cancellation during that phase is
+        // still recorded and visible in the session tab.
         session.IsBusy = true;
         session.RoleProgress.Clear();
+        session.State.LastRequestStopped = false;
+        session.State.ActiveAgentRole = GetInitialAgentRole(session, forcedRole);
         session.Error = null;
         session.RunCancellation?.Dispose();
         session.RunCancellation = new CancellationTokenSource();
@@ -2178,6 +2194,7 @@
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            session.State.LastRequestStopped = true;
             if (!string.IsNullOrWhiteSpace(session.State.ActiveAgentRole))
                 session.RoleProgress[session.State.ActiveAgentRole] = AgentRoleProgress.Stopped;
             Snackbar.Add(L.T("The agent request was stopped."), Severity.Info);

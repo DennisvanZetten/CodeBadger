@@ -294,7 +294,9 @@
                     @if (Settings.AiProvider != "Ollama")
                     {
                         <MudTextField @bind-Value="Settings.AiApiKey" @bind-Value:after="ResetModelList" Label="@L.T("Provider API key")" Margin="Margin.Dense" Variant="Variant.Outlined"
-                                      InputType="InputType.Password" HelperText="@L.T("Stored securely on this device.")" />
+                                      InputType="@(_showAiApiKey ? InputType.Text : InputType.Password)"
+                                      Adornment="Adornment.End" AdornmentIcon="@(_showAiApiKey ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                      OnAdornmentClick="ToggleAiApiKeyVisibility" HelperText="@L.T("Stored securely on this device.")" />
                     }
                     <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.WifiTethering"
                                OnClick="@(() => TestAiConnectionAsync())" Disabled="@(_isTestingAi || !_aiConnectionChanged || !_aiProviderConfigurationComplete)" Class="align-self-start">
@@ -514,10 +516,14 @@
 
     private bool _isTestingAi;
     private bool _isSaving;
+    private bool _showAiApiKey;
     private bool _hasTestedConnection;
     private bool _aiConnectionChanged;
     private bool _initialModelLoadsStarted;
     private string _aiConnectionError = string.Empty;
+
+    private void ToggleAiApiKeyVisibility() => _showAiApiKey = !_showAiApiKey;
+
     private IReadOnlyList<string> _availableModels = [];
     private IReadOnlyList<OpenCodeActivityService.AvailableModel> _terminalModels = [];
     private bool _aiProviderConfigurationComplete => Settings.AiProvider switch

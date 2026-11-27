@@ -228,6 +228,7 @@ public sealed class CodeBadgerTerminalSessionState
     public string Title { get; set; } = string.Empty;
     public string Mode { get; set; } = "Plan";
     public string ActiveAgentRole { get; set; } = string.Empty;
+    public bool LastRequestStopped { get; set; }
     public Dictionary<string, string> AgentSessionIds { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, int> AgentSessionGenerations { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, long> AgentContextTokens { get; set; } = new(StringComparer.Ordinal);

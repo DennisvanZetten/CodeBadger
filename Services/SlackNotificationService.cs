@@ -245,7 +245,7 @@ public sealed class SlackNotificationService : IAsyncDisposable
             return;
         if (_sessionThreads.TryGetValue(session.Id, out var codeBadgerThread) && codeBadgerThread.CodeBadgerTerminalSessionId is not null)
             return;
-        if ((session.Agent is "Claude Code" or "Hermes") && !_sessionThreads.ContainsKey(session.Id))
+        if ((session.Agent is "Claude Code" or "Hermes" or "Codex") && !_sessionThreads.ContainsKey(session.Id))
         {
             await PublishExternalAgentPromptAsync(session,
                 $"{session.Agent} session finished without a captured prompt.",

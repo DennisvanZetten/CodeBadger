@@ -1193,7 +1193,7 @@
         var terminalAlreadyStarted = false;
         _agentCommand = AgentTools.GetCommand(Repository.AgentTool);
         if (!terminalAlreadyStarted &&
-            (AgentTools.Normalize(Repository.AgentTool) is AgentTools.ClaudeCode or AgentTools.Hermes))
+            (AgentTools.Normalize(Repository.AgentTool) is AgentTools.ClaudeCode or AgentTools.Hermes or AgentTools.Codex))
         {
             try
             {

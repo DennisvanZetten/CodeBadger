@@ -18,6 +18,7 @@ public sealed class AgentSessionNotificationService : IAsyncDisposable
     private const int MaximumRequestBytes = 1024 * 1024;
     private const string HermesWebhookName = "codebadger-agent-session-notifications";
     private const string ClaudeHookCommandName = "CodeBadgerClaudeSessionNotification";
+    private const string CodexNotifyMarker = "# CodeBadger session notifications";
     private readonly LauncherSettingsService _settingsService;
     private readonly AgentConfigService _agentConfigService;
     private readonly SlackNotificationService _notifications;
@@ -33,6 +34,7 @@ public sealed class AgentSessionNotificationService : IAsyncDisposable
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _seenDeliveries = new(StringComparer.Ordinal);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _sessionDirectories = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _claudeSettingsGate = new(1, 1);
+    private readonly SemaphoreSlim _codexConfigGate = new(1, 1);
     private TcpListener? _listener;
     private CancellationTokenSource? _shutdown;
     private Task? _acceptTask;
@@ -53,7 +55,7 @@ public sealed class AgentSessionNotificationService : IAsyncDisposable
     public async Task PrepareAsync(IReadOnlyCollection<RepositoryEntry> repositories,
         CancellationToken cancellationToken = default)
     {
-        if (!repositories.Any(repository => AgentTools.Normalize(repository.AgentTool) is AgentTools.ClaudeCode or AgentTools.Hermes))
+        if (!repositories.Any(repository => AgentTools.Normalize(repository.AgentTool) is AgentTools.ClaudeCode or AgentTools.Hermes or AgentTools.Codex))
             return;
 
         await EnsureListenerAsync(cancellationToken);
@@ -61,6 +63,8 @@ public sealed class AgentSessionNotificationService : IAsyncDisposable
             await ConfigureHermesAsync(cancellationToken);
         if (repositories.Any(repository => AgentTools.Normalize(repository.AgentTool) == AgentTools.ClaudeCode))
             await EnsureClaudeHookFilesAsync(cancellationToken);
+        if (repositories.Any(repository => AgentTools.Normalize(repository.AgentTool) == AgentTools.Codex))
+            await ConfigureCodexAsync(cancellationToken);
     }
 
     public async Task<string> GetRepositoryCommandAsync(RepositoryEntry repository,
@@ -77,7 +81,109 @@ public sealed class AgentSessionNotificationService : IAsyncDisposable
         if (agent == AgentTools.Hermes)
             await PrepareAsync(new[] { repository }, cancellationToken);
 
+        if (agent == AgentTools.Codex)
+            await PrepareAsync(new[] { repository }, cancellationToken);
+
         return AgentTools.GetCommand(agent);
+    }
+
+    private async Task ConfigureCodexAsync(CancellationToken cancellationToken)
+    {
+        await _codexConfigGate.WaitAsync(cancellationToken);
+        try
+        {
+            var directory = Path.Combine(FileSystem.AppDataDirectory, "agent-session-hooks");
+            Directory.CreateDirectory(directory);
+            var scriptPath = Path.Combine(directory, "codex-hook.ps1");
+            var endpointPath = Path.Combine(directory, "codex-endpoint.txt");
+            await File.WriteAllTextAsync(endpointPath, BuildEndpoint("codex"), new UTF8Encoding(false), cancellationToken);
+            var script = $$"""
+                param([Parameter(Mandatory = $true)][string]$Payload)
+                $Endpoint = (Get-Content -LiteralPath '{{endpointPath.Replace("'", "''", StringComparison.Ordinal)}}' -Raw).Trim()
+                try {
+                    $hook = $Payload | ConvertFrom-Json
+                    if ([string]$hook.type -ne 'agent-turn-complete') { exit 0 }
+                    $body = @{
+                        source = 'codex'
+                        event = 'complete'
+                        event_id = [string]$hook.'turn-id'
+                        session_id = [string]$hook.'thread-id'
+                        cwd = [string]$hook.cwd
+                        prompt = @($hook.'input-messages') -join "`n"
+                        response = [string]$hook.'last-assistant-message'
+                    } | ConvertTo-Json -Depth 8 -Compress
+                    $request = [System.Net.HttpWebRequest]::Create($Endpoint)
+                    $request.Method = 'POST'
+                    $request.ContentType = 'application/json'
+                    $request.Timeout = 3000
+                    $request.ReadWriteTimeout = 3000
+                    $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+                    $request.ContentLength = $bytes.Length
+                    $requestStream = $request.GetRequestStream()
+                    $requestStream.Write($bytes, 0, $bytes.Length)
+                    $requestStream.Dispose()
+                    $response = $request.GetResponse()
+                    $response.Dispose()
+                } catch { }
+                exit 0
+                """;
+            await WriteIfChangedAsync(scriptPath, script, cancellationToken);
+
+            var configPath = _agentConfigService.GetConfigPath(AgentTools.Codex);
+            var existing = File.Exists(configPath)
+                ? await File.ReadAllTextAsync(configPath, cancellationToken)
+                : string.Empty;
+            var managedConfigExists = existing.Contains(CodexNotifyMarker, StringComparison.Ordinal);
+            var parsed = string.IsNullOrWhiteSpace(existing)
+                ? new Tomlyn.Model.TomlTable()
+                : Tomlyn.TomlSerializer.Deserialize<Tomlyn.Model.TomlTable>(existing)
+                    ?? throw new InvalidOperationException("Codex config.toml must contain a TOML table.");
+            var command = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
+                "WindowsPowerShell", "v1.0", "powershell.exe");
+            if (!File.Exists(command))
+                command = "powershell.exe";
+            var notifyLine = "notify = [\"" + command.Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace("\"", "\\\"", StringComparison.Ordinal) + "\", \"-NoProfile\", \"-NonInteractive\", " +
+                "\"-ExecutionPolicy\", \"Bypass\", \"-File\", \"" +
+                scriptPath.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal) + "\"]";
+            if (parsed.ContainsKey("notify"))
+            {
+                var lines = existing.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+                var markerIndex = Array.IndexOf(lines, CodexNotifyMarker);
+                if (!managedConfigExists || markerIndex < 0 || markerIndex + 1 >= lines.Length || !lines[markerIndex + 1].StartsWith("notify =", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Codex already has a custom notify command. CodeBadger left it unchanged; configure the CodeBadger Codex hook manually or remove the existing notify setting.");
+                lines[markerIndex + 1] = notifyLine;
+                await SaveCodexConfigAsync(configPath, string.Join(Environment.NewLine, lines), cancellationToken);
+                return;
+            }
+
+            var updated = CodexNotifyMarker + Environment.NewLine + notifyLine + Environment.NewLine + Environment.NewLine + existing;
+            await SaveCodexConfigAsync(configPath, updated, cancellationToken);
+            _logger.LogInformation("Configured Codex session notifications in {ConfigPath}.", configPath);
+        }
+        finally
+        {
+            _codexConfigGate.Release();
+        }
+    }
+
+    private static async Task SaveCodexConfigAsync(string path, string content, CancellationToken cancellationToken)
+    {
+        var directory = Path.GetDirectoryName(path) ?? throw new InvalidOperationException("Codex config has no parent directory.");
+        Directory.CreateDirectory(directory);
+        if (File.Exists(path))
+            File.Copy(path, $"{path}.bak-{DateTime.Now:yyyyMMdd-HHmmss-fff}");
+        var temporaryPath = $"{path}.tmp-{Guid.NewGuid():N}";
+        try
+        {
+            await File.WriteAllTextAsync(temporaryPath, content, new UTF8Encoding(false), cancellationToken);
+            File.Move(temporaryPath, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
+        }
     }
 
     private async Task EnsureListenerAsync(CancellationToken cancellationToken)
@@ -492,7 +598,8 @@ public sealed class AgentSessionNotificationService : IAsyncDisposable
                 using var payload = JsonDocument.Parse(body.AsMemory(0, offset));
                 var source = parts[1][expectedPath.Length..].TrimEnd('/');
                 var expectedSource = parts[1].EndsWith("/hermes", StringComparison.Ordinal) ? "hermes" :
-                    parts[1].EndsWith("/claude", StringComparison.Ordinal) ? "claude" : string.Empty;
+                    parts[1].EndsWith("/claude", StringComparison.Ordinal) ? "claude" :
+                    parts[1].EndsWith("/codex", StringComparison.Ordinal) ? "codex" : string.Empty;
                 if (source != expectedSource)
                 {
                     await WriteResponseAsync(stream, 404, cancellationToken);
@@ -513,8 +620,24 @@ public sealed class AgentSessionNotificationService : IAsyncDisposable
 
     private bool TryQueueEvent(string source, JsonElement payload)
     {
-        if (source is not ("claude" or "hermes") || payload.ValueKind != JsonValueKind.Object)
+        if (source is not ("claude" or "hermes" or "codex") || payload.ValueKind != JsonValueKind.Object)
             return false;
+
+        if (source == "codex")
+        {
+            if (GetString(payload, "event") != "complete")
+                return false;
+            var codexSessionId = GetString(payload, "session_id");
+            if (string.IsNullOrWhiteSpace(codexSessionId))
+                return false;
+            var codexDeliveryId = GetString(payload, "event_id");
+            var deliveryKey = "codex:" + codexSessionId + ":" + codexDeliveryId;
+            if (!string.IsNullOrWhiteSpace(codexDeliveryId) && !_seenDeliveries.TryAdd(deliveryKey, 0))
+                return true;
+            return _events.Writer.TryWrite(new AgentHookEvent(source, "complete", codexSessionId,
+                GetString(payload, "cwd"), GetString(payload, "prompt"), GetString(payload, "response"),
+                codexDeliveryId, codexDeliveryId));
+        }
 
         var eventName = GetString(payload, "event");
         if (source == "claude")
@@ -601,7 +724,12 @@ public sealed class AgentSessionNotificationService : IAsyncDisposable
             OpenCodeActivityService.NormalizePath(eventDirectory) is not { } directory)
             return;
         var settings = await _settingsService.LoadAsync();
-        var agent = hookEvent.Source == "claude" ? AgentTools.ClaudeCode : AgentTools.Hermes;
+        var agent = hookEvent.Source switch
+        {
+            "claude" => AgentTools.ClaudeCode,
+            "codex" => AgentTools.Codex,
+            _ => AgentTools.Hermes
+        };
         var repository = settings.Repositories
             .Where(candidate => candidate.IsActive && AgentTools.Normalize(candidate.AgentTool) == agent &&
                 !string.IsNullOrWhiteSpace(candidate.Path) &&
@@ -630,10 +758,10 @@ public sealed class AgentSessionNotificationService : IAsyncDisposable
         var session = new OpenCodeActivityService.ActiveSession(sessionId, repositoryPath,
             AgentTools.GetDisplayName(agent), title, repositoryName);
 
-        if (hookEvent.Event == "prompt")
+        if (hookEvent.Event == "prompt" || hookEvent.Source == "codex" && !string.IsNullOrWhiteSpace(hookEvent.Prompt))
             await _notifications.PublishExternalAgentPromptAsync(session, hookEvent.Prompt,
                 hookEvent.EventId, cancellationToken);
-        else if (!string.IsNullOrWhiteSpace(hookEvent.Response))
+        if ((hookEvent.Event == "complete" || hookEvent.Source == "codex") && !string.IsNullOrWhiteSpace(hookEvent.Response))
             await _notifications.PublishExternalAgentCompletionAsync(session, hookEvent.Response, cancellationToken);
     }
 
@@ -758,7 +886,7 @@ public sealed class AgentSessionNotificationService : IAsyncDisposable
 
     private static string CreateNotificationSessionId(string source, string sessionId)
     {
-        var safeSource = source == "claude" ? "claude" : "hermes";
+        var safeSource = source switch { "claude" => "claude", "codex" => "codex", _ => "hermes" };
         if (sessionId.Length <= 160 && sessionId.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-'))
             return $"ses_{safeSource}_{sessionId}";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sessionId))).ToLowerInvariant();
@@ -823,6 +951,7 @@ public sealed class AgentSessionNotificationService : IAsyncDisposable
         _startGate.Dispose();
         _hermesConfigGate.Dispose();
         _claudeSettingsGate.Dispose();
+        _codexConfigGate.Dispose();
     }
 
     private sealed record AgentHookEvent(string Source, string Event, string SessionId, string Directory,

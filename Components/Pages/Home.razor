@@ -410,7 +410,7 @@
 
     private bool CanOpenRepositorySlackSessions(RepositoryEntry repository) =>
         !repository.SlackNotificationsMuted && SlackNotifications.CanSendNotifications &&
-        AgentTools.Normalize(repository.AgentTool) is (AgentTools.OpenCode or AgentTools.ClaudeCode or AgentTools.Hermes);
+        AgentTools.Normalize(repository.AgentTool) is (AgentTools.OpenCode or AgentTools.ClaudeCode or AgentTools.Hermes or AgentTools.Codex);
 
     private async Task OpenRepositorySlackSessionsAsync()
     {
@@ -933,7 +933,7 @@
                 await InvokeAsync(() =>
                 {
                     var working = _activeRepositories
-                        .Where(repository => AgentTools.Normalize(repository.AgentTool) is AgentTools.ClaudeCode or AgentTools.Hermes)
+                        .Where(repository => AgentTools.Normalize(repository.AgentTool) is AgentTools.ClaudeCode or AgentTools.Hermes or AgentTools.Codex)
                         .Where(repository => WindowsTerminalSessions.IsInteractiveAgentWorking(repository.Id))
                         .Select(repository => repository.Id)
                         .ToHashSet();
@@ -954,13 +954,17 @@
     {
         try
         {
-            if (session.Agent is "Claude Code" or "Hermes")
+            if (session.Agent is "Claude Code" or "Hermes" or "Codex")
             {
                 var settings = await SettingsService.LoadAsync();
                 var repositoryPath = OpenCodeActivityService.NormalizePath(session.Directory);
                 var repository = settings.Repositories.FirstOrDefault(candidate =>
-                    AgentTools.Normalize(candidate.AgentTool) ==
-                    (session.Agent == "Claude Code" ? AgentTools.ClaudeCode : AgentTools.Hermes) &&
+                    AgentTools.Normalize(candidate.AgentTool) == (session.Agent switch
+                    {
+                        "Claude Code" => AgentTools.ClaudeCode,
+                        "Codex" => AgentTools.Codex,
+                        _ => AgentTools.Hermes
+                    }) &&
                     string.Equals(OpenCodeActivityService.NormalizePath(candidate.Path), repositoryPath,
                         StringComparison.OrdinalIgnoreCase));
                 if (repository is null || !Directory.Exists(repository.Path))
@@ -1022,7 +1026,7 @@
 
     private void HandleSlackSessionStarted(OpenCodeActivityService.ActiveSession session) => _ = InvokeAsync(() =>
     {
-        if (session.Agent is "Claude Code" or "Hermes")
+        if (session.Agent is "Claude Code" or "Hermes" or "Codex")
             return;
         var repository = _activeRepositories.FirstOrDefault(candidate =>
             AgentTools.Normalize(candidate.AgentTool) == AgentTools.OpenCode &&

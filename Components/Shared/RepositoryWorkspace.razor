@@ -1602,20 +1602,16 @@
         var mode = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode);
         var roleOverrideKey = mode == CodeBadgerOrchestrationModes.SingleAgent ? "SingleAgent" : role;
         var sessionKey = mode == CodeBadgerOrchestrationModes.SingleAgent ? "SingleAgent" : role;
-        var previousModel = session.State.AgentSessionModels.GetValueOrDefault(sessionKey);
+        var previousModel = session.State.AgentSessionModels.GetValueOrDefault(sessionKey) ??
+            session.State.RoleModelOverrides.GetValueOrDefault(roleOverrideKey);
         var resetHermesSession = AgentTools.Normalize(Repository.AgentTool) == AgentTools.Hermes &&
-            session.State.AgentSessionIds.ContainsKey(sessionKey) && !string.IsNullOrWhiteSpace(previousModel) &&
+            session.State.AgentSessionIds.ContainsKey(sessionKey) &&
             !string.Equals(previousModel, selected.Reference, StringComparison.OrdinalIgnoreCase);
         if (resetHermesSession)
         {
             // Hermes freezes --model when resuming a saved session. The CodeBadger conversation stays intact.
             session.State.AgentSessionIds.Remove(sessionKey);
             session.State.AgentSessionModels.Remove(sessionKey);
-            session.Messages.Add(new CodeBadgerTerminalMessage
-            {
-                Role = "assistant", IsCodeBadgerMessage = true,
-                Text = L.T("Hermes starts a new agent session to apply the selected model; the CodeBadger conversation stays available above.")
-            });
         }
         try
         {
@@ -1633,6 +1629,12 @@
             Role = "assistant", IsCodeBadgerMessage = true,
             Text = L.T("Model for {0} set to {1}.", RoleDisplayName(role), selected.Name)
         });
+        if (resetHermesSession)
+            session.Messages.Add(new CodeBadgerTerminalMessage
+            {
+                Role = "assistant", IsCodeBadgerMessage = true,
+                Text = L.T("Hermes starts a new agent session to apply the selected model; the CodeBadger conversation stays available above.")
+            });
         session.Messages.RemoveAll(message => message.IsModelPicker);
         session.Input = string.Empty;
         await PersistTerminalStateAsync();

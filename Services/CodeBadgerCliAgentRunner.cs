@@ -526,58 +526,6 @@ public sealed class CodeBadgerCliAgentRunner(ILogger<CodeBadgerCliAgentRunner> l
         mapping.Children.TryGetValue(new YamlDotNet.RepresentationModel.YamlScalarNode(key), out var value) &&
         value is YamlDotNet.RepresentationModel.YamlScalarNode scalar ? scalar.Value ?? string.Empty : string.Empty;
 
-    private static async Task ApplyHermesSessionModelAsync(string selectedModel, CancellationToken cancellationToken)
-    {
-        var home = Environment.GetEnvironmentVariable("HERMES_HOME") is { Length: > 0 } hermesHome
-            ? hermesHome : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".hermes");
-        var configPath = Path.Combine(home, "config.yaml");
-        if (!File.Exists(configPath))
-            throw new FileNotFoundException("Hermes configuration was not found; configure a provider before selecting a Hermes model.", configPath);
-
-        var yaml = new YamlDotNet.RepresentationModel.YamlStream();
-        using (var reader = new StringReader(await File.ReadAllTextAsync(configPath, cancellationToken)))
-            yaml.Load(reader);
-        if (yaml.Documents.FirstOrDefault()?.RootNode is not YamlDotNet.RepresentationModel.YamlMappingNode root ||
-            !root.Children.TryGetValue(new YamlDotNet.RepresentationModel.YamlScalarNode("model"), out var node) ||
-            node is not YamlDotNet.RepresentationModel.YamlMappingNode model)
-            throw new InvalidOperationException("Hermes model configuration must be a YAML mapping with provider and default model.");
-
-        var provider = ReadYamlScalar(model, "provider");
-        var localId = selectedModel;
-        var separator = selectedModel.IndexOf(':');
-        if (separator > 0 && provider.Length > 0 &&
-            !string.Equals(selectedModel[..separator], provider, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"Model '{selectedModel}' belongs to a different Hermes provider than the active '{provider}' provider.");
-        if (separator > 0 && string.Equals(selectedModel[..separator], provider, StringComparison.OrdinalIgnoreCase))
-            localId = selectedModel[(separator + 1)..];
-
-        var key = new YamlDotNet.RepresentationModel.YamlScalarNode("default");
-        if (model.Children.ContainsKey(key)) model.Children[key] = new YamlDotNet.RepresentationModel.YamlScalarNode(localId);
-        else model.Add(key, new YamlDotNet.RepresentationModel.YamlScalarNode(localId));
-        await SaveHermesConfigAsync(configPath, yaml, cancellationToken);
-    }
-
-    private static async Task SaveHermesConfigAsync(string path, YamlDotNet.RepresentationModel.YamlStream yaml,
-        CancellationToken cancellationToken)
-    {
-        using var writer = new StringWriter();
-        yaml.Save(writer, assignAnchors: false);
-        var directory = Path.GetDirectoryName(path) ?? throw new InvalidOperationException("Hermes configuration has no parent directory.");
-        Directory.CreateDirectory(directory);
-        var backup = $"{path}.bak-{DateTime.Now:yyyyMMdd-HHmmss-fff}";
-        File.Copy(path, backup);
-        var temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
-        try
-        {
-            await File.WriteAllTextAsync(temporary, writer.ToString(), cancellationToken);
-            File.Move(temporary, path, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(temporary)) File.Delete(temporary);
-        }
-    }
-
     private static async Task<JsonDocument> ReadAppServerResponseAsync(StreamReader reader, int expectedId,
         CancellationToken cancellationToken)
     {
@@ -629,8 +577,6 @@ public sealed class CodeBadgerCliAgentRunner(ILogger<CodeBadgerCliAgentRunner> l
                 foreach (var image in images ?? [])
                     if (image.StartsWith("data:image/jpeg;base64,", StringComparison.OrdinalIgnoreCase))
                         attachments.Add(WriteImageAttachment(image));
-            if (agent == AgentTools.Hermes && string.IsNullOrWhiteSpace(existingSessionId) && !string.IsNullOrWhiteSpace(model))
-                await ApplyHermesSessionModelAsync(model, cancellationToken);
             var processStart = CreateStartInfo(agent, repositoryPath, existingSessionId, role, attachments, model);
             var initialSessionId = agent == AgentTools.ClaudeCode && existingSessionId is null
                 ? Guid.NewGuid().ToString()
@@ -770,6 +716,11 @@ public sealed class CodeBadgerCliAgentRunner(ILogger<CodeBadgerCliAgentRunner> l
                 start.ArgumentList.Add("-");
                 start.ArgumentList.Add("--format");
                 start.ArgumentList.Add("stream-json");
+                if (!string.IsNullOrWhiteSpace(model))
+                {
+                    start.ArgumentList.Add("--model");
+                    start.ArgumentList.Add(model);
+                }
                 if (!string.IsNullOrWhiteSpace(sessionId))
                 {
                     start.ArgumentList.Add("--resume");

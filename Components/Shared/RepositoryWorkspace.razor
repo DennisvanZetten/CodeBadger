@@ -29,10 +29,8 @@
     {
         @if (Repository.CodeBadgerTerminalEnabled)
         {
-                <div class="repository-terminal-stack @(OperatingSystem.IsMacCatalyst() ? "codebadger-chat-only" : AiPaneModeClass)" @ref="_terminalStack"
+                <div class="repository-terminal-stack @AiPaneModeClass" @ref="_terminalStack"
                      style="--ai-terminal-ratio: @((_aiPanelHeight / 100).ToString(System.Globalization.CultureInfo.InvariantCulture))fr; --chat-terminal-ratio: @((1 - _aiPanelHeight / 100).ToString(System.Globalization.CultureInfo.InvariantCulture))fr">
-                @if (!OperatingSystem.IsMacCatalyst())
-                {
                 <section class="repository-ai-pane" aria-label="@L.T("AI terminal")">
                     <div class="repository-terminal-panel">
                         @if (!string.IsNullOrWhiteSpace(_notificationSetupError))
@@ -186,7 +184,6 @@
                         </div>
                     </div>
                 </div>
-                }
 
                 <section class="repository-codebadger-pane" aria-label="@L.T("CodeBadger terminal")">
                         @if (_aiPanelMode != AiPanelMode.Expanded &&

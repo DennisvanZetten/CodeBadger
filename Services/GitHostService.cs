@@ -247,7 +247,11 @@ public sealed class GitHostService(LocalizationService localization, ILogger<Git
         try
         {
             var startedAt = Stopwatch.GetTimestamp();
-            logger.LogInformation("Running Git host CLI: {Executable} {Arguments}.", executable, FormatLogArguments(arguments));
+            var processWorkingDirectory = GetProcessWorkingDirectory(startInfo);
+            logger.LogInformation(
+                "Starting Git host CLI process. Executable={Executable}, WorkingDirectory={WorkingDirectory}, WorkingDirectoryExists={WorkingDirectoryExists}, ExecutableOnPath={ExecutableOnPath}, Platform={Platform}, Arguments={Arguments}.",
+                executable, processWorkingDirectory, Directory.Exists(processWorkingDirectory), FindExecutableOnPath(executable),
+                System.Runtime.InteropServices.RuntimeInformation.OSDescription, FormatLogArguments(arguments));
             using var process = Process.Start(startInfo) ?? throw new InvalidOperationException(localization.T("Could not start {0}.", executable));
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
@@ -267,7 +271,11 @@ public sealed class GitHostService(LocalizationService localization, ILogger<Git
         }
         catch (Exception exception) when (exception is Win32Exception or InvalidOperationException)
         {
-            logger.LogWarning("Could not start Git host CLI {Executable}: {ErrorMessage}", executable, exception.Message);
+            var failedWorkingDirectory = GetProcessWorkingDirectory(startInfo);
+            logger.LogWarning(exception,
+                "Could not start Git host CLI process. Executable={Executable}, WorkingDirectory={WorkingDirectory}, WorkingDirectoryExists={WorkingDirectoryExists}, ExecutableOnPath={ExecutableOnPath}, NativeErrorCode={NativeErrorCode}.",
+                executable, failedWorkingDirectory, Directory.Exists(failedWorkingDirectory), FindExecutableOnPath(executable),
+                (exception as Win32Exception)?.NativeErrorCode);
             return new CommandResult(false, string.Empty, localization.T("{0} is not installed or is not available in PATH.", executable));
         }
     }
@@ -308,7 +316,11 @@ public sealed class GitHostService(LocalizationService localization, ILogger<Git
         try
         {
             var startedAt = Stopwatch.GetTimestamp();
-            logger.LogInformation("Running Git host CLI: {Executable} {Arguments}.", executable, FormatLogArguments(arguments));
+            var processWorkingDirectory = GetProcessWorkingDirectory(startInfo);
+            logger.LogInformation(
+                "Starting Git host CLI process. Executable={Executable}, WorkingDirectory={WorkingDirectory}, WorkingDirectoryExists={WorkingDirectoryExists}, ExecutableOnPath={ExecutableOnPath}, Platform={Platform}, Arguments={Arguments}.",
+                executable, processWorkingDirectory, Directory.Exists(processWorkingDirectory), FindExecutableOnPath(executable),
+                System.Runtime.InteropServices.RuntimeInformation.OSDescription, FormatLogArguments(arguments));
             using var process = Process.Start(startInfo) ?? throw new InvalidOperationException(localization.T("Could not start {0}.", executable));
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
@@ -327,16 +339,41 @@ public sealed class GitHostService(LocalizationService localization, ILogger<Git
         }
         catch (Exception exception) when (exception is Win32Exception or InvalidOperationException)
         {
-            logger.LogWarning("Could not start Git host CLI {Executable}: {ErrorMessage}", executable, exception.Message);
+            var failedWorkingDirectory = GetProcessWorkingDirectory(startInfo);
+            logger.LogWarning(exception,
+                "Could not start Git host CLI process. Executable={Executable}, WorkingDirectory={WorkingDirectory}, WorkingDirectoryExists={WorkingDirectoryExists}, ExecutableOnPath={ExecutableOnPath}, NativeErrorCode={NativeErrorCode}.",
+                executable, failedWorkingDirectory, Directory.Exists(failedWorkingDirectory), FindExecutableOnPath(executable),
+                (exception as Win32Exception)?.NativeErrorCode);
             return new CommandResult(false, string.Empty,
                 $"{localization.T("{0} is not installed or is not available in PATH.", executable)} ({exception.GetType().Name}: {exception.Message})");
         }
         catch (DirectoryNotFoundException exception)
         {
-            logger.LogWarning("Git host CLI {Executable} working folder does not exist: {ErrorMessage}", executable, exception.Message);
+            var failedWorkingDirectory = GetProcessWorkingDirectory(startInfo);
+            logger.LogWarning(exception,
+                "Git host CLI working directory does not exist. Executable={Executable}, WorkingDirectory={WorkingDirectory}, ExecutableOnPath={ExecutableOnPath}.",
+                executable, failedWorkingDirectory, FindExecutableOnPath(executable));
             return new CommandResult(false, string.Empty,
                 $"{localization.T("The selected destination folder does not exist.")} ({exception.GetType().Name}: {exception.Message})");
         }
+    }
+
+    private static string GetProcessWorkingDirectory(ProcessStartInfo startInfo) =>
+        string.IsNullOrWhiteSpace(startInfo.WorkingDirectory) ? Environment.CurrentDirectory : startInfo.WorkingDirectory;
+
+    private static string? FindExecutableOnPath(string executable)
+    {
+        var executableName = OperatingSystem.IsWindows() && !Path.HasExtension(executable)
+            ? executable + ".exe"
+            : executable;
+        foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
+                     .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var candidate = Path.Combine(directory.Trim('"'), executableName);
+            if (File.Exists(candidate))
+                return candidate;
+        }
+        return null;
     }
 
     private static string FormatLogArguments(IEnumerable<string> arguments)

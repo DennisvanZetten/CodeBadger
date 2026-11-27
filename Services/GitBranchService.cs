@@ -1515,7 +1515,7 @@ public sealed class GitBranchService
 
     public async Task<GitOperationResult> OpenConflictInVsCodeAsync(string repositoryPath, string relativePath)
     {
-        if (OperatingSystem.IsIOS())
+        if (OperatingSystem.IsIOS() && !OperatingSystem.IsMacCatalyst())
             return new GitOperationResult(false, _localization.T("VS Code could not be started."), string.Empty);
 
         try
@@ -1665,7 +1665,7 @@ public sealed class GitBranchService
     {
         var command = FormatArguments(arguments);
         using var repositoryScope = _logger.BeginScope(new Dictionary<string, object?> { ["RepositoryPath"] = path });
-        if (OperatingSystem.IsIOS())
+        if (OperatingSystem.IsIOS() && !OperatingSystem.IsMacCatalyst())
             return new GitOperationResult(false, _localization.T("Git is not available in PATH."), string.Empty);
 
         var startInfo = new ProcessStartInfo
@@ -1693,10 +1693,20 @@ public sealed class GitBranchService
         try
         {
             var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
-            _logger.LogInformation("Running git command in {RepositoryPath}: git {GitArguments}", path, command);
+            var processWorkingDirectory = string.IsNullOrWhiteSpace(startInfo.WorkingDirectory)
+                ? Environment.CurrentDirectory
+                : startInfo.WorkingDirectory;
+            _logger.LogInformation(
+                "Starting Git process. RepositoryPath={RepositoryPath}, RepositoryExists={RepositoryExists}, ProcessWorkingDirectory={ProcessWorkingDirectory}, ProcessWorkingDirectoryExists={ProcessWorkingDirectoryExists}, GitOnPath={GitOnPath}, Platform={Platform}, Arguments=git {GitArguments}",
+                path, Directory.Exists(path), processWorkingDirectory, Directory.Exists(processWorkingDirectory), FindGitOnPath(),
+                System.Runtime.InteropServices.RuntimeInformation.OSDescription, command);
             using var process = Process.Start(startInfo);
             if (process is null)
+            {
+                _logger.LogError("Git process start returned no process. RepositoryPath={RepositoryPath}, ProcessWorkingDirectory={ProcessWorkingDirectory}, GitOnPath={GitOnPath}",
+                    path, processWorkingDirectory, FindGitOnPath());
                 return new GitOperationResult(false, _localization.T("Git could not be started."), string.Empty);
+            }
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
@@ -1723,7 +1733,10 @@ public sealed class GitBranchService
         }
         catch (Win32Exception exception)
         {
-            _logger.LogError(exception, "Could not start git command: git {GitArguments}", command);
+            _logger.LogError(exception,
+                "Could not start Git process. RepositoryPath={RepositoryPath}, RepositoryExists={RepositoryExists}, ProcessWorkingDirectory={ProcessWorkingDirectory}, ProcessWorkingDirectoryExists={ProcessWorkingDirectoryExists}, GitOnPath={GitOnPath}, NativeErrorCode={NativeErrorCode}, Arguments=git {GitArguments}",
+                path, Directory.Exists(path), GetProcessWorkingDirectory(startInfo), Directory.Exists(GetProcessWorkingDirectory(startInfo)),
+                FindGitOnPath(), exception.NativeErrorCode, command);
             var message = OperatingSystem.IsMacCatalyst()
                 ? $"Git could not be started ({exception.GetType().Name}: {exception.Message})"
                 : _localization.T("Git is not available in PATH.");
@@ -1731,7 +1744,9 @@ public sealed class GitBranchService
         }
         catch (DirectoryNotFoundException exception)
         {
-            _logger.LogWarning(exception, "Git working directory does not exist: {RepositoryPath}", path);
+            _logger.LogWarning(exception,
+                "Git process working directory does not exist. RepositoryPath={RepositoryPath}, RepositoryExists={RepositoryExists}, ProcessWorkingDirectory={ProcessWorkingDirectory}, GitOnPath={GitOnPath}",
+                path, Directory.Exists(path), GetProcessWorkingDirectory(startInfo), FindGitOnPath());
             return new GitOperationResult(false, _localization.T("Path does not exist"), string.Empty);
         }
         catch (InvalidOperationException exception)
@@ -1739,6 +1754,22 @@ public sealed class GitBranchService
             _logger.LogError(exception, "Could not execute git command: git {GitArguments}", command);
             return new GitOperationResult(false, exception.Message, string.Empty);
         }
+    }
+
+    private static string GetProcessWorkingDirectory(ProcessStartInfo startInfo) =>
+        string.IsNullOrWhiteSpace(startInfo.WorkingDirectory) ? Environment.CurrentDirectory : startInfo.WorkingDirectory;
+
+    private static string? FindGitOnPath()
+    {
+        var executableName = OperatingSystem.IsWindows() ? "git.exe" : "git";
+        foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
+                     .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var candidate = Path.Combine(directory.Trim('"'), executableName);
+            if (File.Exists(candidate))
+                return candidate;
+        }
+        return null;
     }
 
     private static string FormatArgument(string argument)

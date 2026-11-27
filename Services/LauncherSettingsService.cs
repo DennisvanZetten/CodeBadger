@@ -27,10 +27,14 @@ public sealed class LauncherSettingsService
                 return new LauncherSettings();
 
             LauncherSettings settings;
+            string? debugAiApiKey = null;
             try
             {
                 var json = await File.ReadAllTextAsync(_settingsPath);
                 var root = JsonNode.Parse(json);
+#if MACCATALYST && DEBUG
+                debugAiApiKey = root?[nameof(LauncherSettings.AiApiKey)]?.GetValue<string>();
+#endif
                 MigrateLoggingDefaults(root);
                 MigrateLegacyTicketSettings(root);
                 MigrateLegacyAiCommitInstruction(root);
@@ -70,7 +74,13 @@ public sealed class LauncherSettingsService
                 repository.AiCustomInstruction ??= string.Empty;
                 repository.HiddenStashCommitHashes ??= [];
             }
+#if MACCATALYST && DEBUG
+            // Temporary local-development fallback: ad-hoc Mac Catalyst builds do not
+            // have the provisioning profile required for Keychain access groups.
+            settings.AiApiKey = debugAiApiKey ?? string.Empty;
+#else
             settings.AiApiKey = await SecureStorage.Default.GetAsync(AiApiKeyStorageKey) ?? string.Empty;
+#endif
             settings.SlackBotToken = await SecureStorage.Default.GetAsync(SlackBotTokenStorageKey) ?? string.Empty;
             settings.SlackAppToken = await SecureStorage.Default.GetAsync(SlackAppTokenStorageKey) ?? string.Empty;
             settings.DiscordBotToken = await SecureStorage.Default.GetAsync(DiscordBotTokenStorageKey) ?? string.Empty;
@@ -120,13 +130,22 @@ public sealed class LauncherSettingsService
             settings.NotificationChannel = settings.NotificationChannel is "Slack" or "Discord"
                 ? settings.NotificationChannel : "Slack";
             Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
+            var settingsJson = JsonSerializer.SerializeToNode(settings, JsonOptions) as JsonObject
+                ?? throw new InvalidOperationException("Could not serialize launcher settings.");
+#if MACCATALYST && DEBUG
+            // Insecure by design and limited to local Debug builds. Replace this with
+            // Keychain storage once Developer ID signing and provisioning are available.
+            settingsJson[nameof(LauncherSettings.AiApiKey)] = settings.AiApiKey;
+#endif
             await using (var stream = File.Create(_settingsPath))
-                await JsonSerializer.SerializeAsync(stream, settings, JsonOptions);
+                await JsonSerializer.SerializeAsync(stream, settingsJson, JsonOptions);
 
+#if !MACCATALYST || !DEBUG
             if (string.IsNullOrWhiteSpace(settings.AiApiKey))
                 SecureStorage.Default.Remove(AiApiKeyStorageKey);
             else
                 await SecureStorage.Default.SetAsync(AiApiKeyStorageKey, settings.AiApiKey);
+#endif
 
             if (string.IsNullOrWhiteSpace(settings.SlackBotToken))
                 SecureStorage.Default.Remove(SlackBotTokenStorageKey);

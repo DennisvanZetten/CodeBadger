@@ -70,10 +70,14 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         {
             if (IsRunning(id))
                 return;
+            _openCodeSessionIds.TryRemove(id, out _);
+            _openCodeTerminalLines.TryRemove(id, out _);
             _logger.LogInformation("Starting agent terminal for repository {RepositoryId} in {WorkingDirectory} with configured command {Command}.",
                 id, workingDirectory, SanitizeCommandForLog(commandLine));
-            if (!OperatingSystem.IsWindows())
-                throw new PlatformNotSupportedException(_localization.T("The built-in terminal is only available on Windows."));
+            if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacCatalyst())
+                throw new PlatformNotSupportedException(_localization.T("The built-in terminal is only available on Windows and macOS."));
+            if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacCatalyst())
+                throw new PlatformNotSupportedException(_localization.T("The built-in terminal is only available on Windows and macOS."));
             if (!Directory.Exists(workingDirectory))
                 throw new DirectoryNotFoundException(_localization.T("Repository folder does not exist: {0}", workingDirectory));
             if (openCodeSandboxEnabled)
@@ -98,14 +102,20 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
             var hasEncodedPowerShellCommand = commandLine.StartsWith("powershell-encoded ", StringComparison.Ordinal);
             var encodedPowerShellCommand = hasEncodedPowerShellCommand ? commandLine["powershell-encoded ".Length..] : null;
             var isPowerShell = string.IsNullOrWhiteSpace(commandLine) || hasEncodedPowerShellCommand;
-            var session = isPowerShell
-                ? CreatePowerShellSession(workingDirectory, Math.Max(columns, 1), Math.Max(rows, 1), encodedPowerShellCommand)
-                : CreateSession(workingDirectory, commandLine, Math.Max(columns, 1), Math.Max(rows, 1), sessionArguments);
+            TerminalSession session;
+#if MACCATALYST
+            if (OperatingSystem.IsMacCatalyst())
+                session = await CreateMacTerminalSessionAsync(workingDirectory, commandLine, Math.Max(columns, 1), Math.Max(rows, 1), sessionArguments);
+            else
+#endif
+                session = isPowerShell
+                    ? CreatePowerShellSession(workingDirectory, Math.Max(columns, 1), Math.Max(rows, 1), encodedPowerShellCommand)
+                    : CreateSession(workingDirectory, commandLine, Math.Max(columns, 1), Math.Max(rows, 1), sessionArguments);
             lock (_sessionsLock)
                 _sessions[id] = session;
             _ = Task.Run(() => ReadOutputAsync(id, session));
             _ = WatchProcessAsync(id, session);
-            _logger.LogInformation("Agent terminal started for repository {RepositoryId}; process ID {ProcessId}.", id, session.Process.Id);
+            _logger.LogInformation("Agent terminal started for repository {RepositoryId}; process ID {ProcessId}.", id, session.ProcessId);
         }
         catch (Exception exception)
         {
@@ -124,7 +134,7 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
             throw new ArgumentException("A valid initial PowerShell command is required.", nameof(command));
 
         if (!OperatingSystem.IsWindows())
-            throw new PlatformNotSupportedException(_localization.T("The built-in terminal is only available on Windows."));
+            throw new PlatformNotSupportedException(_localization.T("The built-in terminal is only available on Windows and macOS."));
         if (!Directory.Exists(workingDirectory))
             throw new DirectoryNotFoundException(_localization.T("Repository folder does not exist: {0}", workingDirectory));
 
@@ -135,12 +145,15 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         {
             if (IsRunning(id))
                 return;
+            if (!OperatingSystem.IsWindows())
+                throw new PlatformNotSupportedException(_localization.T("The built-in terminal is only available on Windows and macOS."));
+            _logger.LogInformation("Starting PowerShell update in repository {RepositoryId}.", id);
             var session = CreatePowerShellSession(workingDirectory, Math.Max(columns, 1), Math.Max(rows, 1), encodedCommand);
             lock (_sessionsLock)
                 _sessions[id] = session;
             _ = Task.Run(() => ReadOutputAsync(id, session));
             _ = WatchProcessAsync(id, session);
-            _logger.LogInformation("Started PowerShell update command for repository {RepositoryId}; process ID {ProcessId}.", id, session.Process.Id);
+            _logger.LogInformation("Started PowerShell update command for repository {RepositoryId}; process ID {ProcessId}.", id, session.ProcessId);
         }
         catch (Exception exception)
         {
@@ -181,6 +194,13 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         TerminalSession? session;
         lock (_sessionsLock)
             _sessions.TryGetValue(id, out session);
+#if MACCATALYST
+        if (session?.Pty is { } pty)
+        {
+            pty.Resize(columns, rows);
+        }
+        else
+#endif
         if (session is not null && session.ConsoleHandle != IntPtr.Zero)
         {
             var result = ResizePseudoConsole(session.ConsoleHandle, new Coord((short)Math.Clamp(columns, 1, short.MaxValue), (short)Math.Clamp(rows, 1, short.MaxValue)));
@@ -191,9 +211,6 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
 
     public async Task StopAsync(Guid id, bool requireTermination = false)
     {
-        if (!OperatingSystem.IsWindows())
-            return;
-
         TerminalSession? session;
         lock (_sessionsLock)
             _sessions.TryGetValue(id, out session);
@@ -201,13 +218,13 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         _logger.LogInformation("Stopping agent terminal for repository {RepositoryId}.", id);
         try
         {
-            if (!session.Process.HasExited)
-                session.Process.Kill(entireProcessTree: true);
+            if (!session.HasExited)
+                await session.KillAsync();
         }
         catch (InvalidOperationException) { }
         catch (System.ComponentModel.Win32Exception) when (!requireTermination) { }
 
-        try { await session.Process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3)); }
+        try { await session.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3)); }
         catch (TimeoutException) when (!requireTermination) { }
         lock (_sessionsLock)
             _sessions.Remove(id);
@@ -258,6 +275,12 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         {
             _logger.LogInformation(exception, "Agent terminal output stream closed for session {SessionId}.", id);
         }
+#if MACCATALYST
+        catch (Exception exception)
+        {
+            _logger.LogInformation(exception, "macOS PTY output stream closed for session {SessionId}.", id);
+        }
+#endif
     }
 
     private void PublishOutput(Guid id, string text)
@@ -280,12 +303,12 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
     {
         try
         {
-            await session.Process.WaitForExitAsync();
+            await session.WaitForExitAsync();
             if (IsActiveSession(id, session))
             {
                 ClearInteractiveAgentActivity(id);
-                _logger.LogInformation("Agent terminal process for repository {RepositoryId} exited with code {ExitCode}.", id, session.Process.ExitCode);
-                SessionExited?.Invoke(id, session.Process.ExitCode);
+                _logger.LogInformation("Agent terminal process for repository {RepositoryId} exited with code {ExitCode}.", id, session.ExitCode);
+                SessionExited?.Invoke(id, session.ExitCode);
             }
         }
         catch (InvalidOperationException) { }
@@ -410,6 +433,110 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
             : $"-NoLogo -NoExit -EncodedCommand {encodedCommand}";
         return CreateSession(workingDirectory, $"\"{powershell}\" {arguments}", columns, rows);
     }
+
+#if MACCATALYST
+    private static async Task<TerminalSession> CreateMacTerminalSessionAsync(string workingDirectory, string commandLine, int columns, int rows,
+        string additionalArguments)
+    {
+        if (commandLine.StartsWith("powershell-encoded ", StringComparison.Ordinal))
+            throw new PlatformNotSupportedException("PowerShell commands are not supported in the macOS terminal.");
+
+        var command = commandLine.Trim();
+        string executable;
+        string arguments;
+        if (command.StartsWith('"'))
+        {
+            var closingQuote = command.IndexOf('"', 1);
+            if (closingQuote < 0)
+                throw new InvalidOperationException("The configured application command has an unclosed quotation mark.");
+            executable = command[1..closingQuote];
+            arguments = command[(closingQuote + 1)..].Trim();
+        }
+        else
+        {
+            var firstSpace = command.IndexOfAny([' ', '\t']);
+            executable = firstSpace < 0 ? command : command[..firstSpace];
+            arguments = firstSpace < 0 ? string.Empty : command[(firstSpace + 1)..].Trim();
+        }
+        if (!string.IsNullOrWhiteSpace(additionalArguments))
+            arguments = string.Join(' ', new[] { arguments, additionalArguments }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        var isInteractiveShell = string.IsNullOrWhiteSpace(command);
+        var executablePath = isInteractiveShell ? "/bin/zsh" : ResolveMacExecutable(executable);
+        var processArguments = isInteractiveShell ? ["-l"] : SplitCommandArguments(arguments);
+        return new TerminalSession(MacPtyConnection.Start(workingDirectory, executablePath, processArguments, columns, rows));
+    }
+
+    private static string ResolveMacExecutable(string executable)
+    {
+        if (Path.IsPathRooted(executable) || executable.Contains(Path.DirectorySeparatorChar))
+        {
+            if (!File.Exists(executable))
+                throw new FileNotFoundException($"The configured application '{executable}' does not exist.", executable);
+            return executable;
+        }
+
+        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var candidate = Path.Combine(directory.Trim('"'), executable);
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        throw new FileNotFoundException($"Could not find '{executable}' in CodeBadger’s PATH.", executable);
+    }
+
+    private static string[] SplitCommandArguments(string arguments)
+    {
+        if (string.IsNullOrWhiteSpace(arguments))
+            return [];
+
+        var result = new List<string>();
+        var current = new StringBuilder();
+        char quote = '\0';
+        var escaped = false;
+        foreach (var character in arguments)
+        {
+            if (escaped)
+            {
+                current.Append(character);
+                escaped = false;
+            }
+            else if (character == '\\' && quote != '\'')
+            {
+                escaped = true;
+            }
+            else if (quote != '\0' && character == quote)
+            {
+                quote = '\0';
+            }
+            else if (quote == '\0' && character is '\'' or '"')
+            {
+                quote = character;
+            }
+            else if (quote == '\0' && char.IsWhiteSpace(character))
+            {
+                if (current.Length > 0)
+                {
+                    result.Add(current.ToString());
+                    current.Clear();
+                }
+            }
+            else
+            {
+                current.Append(character);
+            }
+        }
+
+        if (escaped)
+            current.Append('\\');
+        if (quote != '\0')
+            throw new InvalidOperationException("The configured application command has an unclosed quotation mark.");
+        if (current.Length > 0)
+            result.Add(current.ToString());
+        return result.ToArray();
+    }
+#endif
 
     private (string Executable, string CommandLine) ResolveCommand(string configuredCommand, string additionalArguments = "")
     {
@@ -536,22 +663,351 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
         catch (FileNotFoundException) { return null; }
     }
 
-    private sealed class TerminalSession(Process process, FileStream input, FileStream output, IntPtr consoleHandle) : IDisposable
+    private sealed class TerminalSession : IDisposable
     {
-        public Process Process { get; } = process;
-        public FileStream Input { get; } = input;
-        public FileStream Output { get; } = output;
-        public IntPtr ConsoleHandle { get; } = consoleHandle;
+        private readonly Process? _process;
+#if MACCATALYST
+        private readonly MacPtyConnection? _pty;
+#endif
+
+        public TerminalSession(Process process, FileStream input, FileStream output, IntPtr consoleHandle)
+        {
+            _process = process;
+            Input = input;
+            Output = output;
+            ConsoleHandle = consoleHandle;
+        }
+
+#if MACCATALYST
+        public TerminalSession(MacPtyConnection pty)
+        {
+            _pty = pty;
+            Input = pty.WriterStream;
+            Output = pty.ReaderStream;
+        }
+#endif
+
+#if MACCATALYST
+        public int ProcessId => _pty?.Pid ?? _process!.Id;
+        public int ExitCode => _pty?.ExitCode ?? _process!.ExitCode;
+        public bool HasExited => _pty?.HasExited ?? _process!.HasExited;
+#else
+        public int ProcessId => _process!.Id;
+        public int ExitCode => _process!.ExitCode;
+        public bool HasExited => _process!.HasExited;
+#endif
+        public Stream Input { get; }
+        public Stream Output { get; }
+        public IntPtr ConsoleHandle { get; }
+#if MACCATALYST
+        public MacPtyConnection? Pty => _pty;
+#endif
+
+        public async Task WaitForExitAsync()
+        {
+#if MACCATALYST
+            if (_pty is not null)
+            {
+                await _pty.WaitForExitAsync();
+                return;
+            }
+#endif
+            await _process!.WaitForExitAsync();
+        }
+
+        public Task KillAsync()
+        {
+#if MACCATALYST
+            if (_pty is not null)
+                return _pty.KillAsync();
+#endif
+            return KillProcessTreeAsync(_process!);
+        }
+
+        private static async Task KillProcessTreeAsync(Process process)
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+        }
 
         public void Dispose()
         {
+#if MACCATALYST
+            if (_pty is not null)
+            {
+                _pty.Dispose();
+                return;
+            }
+#endif
+
             Input.Dispose();
             Output.Dispose();
             if (ConsoleHandle != IntPtr.Zero)
                 ClosePseudoConsole(ConsoleHandle);
-            Process.Dispose();
+            _process!.Dispose();
         }
     }
+
+#if MACCATALYST
+    private sealed class MacPtyConnection : IDisposable
+    {
+        private readonly int _masterFd;
+        private readonly int _pid;
+        private readonly Task _waitTask;
+        private readonly object _exitLock = new();
+        private bool _processExited;
+        private int _disposed;
+
+        private MacPtyConnection(int masterFd, int pid)
+        {
+            _masterFd = masterFd;
+            _pid = pid;
+            var readerFd = Dup(masterFd);
+            if (readerFd < 0)
+            {
+                Close(masterFd);
+                throw NativeError("Could not duplicate the PTY output descriptor");
+            }
+
+            try
+            {
+                ReaderStream = new FileStream(new SafeFileHandle((IntPtr)readerFd, ownsHandle: true), FileAccess.Read, 8192, isAsync: false);
+                WriterStream = new FileStream(new SafeFileHandle((IntPtr)masterFd, ownsHandle: true), FileAccess.Write, 4096, isAsync: false);
+            }
+            catch
+            {
+                ReaderStream?.Dispose();
+                Close(masterFd);
+                throw;
+            }
+
+            _waitTask = Task.Run(WaitForExit);
+        }
+
+        public Stream ReaderStream { get; }
+        public Stream WriterStream { get; }
+        public int Pid => _pid;
+        public int ExitCode { get; private set; }
+        public bool HasExited
+        {
+            get { lock (_exitLock) return _processExited; }
+        }
+        public Task WaitForExitAsync() => _waitTask;
+
+        public static MacPtyConnection Start(string workingDirectory, string executable, string[] arguments, int columns, int rows)
+        {
+            var argv = new[] { executable }.Concat(arguments).ToArray();
+            string[] environment =
+            [
+                "TERM=xterm-256color",
+                "TMUX=",
+                "TMUX_PANE=",
+                "STY=",
+                "WINDOW=",
+                "WINDOWID=",
+                "TERMCAP=",
+                "COLUMNS=",
+                "LINES="
+            ];
+            var termios = MacPtyTermios.Create();
+            var windowSize = new MacPtyWindowSize
+            {
+                Rows = (ushort)Math.Clamp(rows, 1, ushort.MaxValue),
+                Columns = (ushort)Math.Clamp(columns, 1, ushort.MaxValue)
+            };
+            using var nativeArguments = new Utf8StringArray(argv);
+            using var nativeEnvironment = new Utf8StringArray(environment);
+            var result = Spawn(executable, nativeArguments.Pointer, nativeEnvironment.Pointer, workingDirectory, ref termios, ref windowSize);
+            if (result.Pid < 0)
+                throw new InvalidOperationException($"pty_spawn failed with error {result.Error}: {new Win32Exception(result.Error).Message}");
+            return new MacPtyConnection(result.MasterFd, result.Pid);
+        }
+
+
+        public void Resize(int columns, int rows)
+        {
+            if (ResizePty(_masterFd, (ushort)Math.Clamp(rows, 1, ushort.MaxValue),
+                    (ushort)Math.Clamp(columns, 1, ushort.MaxValue)) == -1)
+                throw NativeError("Could not resize the macOS PTY");
+        }
+
+        public async Task KillAsync()
+        {
+            lock (_exitLock)
+            {
+                if (_processExited)
+                    return;
+                _ = KillProcess(_pid, MacSighup);
+            }
+            try { await _waitTask.WaitAsync(TimeSpan.FromMilliseconds(300)); }
+            catch (TimeoutException)
+            {
+                lock (_exitLock)
+                {
+                    if (!_processExited)
+                        _ = KillProcess(_pid, MacSigkill);
+                }
+            }
+        }
+
+        private void WaitForExit()
+        {
+            var status = 0;
+            var waitedPid = WaitPid(_pid, ref status, 0);
+            if (waitedPid < 0)
+                throw NativeError("Could not wait for the macOS PTY process");
+            lock (_exitLock)
+            {
+                ExitCode = (status & 0x7f) == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f);
+                _processExited = true;
+            }
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+            ReaderStream.Dispose();
+            WriterStream.Dispose();
+        }
+
+        private static Win32Exception NativeError(string operation)
+        {
+            var error = GetPtyError();
+            return new Win32Exception(error, $"{operation} (errno {error}).");
+        }
+
+        private const int MacSighup = 1;
+        private const int MacSigkill = 9;
+
+        // pty_spawn expects null-terminated char** vectors. StringToCoTaskMemUTF8
+        // avoids the runtime's unsupported LPUTF8Str array marshalling.
+        private sealed class Utf8StringArray : IDisposable
+        {
+            private readonly List<IntPtr> _strings = [];
+            public IntPtr Pointer { get; private set; }
+
+            public Utf8StringArray(IReadOnlyList<string> values)
+            {
+                try
+                {
+                    Pointer = Marshal.AllocHGlobal(checked((values.Count + 1) * IntPtr.Size));
+                    for (var i = 0; i < values.Count; i++)
+                    {
+                        if (values[i].Contains('\0'))
+                            throw new ArgumentException("PTY arguments cannot contain NUL characters.");
+                        var value = Marshal.StringToCoTaskMemUTF8(values[i]);
+                        _strings.Add(value);
+                        Marshal.WriteIntPtr(Pointer, i * IntPtr.Size, value);
+                    }
+                    Marshal.WriteIntPtr(Pointer, values.Count * IntPtr.Size, IntPtr.Zero);
+                }
+                catch
+                {
+                    Dispose();
+                    throw;
+                }
+            }
+
+            public void Dispose()
+            {
+                foreach (var value in _strings)
+                    Marshal.FreeCoTaskMem(value);
+                _strings.Clear();
+                if (Pointer != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(Pointer);
+                    Pointer = IntPtr.Zero;
+                }
+            }
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MacPtySpawnResult
+        {
+            public int MasterFd;
+            public int Pid;
+            public int Error;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MacPtyWindowSize
+        {
+            public ushort Rows;
+            public ushort Columns;
+            public ushort XPixel;
+            public ushort YPixel;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MacPtyTermios
+        {
+            public uint InputFlags;
+            public uint OutputFlags;
+            public uint ControlFlags;
+            public uint LocalFlags;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)] public byte[] ControlCharacters;
+            public uint InputSpeed;
+            public uint OutputSpeed;
+
+            public static MacPtyTermios Create()
+            {
+                var characters = new byte[32];
+                characters[0] = 4;   // VEOF
+                characters[3] = 127; // VERASE
+                characters[4] = 23;  // VWERASE
+                characters[5] = 21;  // VKILL
+                characters[6] = 18;  // VREPRINT
+                characters[8] = 3;   // VINTR
+                characters[9] = 28;  // VQUIT
+                characters[10] = 26; // VSUSP
+                characters[12] = 17; // VSTART
+                characters[13] = 19; // VSTOP
+                characters[14] = 22; // VLNEXT
+                characters[15] = 15; // VDISCARD
+                characters[16] = 1;  // VMIN
+                return new MacPtyTermios
+                {
+                    InputFlags = 0x00000002 | 0x00000100 | 0x00000200 | 0x00000800 | 0x00002000 | 0x00004000,
+                    OutputFlags = 0x00000001 | 0x00000002,
+                    ControlFlags = 0x00000800 | 0x00000300 | 0x00004000,
+                    LocalFlags = 0x00000100 | 0x00000080 | 0x00000400 | 0x00000008 | 0x00000002 | 0x00000004 | 0x00000001 | 0x00000040,
+                    ControlCharacters = characters,
+                    InputSpeed = 38400,
+                    OutputSpeed = 38400
+                };
+            }
+        }
+
+        [DllImport("libporta_pty", EntryPoint = "pty_spawn", SetLastError = true)]
+        private static extern MacPtySpawnResult Spawn(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string file,
+            IntPtr arguments,
+            IntPtr environment,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string workingDirectory,
+            ref MacPtyTermios termios,
+            ref MacPtyWindowSize windowSize);
+
+        [DllImport("libporta_pty", EntryPoint = "pty_resize", SetLastError = true)]
+        private static extern int ResizePty(int masterFd, ushort rows, ushort columns);
+
+        [DllImport("libporta_pty", EntryPoint = "pty_kill", SetLastError = true)]
+        private static extern int KillProcess(int pid, int signal);
+
+        [DllImport("libporta_pty", EntryPoint = "pty_waitpid", SetLastError = true)]
+        private static extern int WaitPid(int pid, ref int status, int options);
+
+        [DllImport("libporta_pty", EntryPoint = "pty_close", SetLastError = true)]
+        private static extern int Close(int masterFd);
+
+        [DllImport("libporta_pty", EntryPoint = "pty_get_errno")]
+        private static extern int GetPtyError();
+
+        [DllImport("libSystem.dylib", EntryPoint = "dup", SetLastError = true)]
+        private static extern int Dup(int fileDescriptor);
+    }
+#endif
 
     private const uint ExtendedStartupInfoPresent = 0x00080000;
     private const uint CreateUnicodeEnvironment = 0x00000400;

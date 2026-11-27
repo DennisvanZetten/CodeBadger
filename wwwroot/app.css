@@ -2,6 +2,16 @@ html, body {
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
 }
 
+/* Mac Catalyst's WebView can render the shared compact UI smaller than Windows. */
+html[data-platform="macos"] {
+    font-size: 110%;
+}
+
+html[data-platform="macos"],
+html[data-platform="macos"] body {
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+
 .startup-splash {
     display: flex;
     min-height: 100vh;

@@ -198,6 +198,18 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender && OperatingSystem.IsMacCatalyst())
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("codeBadger.setPlatform", "macos");
+            }
+            catch (JSException)
+            {
+                // Platform-specific styling must never prevent the main page from rendering.
+            }
+        }
+
         if (firstRender && IsMainWindowRoute())
             WindowTitleBar.SetSettingsState(!_isStarting || StartupDetection.OpenCodeHealth.Warning is not null, L.T("Open settings"));
         if (firstRender && IsMainWindowRoute() && _isStarting)

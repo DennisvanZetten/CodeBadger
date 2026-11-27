@@ -232,6 +232,7 @@ public sealed class CodeBadgerSlackSessionService(
         {
             var connector = agentConnectors.FirstOrDefault(candidate => candidate.Supports(repository.AgentTool))
                 ?? throw new NotSupportedException($"No CodeBadger connector is registered for {AgentTools.GetDisplayName(repository.AgentTool)}.");
+            var modelCatalog = await connector.GetAvailableModelsAsync(repository.Path, cancellationToken);
             var cliMode = CodeBadgerOrchestrationModes.Normalize(repository.CodeBadgerOrchestrationMode);
             var rolePreference = agentPreferences.RolePreferences.FirstOrDefault(item => item.Role == role);
             var cliConfiguredModels = cliMode switch
@@ -241,8 +242,22 @@ public sealed class CodeBadgerSlackSessionService(
                 CodeBadgerOrchestrationModes.PlanBuild => agentPreferences.PlanPreferredModels,
                 _ => rolePreference?.PreferredModels ?? []
             };
-            var cliModel = cliConfiguredModels.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
             var sessionKey = cliMode == CodeBadgerOrchestrationModes.SingleAgent ? "SingleAgent" : role;
+            var cliModel = terminal.RoleModelOverrides.GetValueOrDefault(sessionKey) ??
+                terminal.AgentSessionModels.GetValueOrDefault(sessionKey) ??
+                cliConfiguredModels.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+            if (!string.IsNullOrWhiteSpace(cliModel) && modelCatalog.Count > 0)
+            {
+                cliModel = modelCatalog.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Reference, cliModel, StringComparison.OrdinalIgnoreCase))?.Reference
+                    ?? throw new InvalidOperationException($"The configured {AgentTools.GetDisplayName(repository.AgentTool)} model '{cliModel}' is not available.");
+            }
+            if (string.IsNullOrWhiteSpace(cliModel))
+                cliModel = modelCatalog.FirstOrDefault(candidate => candidate.IsDefault)?.Reference;
+            if (string.IsNullOrWhiteSpace(cliModel) && modelCatalog.Count > 0)
+                cliModel = modelCatalog[0].Reference;
+            if (string.IsNullOrWhiteSpace(cliModel))
+                cliModel = (await connector.GetDefaultModelAsync(repository.Path, cancellationToken))?.Reference;
             terminal.AgentSessionIds.TryGetValue(sessionKey, out var oldSessionId);
             var instruction = role == CodeBadgerRoles.Planner
                 ? "CodeBadger role: Planner. Create an actionable plan only; do not edit files.\n\n"
@@ -250,6 +265,8 @@ public sealed class CodeBadgerSlackSessionService(
             var reply = await connector.SendPromptAsync(repository.Path, oldSessionId, role, instruction + prompt,
                 [], cliModel, null, cancellationToken, null);
             terminal.AgentSessionIds[sessionKey] = reply.SessionId;
+            if (!string.IsNullOrWhiteSpace(cliModel))
+                terminal.AgentSessionModels[sessionKey] = cliModel;
             terminal.Messages.Add(new CodeBadgerTerminalMessage
             {
                 Role = "assistant", AgentRole = role, ModelReference = cliModel ?? string.Empty, Text = reply.Text

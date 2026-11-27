@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.Http;
 using System.Text.Json;
 using CodeBadger.Models;
 using Microsoft.Extensions.Logging;
@@ -9,6 +10,608 @@ namespace CodeBadger.Services;
 public sealed class CodeBadgerCliAgentRunner(ILogger<CodeBadgerCliAgentRunner> logger)
 {
     public sealed record AgentReply(string SessionId, string Text);
+    private static readonly HttpClient CatalogHttpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
+    private const string HermesCatalogUrl = "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json";
+
+    private static readonly CodeBadgerAgentModel[] ClaudeModelChoices =
+    [
+        new("default", "Account default", true),
+        new("sonnet", "Sonnet"),
+        new("opus", "Opus"),
+        new("haiku", "Haiku"),
+        new("fable", "Fable"),
+        new("sonnet[1m]", "Sonnet · extended context"),
+        new("opus[1m]", "Opus · extended context"),
+        new("opusplan", "Opus Plan · Sonnet Build")
+    ];
+    private static readonly Dictionary<string, (string? ApiKey, string? BaseUrl)> HermesProviderCatalog = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["openrouter"] = ("OPENROUTER_API_KEY", "https://openrouter.ai/api/v1"),
+        ["anthropic"] = ("ANTHROPIC_API_KEY", "https://api.anthropic.com/v1"),
+        ["openai-api"] = ("OPENAI_API_KEY", "https://api.openai.com/v1"),
+        ["gemini"] = ("GOOGLE_API_KEY", "https://generativelanguage.googleapis.com/v1beta"),
+        ["deepseek"] = ("DEEPSEEK_API_KEY", "https://api.deepseek.com/v1"),
+        ["zai"] = ("GLM_API_KEY", "https://api.z.ai/api/paas/v4"),
+        ["kimi-coding"] = ("KIMI_API_KEY", "https://api.moonshot.ai/v1"),
+        ["minimax"] = ("MINIMAX_API_KEY", "https://api.minimax.io/v1"),
+        ["alibaba"] = ("DASHSCOPE_API_KEY", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
+        ["xiaomi"] = ("XIAOMI_API_KEY", "https://api.xiaomimimo.com/v1"),
+        ["tencent-tokenhub"] = ("TOKENHUB_API_KEY", "https://api.tokenhub.tencent.com/v1"),
+        ["arcee"] = ("ARCEEAI_API_KEY", "https://api.arcee.ai/api/v1"),
+        ["gmi"] = ("GMI_API_KEY", "https://api.gmi-serving.com/v1"),
+        ["fireworks"] = ("FIREWORKS_API_KEY", "https://api.fireworks.ai/inference/v1"),
+        ["novita"] = ("NOVITA_API_KEY", "https://api.novita.ai/openai/v1"),
+        ["nvidia"] = ("NVIDIA_API_KEY", "https://integrate.api.nvidia.com/v1"),
+        ["stepfun"] = ("STEPFUN_API_KEY", "https://api.stepfun.com/v1"),
+        ["huggingface"] = ("HF_TOKEN", "https://router.huggingface.co/v1"),
+        ["ollama-cloud"] = ("OLLAMA_API_KEY", "https://ollama.com/v1"),
+        ["nous"] = ("NOUS_API_KEY", "https://inference-api.nousresearch.com/v1")
+    };
+
+    public async Task<IReadOnlyList<CodeBadgerAgentModel>> GetAvailableModelsAsync(string agentTool,
+        string repositoryPath, CancellationToken cancellationToken)
+    {
+        var agent = AgentTools.Normalize(agentTool);
+        if (agent == AgentTools.ClaudeCode)
+            return await GetClaudeModelChoicesAsync(cancellationToken);
+        if (agent == AgentTools.Codex)
+            return await GetCodexModelChoicesAsync(repositoryPath, cancellationToken);
+        if (agent == AgentTools.Hermes)
+            return await GetHermesModelChoicesAsync(cancellationToken);
+        return [];
+    }
+
+    public async Task<CodeBadgerAgentModel?> GetDefaultModelAsync(string agentTool, string repositoryPath,
+        CancellationToken cancellationToken)
+    {
+        var catalog = await GetAvailableModelsAsync(agentTool, repositoryPath, cancellationToken);
+        return catalog.FirstOrDefault(model => model.IsDefault) ?? catalog.FirstOrDefault();
+    }
+
+    private async Task<IReadOnlyList<CodeBadgerAgentModel>> GetClaudeModelChoicesAsync(CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<string, CodeBadgerAgentModel>(StringComparer.OrdinalIgnoreCase);
+        foreach (var model in ClaudeModelChoices)
+            result[model.Reference] = model;
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var settingsPaths = new List<string>
+        {
+            Path.Combine(home, ".claude", "settings.json"),
+            Path.Combine(home, ".claude", "settings.local.json"),
+            Path.Combine(home, ".claude.json")
+        };
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR")))
+        {
+            var configDir = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR")!;
+            settingsPaths.Insert(0, Path.Combine(configDir, "settings.json"));
+            settingsPaths.Insert(1, Path.Combine(configDir, "settings.local.json"));
+        }
+        foreach (var settingsPath in settingsPaths.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!File.Exists(settingsPath)) continue;
+            try
+            {
+                using var document = JsonDocument.Parse(await File.ReadAllTextAsync(settingsPath, cancellationToken));
+                var availableModels = FindPropertyRecursive(document.RootElement, "availableModels");
+                if (availableModels.ValueKind != JsonValueKind.Array) continue;
+                var allowlist = availableModels.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.String)
+                    .Select(item => item.GetString()!).ToArray();
+                if (allowlist.Length == 0) return [];
+                var permitted = result.Values.Where(model => allowlist.Any(allowed => IsClaudeModelAllowed(model.Reference, allowed)))
+                    .ToDictionary(model => model.Reference, StringComparer.OrdinalIgnoreCase);
+                foreach (var entry in allowlist)
+                    if (!string.IsNullOrWhiteSpace(entry) && !permitted.ContainsKey(entry))
+                        permitted[entry] = new CodeBadgerAgentModel(entry, entry);
+                return permitted.Values.OrderByDescending(item => item.IsDefault)
+                    .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+            }
+            catch (JsonException exception)
+            {
+                logger.LogWarning(exception, "Could not parse Claude Code's model settings at {SettingsPath}.", settingsPath);
+            }
+            catch (IOException exception)
+            {
+                logger.LogWarning(exception, "Could not read Claude Code's model settings at {SettingsPath}.", settingsPath);
+            }
+        }
+        return result.Values.OrderByDescending(item => item.IsDefault).ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static bool IsClaudeModelAllowed(string reference, string allowlistEntry)
+    {
+        if (string.Equals(reference, allowlistEntry, StringComparison.OrdinalIgnoreCase)) return true;
+        if (allowlistEntry.Equals("sonnet", StringComparison.OrdinalIgnoreCase))
+            return reference.StartsWith("sonnet", StringComparison.OrdinalIgnoreCase);
+        if (allowlistEntry.Equals("opus", StringComparison.OrdinalIgnoreCase))
+            return reference.StartsWith("opus", StringComparison.OrdinalIgnoreCase);
+        if (allowlistEntry.Equals("haiku", StringComparison.OrdinalIgnoreCase))
+            return reference.StartsWith("haiku", StringComparison.OrdinalIgnoreCase);
+        if (allowlistEntry.Equals("fable", StringComparison.OrdinalIgnoreCase))
+            return reference.StartsWith("fable", StringComparison.OrdinalIgnoreCase);
+        var prefix = allowlistEntry.EndsWith('*') ? allowlistEntry[..^1] : allowlistEntry;
+        return allowlistEntry.EndsWith('*') && reference.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static JsonElement FindPropertyRecursive(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            if (element.TryGetProperty(propertyName, out var value)) return value;
+            foreach (var property in element.EnumerateObject())
+            {
+                var found = FindPropertyRecursive(property.Value, propertyName);
+                if (found.ValueKind != JsonValueKind.Undefined) return found;
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                var found = FindPropertyRecursive(item, propertyName);
+                if (found.ValueKind != JsonValueKind.Undefined) return found;
+            }
+        }
+        return default;
+    }
+
+    private async Task<IReadOnlyList<CodeBadgerAgentModel>> GetCodexModelChoicesAsync(string repositoryPath,
+        CancellationToken cancellationToken)
+    {
+        using var process = new Process
+        {
+            StartInfo = CreateAppServerStartInfo(repositoryPath),
+            EnableRaisingEvents = true
+        };
+        if (!process.Start())
+            throw new InvalidOperationException("Could not start Codex app-server to load its model catalog.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(25));
+        try
+        {
+            var writer = process.StandardInput;
+            var reader = process.StandardOutput;
+            async Task SendAsync(object message)
+            {
+                await writer.WriteLineAsync(JsonSerializer.Serialize(message).AsMemory(), timeout.Token);
+                await writer.FlushAsync(timeout.Token);
+            }
+            await SendAsync(new { method = "initialize", id = 0,
+                @params = new { clientInfo = new { name = "codebadger", title = "CodeBadger", version = "1.0" } } });
+            var initialized = await ReadAppServerResponseAsync(reader, 0, timeout.Token);
+            initialized.Dispose();
+            await SendAsync(new { method = "initialized", @params = new { } });
+            await SendAsync(new { method = "model/list", id = 1, @params = new { limit = 200, includeHidden = false } });
+            using var response = await ReadAppServerResponseAsync(reader, 1, timeout.Token);
+            if (!response.RootElement.TryGetProperty("result", out var result) ||
+                !result.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+                return [];
+            return data.EnumerateArray()
+                .Where(item => item.ValueKind == JsonValueKind.Object)
+                .Select(item => new CodeBadgerAgentModel(GetString(item, "id"),
+                    string.IsNullOrWhiteSpace(GetString(item, "displayName")) ? GetString(item, "id") : GetString(item, "displayName"),
+                    item.TryGetProperty("isDefault", out var isDefault) && isDefault.ValueKind == JsonValueKind.True))
+                .Where(item => !string.IsNullOrWhiteSpace(item.Reference))
+                .OrderByDescending(item => item.IsDefault).ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("Codex model discovery timed out.");
+        }
+        finally
+        {
+            try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+            catch (InvalidOperationException) { }
+            try { await process.WaitForExitAsync(CancellationToken.None); }
+            catch (InvalidOperationException) { }
+        }
+    }
+
+    private async Task<IReadOnlyList<CodeBadgerAgentModel>> GetHermesModelChoicesAsync(CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(Environment.GetEnvironmentVariable("HERMES_HOME") is { Length: > 0 } hermesHome
+            ? hermesHome
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".hermes"), "config.yaml");
+        if (!File.Exists(path)) return [];
+        var yaml = new YamlDotNet.RepresentationModel.YamlStream();
+        try
+        {
+            using var reader = new StringReader(await File.ReadAllTextAsync(path, cancellationToken));
+            yaml.Load(reader);
+            if (yaml.Documents.FirstOrDefault()?.RootNode is not YamlDotNet.RepresentationModel.YamlMappingNode root ||
+                !root.Children.TryGetValue(new YamlDotNet.RepresentationModel.YamlScalarNode("model"), out var modelNode) ||
+                modelNode is not YamlDotNet.RepresentationModel.YamlMappingNode model)
+                return [];
+            var provider = ReadYamlScalar(model, "provider");
+            var defaultModel = ReadYamlScalar(model, "default");
+            var result = new Dictionary<string, CodeBadgerAgentModel>(StringComparer.OrdinalIgnoreCase);
+            AddHermesModel(result, defaultModel, isDefault: true);
+            AddHermesCachedModels(result, provider);
+            AddYamlModelEntries(result, model.Children.TryGetValue(new YamlDotNet.RepresentationModel.YamlScalarNode("models"), out var mainModels)
+                ? mainModels : new YamlDotNet.RepresentationModel.YamlSequenceNode());
+            var catalogConfig = model;
+            if (root.Children.TryGetValue(new YamlDotNet.RepresentationModel.YamlScalarNode("providers"), out var providersNode) &&
+                providersNode is YamlDotNet.RepresentationModel.YamlMappingNode providers &&
+                providers.Children.TryGetValue(new YamlDotNet.RepresentationModel.YamlScalarNode(provider), out var providerNode) &&
+                providerNode is YamlDotNet.RepresentationModel.YamlMappingNode providerConfig)
+            {
+                catalogConfig = providerConfig;
+                AddHermesModel(result, ReadYamlScalar(providerConfig, "default_model"));
+                if (providerConfig.Children.TryGetValue(new YamlDotNet.RepresentationModel.YamlScalarNode("models"), out var providerModels))
+                    AddYamlModelEntries(result, providerModels);
+            }
+
+            if (model.Children.TryGetValue(new YamlDotNet.RepresentationModel.YamlScalarNode("model_catalog"), out var catalogNode) &&
+                catalogNode is YamlDotNet.RepresentationModel.YamlMappingNode modelCatalogConfig &&
+                modelCatalogConfig.Children.TryGetValue(new YamlDotNet.RepresentationModel.YamlScalarNode("providers"), out var catalogProvidersNode) &&
+                catalogProvidersNode is YamlDotNet.RepresentationModel.YamlMappingNode catalogProviders &&
+                catalogProviders.Children.TryGetValue(new YamlDotNet.RepresentationModel.YamlScalarNode(provider), out var providerCatalogNode))
+                AddYamlModelEntries(result, providerCatalogNode);
+
+            if (string.IsNullOrWhiteSpace(provider)) return [];
+            await AddHermesProviderModelsAsync(result, provider, catalogConfig, cancellationToken);
+            return result.Values.OrderByDescending(item => item.IsDefault).ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+        }
+        catch (YamlDotNet.Core.YamlException exception)
+        {
+            logger.LogWarning(exception, "Could not load Hermes model configuration.");
+            return [];
+        }
+        catch (IOException exception)
+        {
+            logger.LogWarning(exception, "Could not read Hermes model configuration.");
+            return [];
+        }
+    }
+
+    private static void AddHermesModel(Dictionary<string, CodeBadgerAgentModel> models, string? reference, bool isDefault = false)
+    {
+        if (string.IsNullOrWhiteSpace(reference)) return;
+        reference = reference.Trim();
+        models[reference] = new CodeBadgerAgentModel(reference, reference, isDefault);
+    }
+
+    private static void AddYamlModelEntries(Dictionary<string, CodeBadgerAgentModel> models,
+        YamlDotNet.RepresentationModel.YamlNode modelsNode)
+    {
+        if (modelsNode is YamlDotNet.RepresentationModel.YamlSequenceNode sequence)
+        {
+            foreach (var node in sequence.Children.OfType<YamlDotNet.RepresentationModel.YamlScalarNode>())
+                AddHermesModel(models, node.Value);
+            return;
+        }
+        if (modelsNode is not YamlDotNet.RepresentationModel.YamlMappingNode mapping) return;
+        foreach (var pair in mapping.Children)
+        {
+            if (pair.Key is not YamlDotNet.RepresentationModel.YamlScalarNode key || string.IsNullOrWhiteSpace(key.Value)) continue;
+            var label = pair.Value is YamlDotNet.RepresentationModel.YamlMappingNode definition
+                ? ReadYamlScalar(definition, "name") : string.Empty;
+            models[key.Value] = new CodeBadgerAgentModel(key.Value,
+                string.IsNullOrWhiteSpace(label) ? key.Value : label);
+        }
+    }
+
+    private async Task AddHermesProviderModelsAsync(Dictionary<string, CodeBadgerAgentModel> models,
+        string provider, YamlDotNet.RepresentationModel.YamlMappingNode modelConfig, CancellationToken cancellationToken)
+    {
+        if (provider is "openrouter" or "nous")
+            await AddHermesCuratedModelsAsync(models, provider, cancellationToken);
+
+        var shouldDiscover = !provider.Equals("openrouter", StringComparison.OrdinalIgnoreCase) &&
+            !provider.Equals("nous", StringComparison.OrdinalIgnoreCase);
+        if (RootProviderDiscoveryDisabled(modelConfig)) shouldDiscover = false;
+        if (provider.Equals("anthropic", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(ReadYamlScalar(modelConfig, "base_url")))
+            shouldDiscover = false;
+        if (!shouldDiscover) return;
+        var (url, apiKey) = await GetHermesProviderEndpointAsync(provider, modelConfig, cancellationToken);
+        if (string.IsNullOrWhiteSpace(url)) return;
+        var endpoint = url.TrimEnd('/');
+        if (!endpoint.EndsWith("/models", StringComparison.OrdinalIgnoreCase)) endpoint += "/models";
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+            if (provider.Equals("anthropic", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(apiKey))
+            {
+                request.Headers.Add("x-api-key", apiKey);
+                request.Headers.Add("anthropic-version", "2023-06-01");
+            }
+            else if (!string.IsNullOrWhiteSpace(apiKey))
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+            if (provider.Equals("gemini", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(apiKey))
+                request.Headers.Add("x-goog-api-key", apiKey);
+            using var response = await CatalogHttpClient.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode) return;
+            using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+            var data = document.RootElement.ValueKind == JsonValueKind.Array ? document.RootElement :
+                document.RootElement.TryGetProperty("data", out var wrapped) && wrapped.ValueKind == JsonValueKind.Array
+                    ? wrapped : default;
+            if (data.ValueKind != JsonValueKind.Array) return;
+            var declaredModels = new HashSet<string>(models.Keys, StringComparer.OrdinalIgnoreCase);
+            foreach (var item in data.EnumerateArray())
+            {
+                var id = GetString(item, "id");
+                if (id.Length == 0 || !declaredModels.Contains(id)) continue;
+                var defaultModel = models[id].IsDefault;
+                var name = GetString(item, "name");
+                models[id] = new CodeBadgerAgentModel(id, name.Length > 0 ? name : id, defaultModel);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception exception)
+        {
+            logger.LogDebug(exception, "Could not query Hermes provider {Provider} model endpoint {Endpoint}.", provider, endpoint);
+        }
+    }
+
+    private async Task AddHermesCuratedModelsAsync(Dictionary<string, CodeBadgerAgentModel> models,
+        string provider, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await CatalogHttpClient.GetAsync(HermesCatalogUrl, cancellationToken);
+            if (!response.IsSuccessStatusCode) return;
+            using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken),
+                cancellationToken: cancellationToken);
+            if (!document.RootElement.TryGetProperty("providers", out var providers) ||
+                !providers.TryGetProperty(provider, out var providerCatalog) ||
+                !providerCatalog.TryGetProperty("models", out var modelArray) || modelArray.ValueKind != JsonValueKind.Array)
+                return;
+            foreach (var item in modelArray.EnumerateArray())
+            {
+                var id = GetString(item, "id");
+                if (id.Length == 0) continue;
+                var description = GetString(item, "description");
+                var isDefault = item.TryGetProperty("default", out var defaultValue) && defaultValue.ValueKind == JsonValueKind.True;
+                var priorDefault = models.TryGetValue(id, out var existing) && existing.IsDefault;
+                models[id] = new CodeBadgerAgentModel(id,
+                    string.IsNullOrWhiteSpace(description) ? id : $"{id} · {description}", isDefault || priorDefault);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception exception)
+        {
+            logger.LogDebug(exception, "Could not read the Hermes curated model catalog for {Provider}.", provider);
+        }
+    }
+
+    private static bool RootProviderDiscoveryDisabled(YamlDotNet.RepresentationModel.YamlMappingNode modelConfig)
+    {
+        // The provider block is consulted when present; `discover_models: false` means use only the
+        // configured model declarations and avoid making a network catalog request.
+        return modelConfig.Children.TryGetValue(new YamlDotNet.RepresentationModel.YamlScalarNode("discover_models"), out var value) &&
+               value is YamlDotNet.RepresentationModel.YamlScalarNode scalar &&
+               string.Equals(scalar.Value, "false", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void AddHermesCachedModels(Dictionary<string, CodeBadgerAgentModel> models, string provider)
+    {
+        if (string.IsNullOrWhiteSpace(provider)) return;
+        var home = Environment.GetEnvironmentVariable("HERMES_HOME") is { Length: > 0 } hermesHome
+            ? hermesHome : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".hermes");
+        foreach (var path in new[]
+                 {
+                     Path.Combine(home, "provider_models_cache.json"),
+                     Path.Combine(home, "cache", "model_catalog.json")
+                 })
+        {
+            if (!File.Exists(path)) continue;
+            try
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(path));
+                var root = document.RootElement;
+                if (!root.TryGetProperty(provider, out var entry) &&
+                    !(root.TryGetProperty("providers", out var providers) && providers.TryGetProperty(provider, out entry)))
+                    continue;
+                if (entry.TryGetProperty("models", out var modelsValue) && modelsValue.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in modelsValue.EnumerateArray())
+                    {
+                        if (item.ValueKind == JsonValueKind.String)
+                            AddHermesModel(models, item.GetString());
+                        else if (item.ValueKind == JsonValueKind.Object)
+                            AddHermesModel(models, GetString(item, "id"), item.TryGetProperty("default", out var marked) && marked.ValueKind == JsonValueKind.True);
+                    }
+                }
+            }
+            catch (Exception) { /* A corrupt/stale cache must not prevent the local config fallback. */ }
+        }
+    }
+
+    private static async Task<(string Url, string? ApiKey)> GetHermesProviderEndpointAsync(string provider,
+        YamlDotNet.RepresentationModel.YamlMappingNode modelConfig, CancellationToken cancellationToken)
+    {
+        var modelBaseUrl = ReadYamlScalar(modelConfig, "base_url");
+        if (string.IsNullOrWhiteSpace(modelBaseUrl)) modelBaseUrl = ReadYamlScalar(modelConfig, "api");
+        if (!string.IsNullOrWhiteSpace(modelBaseUrl))
+        {
+            var key = ReadYamlScalar(modelConfig, "api_key");
+            if (key.StartsWith("${", StringComparison.Ordinal) && key.EndsWith('}'))
+            {
+                var keyEnvironmentVariable = key[2..^1];
+                key = Environment.GetEnvironmentVariable(keyEnvironmentVariable) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    var keyHome = Environment.GetEnvironmentVariable("HERMES_HOME") is { Length: > 0 } configuredHome
+                        ? configuredHome : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".hermes");
+                    var keyEnvPath = Path.Combine(keyHome, ".env");
+                    if (File.Exists(keyEnvPath))
+                        foreach (var line in await File.ReadAllLinesAsync(keyEnvPath, cancellationToken))
+                        {
+                            var parts = line.Split('=', 2);
+                            if (parts.Length == 2 && parts[0].Trim().Equals(keyEnvironmentVariable, StringComparison.OrdinalIgnoreCase))
+                            {
+                                key = parts[1].Trim().Trim('"', '\'');
+                                break;
+                            }
+                        }
+                }
+            }
+            return (modelBaseUrl, string.IsNullOrWhiteSpace(key) ? null : key);
+        }
+        var home = Environment.GetEnvironmentVariable("HERMES_HOME") is { Length: > 0 } hermesHome
+            ? hermesHome : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".hermes");
+        try
+        {
+            var configPath = Path.Combine(home, "config.yaml");
+            var stream = new YamlDotNet.RepresentationModel.YamlStream();
+            using (var reader = new StringReader(await File.ReadAllTextAsync(configPath, cancellationToken)))
+                stream.Load(reader);
+            if (stream.Documents.FirstOrDefault()?.RootNode is not YamlDotNet.RepresentationModel.YamlMappingNode root)
+                return (string.Empty, null);
+            if (root.Children.TryGetValue(new YamlDotNet.RepresentationModel.YamlScalarNode("providers"), out var providersNode) &&
+                providersNode is YamlDotNet.RepresentationModel.YamlMappingNode providers &&
+                providers.Children.TryGetValue(new YamlDotNet.RepresentationModel.YamlScalarNode(provider), out var providerNode) &&
+                providerNode is YamlDotNet.RepresentationModel.YamlMappingNode providerConfig)
+            {
+                var baseUrl = ReadYamlScalar(providerConfig, "api");
+                if (string.IsNullOrWhiteSpace(baseUrl)) baseUrl = ReadYamlScalar(providerConfig, "base_url");
+                var key = ReadYamlScalar(providerConfig, "api_key");
+                var keyEnv = ReadYamlScalar(providerConfig, "key_env");
+                if (key.StartsWith("${", StringComparison.Ordinal) && key.EndsWith('}'))
+                {
+                    keyEnv = key[2..^1];
+                    key = string.Empty;
+                }
+                if (!string.IsNullOrWhiteSpace(keyEnv))
+                {
+                    key = Environment.GetEnvironmentVariable(keyEnv) ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(key))
+                    {
+                        var envFile = Path.Combine(home, ".env");
+                        if (File.Exists(envFile))
+                            foreach (var line in await File.ReadAllLinesAsync(envFile, cancellationToken))
+                            {
+                                var parts = line.Split('=', 2);
+                                if (parts.Length == 2 && parts[0].Trim().Equals(keyEnv, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    key = parts[1].Trim().Trim('"', '\'');
+                                    break;
+                                }
+                            }
+                    }
+                }
+                return (baseUrl, string.IsNullOrWhiteSpace(key) ? null : key);
+            }
+
+            var envPath = Path.Combine(home, ".env");
+            var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (File.Exists(envPath))
+                foreach (var line in await File.ReadAllLinesAsync(envPath, cancellationToken))
+                {
+                    var parts = line.Split('=', 2);
+                    if (parts.Length == 2) env[parts[0].Trim()] = parts[1].Trim().Trim('"', '\'');
+                }
+        var providerUpper = provider.Replace('-', '_').ToUpperInvariant();
+        var providerInfo = HermesProviderCatalog.GetValueOrDefault(provider);
+        var tokenKeys = providerInfo.ApiKey is null
+            ? new[] { providerUpper + "_API_KEY" }
+            : new[] { providerInfo.ApiKey };
+        if (providerInfo.ApiKey is not null)
+            tokenKeys = [.. tokenKeys, providerUpper + "_API_KEY"];
+        if (provider.Equals("gemini", StringComparison.OrdinalIgnoreCase))
+            tokenKeys = [.. tokenKeys, "GEMINI_API_KEY"];
+        if (provider.Equals("nous", StringComparison.OrdinalIgnoreCase))
+            tokenKeys = [.. tokenKeys, "NOUS_PORTAL_API_KEY"];
+            var apiKey = tokenKeys.Select(name => env.GetValueOrDefault(name) ?? Environment.GetEnvironmentVariable(name))
+                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+            var apiUrl = providerInfo.BaseUrl ?? string.Empty;
+            return (apiUrl, apiKey);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception) { return (string.Empty, null); }
+    }
+
+    private static string ReadYamlScalar(YamlDotNet.RepresentationModel.YamlMappingNode mapping, string key) =>
+        mapping.Children.TryGetValue(new YamlDotNet.RepresentationModel.YamlScalarNode(key), out var value) &&
+        value is YamlDotNet.RepresentationModel.YamlScalarNode scalar ? scalar.Value ?? string.Empty : string.Empty;
+
+    private static async Task ApplyHermesSessionModelAsync(string selectedModel, CancellationToken cancellationToken)
+    {
+        var home = Environment.GetEnvironmentVariable("HERMES_HOME") is { Length: > 0 } hermesHome
+            ? hermesHome : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".hermes");
+        var configPath = Path.Combine(home, "config.yaml");
+        if (!File.Exists(configPath))
+            throw new FileNotFoundException("Hermes configuration was not found; configure a provider before selecting a Hermes model.", configPath);
+
+        var yaml = new YamlDotNet.RepresentationModel.YamlStream();
+        using (var reader = new StringReader(await File.ReadAllTextAsync(configPath, cancellationToken)))
+            yaml.Load(reader);
+        if (yaml.Documents.FirstOrDefault()?.RootNode is not YamlDotNet.RepresentationModel.YamlMappingNode root ||
+            !root.Children.TryGetValue(new YamlDotNet.RepresentationModel.YamlScalarNode("model"), out var node) ||
+            node is not YamlDotNet.RepresentationModel.YamlMappingNode model)
+            throw new InvalidOperationException("Hermes model configuration must be a YAML mapping with provider and default model.");
+
+        var provider = ReadYamlScalar(model, "provider");
+        var localId = selectedModel;
+        var separator = selectedModel.IndexOf(':');
+        if (separator > 0 && provider.Length > 0 &&
+            !string.Equals(selectedModel[..separator], provider, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Model '{selectedModel}' belongs to a different Hermes provider than the active '{provider}' provider.");
+        if (separator > 0 && string.Equals(selectedModel[..separator], provider, StringComparison.OrdinalIgnoreCase))
+            localId = selectedModel[(separator + 1)..];
+
+        var key = new YamlDotNet.RepresentationModel.YamlScalarNode("default");
+        if (model.Children.ContainsKey(key)) model.Children[key] = new YamlDotNet.RepresentationModel.YamlScalarNode(localId);
+        else model.Add(key, new YamlDotNet.RepresentationModel.YamlScalarNode(localId));
+        await SaveHermesConfigAsync(configPath, yaml, cancellationToken);
+    }
+
+    private static async Task SaveHermesConfigAsync(string path, YamlDotNet.RepresentationModel.YamlStream yaml,
+        CancellationToken cancellationToken)
+    {
+        using var writer = new StringWriter();
+        yaml.Save(writer, assignAnchors: false);
+        var directory = Path.GetDirectoryName(path) ?? throw new InvalidOperationException("Hermes configuration has no parent directory.");
+        Directory.CreateDirectory(directory);
+        var backup = $"{path}.bak-{DateTime.Now:yyyyMMdd-HHmmss-fff}";
+        File.Copy(path, backup);
+        var temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            await File.WriteAllTextAsync(temporary, writer.ToString(), cancellationToken);
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
+    }
+
+    private static async Task<JsonDocument> ReadAppServerResponseAsync(StreamReader reader, int expectedId,
+        CancellationToken cancellationToken)
+    {
+        while (await reader.ReadLineAsync(cancellationToken) is { } line)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            JsonDocument document;
+            try { document = JsonDocument.Parse(line); }
+            catch (JsonException) { continue; }
+            var root = document.RootElement;
+            if (root.TryGetProperty("error", out var error) && error.ValueKind != JsonValueKind.Null)
+            {
+                document.Dispose();
+                throw new InvalidOperationException("Codex app-server model catalog error: " + error.ToString());
+            }
+            if (root.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.Number && id.GetInt32() == expectedId)
+                return document;
+            document.Dispose();
+        }
+        throw new InvalidOperationException("Codex app-server closed before returning its model catalog.");
+    }
+
+    private static ProcessStartInfo CreateAppServerStartInfo(string repositoryPath)
+    {
+        var start = new ProcessStartInfo
+        {
+            FileName = AgentTools.GetCommand(AgentTools.Codex), WorkingDirectory = repositoryPath,
+            UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true,
+            RedirectStandardError = true, CreateNoWindow = true
+        };
+        start.ArgumentList.Add("app-server");
+        ConfigureWindowsScriptCommand(start);
+        return start;
+    }
 
     public async Task<AgentReply> SendPromptAsync(string agentTool, string repositoryPath, string? sessionId,
         string role, string prompt, IReadOnlyList<string>? images, CancellationToken cancellationToken,
@@ -22,12 +625,12 @@ public sealed class CodeBadgerCliAgentRunner(ILogger<CodeBadgerCliAgentRunner> l
         {
             if ((images ?? []).Any(image => !image.StartsWith("data:image/jpeg;base64,", StringComparison.OrdinalIgnoreCase) || image.Length > 160_000))
                 throw new ArgumentException("Only JPEG images up to 120 KB are supported.", nameof(images));
-            if (agent == AgentTools.Hermes && (images?.Count ?? 0) > 0)
-                throw new NotSupportedException("Hermes CLI image attachments are not supported by the current Hermes CLI protocol adapter.");
-            if (agent != AgentTools.Codex)
+            if (agent is not (AgentTools.Codex or AgentTools.Hermes))
                 foreach (var image in images ?? [])
                     if (image.StartsWith("data:image/jpeg;base64,", StringComparison.OrdinalIgnoreCase))
                         attachments.Add(WriteImageAttachment(image));
+            if (agent == AgentTools.Hermes && string.IsNullOrWhiteSpace(existingSessionId) && !string.IsNullOrWhiteSpace(model))
+                await ApplyHermesSessionModelAsync(model, cancellationToken);
             var processStart = CreateStartInfo(agent, repositoryPath, existingSessionId, role, attachments, model);
             var initialSessionId = agent == AgentTools.ClaudeCode && existingSessionId is null
                 ? Guid.NewGuid().ToString()
@@ -53,7 +656,7 @@ public sealed class CodeBadgerCliAgentRunner(ILogger<CodeBadgerCliAgentRunner> l
             if (agent == AgentTools.Codex)
             {
                 var codexReply = await RunCodexAppServerTurnAsync(process, repositoryPath, existingSessionId,
-                    role, prompt, attachments, model, onText, cancellationToken);
+                    role, prompt, images ?? [], attachments, model, onText, cancellationToken);
                 logger.LogInformation("Completed CodeBadger composer turn through {Agent} in {RepositoryPath}.",
                     agent, repositoryPath);
                 return codexReply;
@@ -162,19 +765,20 @@ public sealed class CodeBadgerCliAgentRunner(ILogger<CodeBadgerCliAgentRunner> l
                 break;
             case AgentTools.Hermes:
                 start.ArgumentList.Add("chat");
+                start.ArgumentList.Add("--quiet");
                 start.ArgumentList.Add("--query-file");
                 start.ArgumentList.Add("-");
                 start.ArgumentList.Add("--format");
                 start.ArgumentList.Add("stream-json");
-                if (!string.IsNullOrWhiteSpace(model))
-                {
-                    start.ArgumentList.Add("--model");
-                    start.ArgumentList.Add(model);
-                }
                 if (!string.IsNullOrWhiteSpace(sessionId))
                 {
                     start.ArgumentList.Add("--resume");
                     start.ArgumentList.Add(sessionId);
+                }
+                foreach (var image in images)
+                {
+                    start.ArgumentList.Add("--image");
+                    start.ArgumentList.Add(image);
                 }
                 break;
             default:
@@ -230,7 +834,7 @@ public sealed class CodeBadgerCliAgentRunner(ILogger<CodeBadgerCliAgentRunner> l
     private static string QuoteForCmd(string value) => "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
 
     private static async Task<AgentReply> RunCodexAppServerTurnAsync(Process process, string repositoryPath,
-        string? sessionId, string role, string prompt, IReadOnlyList<string> images, string? model,
+        string? sessionId, string role, string prompt, IReadOnlyList<string> images, IReadOnlyList<string> imageAttachments, string? model,
         Func<string, Task>? onText, CancellationToken cancellationToken)
     {
         var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
@@ -332,7 +936,7 @@ public sealed class CodeBadgerCliAgentRunner(ILogger<CodeBadgerCliAgentRunner> l
 
         var fullPrompt = BuildPrompt(role, prompt, images);
         var input = new List<object> { new { type = "text", text = fullPrompt } };
-        foreach (var image in images)
+        foreach (var image in imageAttachments)
             input.Add(new { type = "localImage", path = image });
         var turnParams = new Dictionary<string, object?> { ["threadId"] = threadId, ["input"] = input };
         if (!string.IsNullOrWhiteSpace(model)) turnParams["model"] = model;
@@ -420,7 +1024,8 @@ public sealed class CodeBadgerCliAgentRunner(ILogger<CodeBadgerCliAgentRunner> l
         var instruction = role == CodeBadgerRoles.Worker
             ? $"CodeBadger role: {role}. Complete the requested work in the repository and report the result.\n\n"
             : $"CodeBadger role: {role}. Analyze and respond without modifying repository files.\n\n";
-        return instruction + prompt;
+        return instruction + prompt + (images.Count == 0 ? string.Empty :
+            "\n\nAttached image(s) for inspection:\n" + string.Join("\n", images));
     }
 
     private static string WriteImageAttachment(string dataUrl)

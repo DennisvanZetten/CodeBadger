@@ -3,6 +3,7 @@
 [Oo]bj/
 [Aa]rtifacts/
 /AppPackages/
+*.SdkResolver.*.proj.Backup.tmp
 
 # Visual Studio and IDE files
 .vs/

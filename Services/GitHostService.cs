@@ -139,10 +139,11 @@ public sealed class GitHostService(LocalizationService localization, ILogger<Git
         EnsureSuccess(result);
     }
 
-    public async Task ValidateGitRepositoryAsync(string path)
+    public async Task<string> ValidateGitRepositoryAsync(string path)
     {
         var result = await RunGitAsync(path, "rev-parse", "--show-toplevel");
         EnsureSuccess(result);
+        return result.Output.Trim();
     }
 
     public async Task<bool> ValidateRepositoryAsync(string path)
@@ -291,7 +292,15 @@ public sealed class GitHostService(LocalizationService localization, ILogger<Git
             RedirectStandardError = true,
             CreateNoWindow = true
         };
-        if (!string.IsNullOrWhiteSpace(workingDirectory))
+        var useGitDirectoryArgument = executable.Equals("git", StringComparison.OrdinalIgnoreCase)
+            && OperatingSystem.IsMacCatalyst()
+            && !string.IsNullOrWhiteSpace(workingDirectory);
+        if (useGitDirectoryArgument)
+        {
+            startInfo.ArgumentList.Add("-C");
+            startInfo.ArgumentList.Add(workingDirectory!);
+        }
+        else if (!string.IsNullOrWhiteSpace(workingDirectory))
             startInfo.WorkingDirectory = workingDirectory;
         foreach (var argument in arguments)
             startInfo.ArgumentList.Add(argument);
@@ -319,12 +328,14 @@ public sealed class GitHostService(LocalizationService localization, ILogger<Git
         catch (Exception exception) when (exception is Win32Exception or InvalidOperationException)
         {
             logger.LogWarning("Could not start Git host CLI {Executable}: {ErrorMessage}", executable, exception.Message);
-            return new CommandResult(false, string.Empty, localization.T("{0} is not installed or is not available in PATH.", executable));
+            return new CommandResult(false, string.Empty,
+                $"{localization.T("{0} is not installed or is not available in PATH.", executable)} ({exception.GetType().Name}: {exception.Message})");
         }
         catch (DirectoryNotFoundException exception)
         {
             logger.LogWarning("Git host CLI {Executable} working folder does not exist: {ErrorMessage}", executable, exception.Message);
-            return new CommandResult(false, string.Empty, localization.T("The selected destination folder does not exist."));
+            return new CommandResult(false, string.Empty,
+                $"{localization.T("The selected destination folder does not exist.")} ({exception.GetType().Name}: {exception.Message})");
         }
     }
 

@@ -1671,7 +1671,6 @@ public sealed class GitBranchService
         var startInfo = new ProcessStartInfo
         {
             FileName = "git",
-            WorkingDirectory = path,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -1679,6 +1678,15 @@ public sealed class GitBranchService
             StandardErrorEncoding = Encoding.UTF8,
             CreateNoWindow = true
         };
+        if (OperatingSystem.IsMacCatalyst())
+        {
+            startInfo.ArgumentList.Add("-C");
+            startInfo.ArgumentList.Add(path);
+        }
+        else
+        {
+            startInfo.WorkingDirectory = path;
+        }
         foreach (var argument in arguments)
             startInfo.ArgumentList.Add(argument);
 
@@ -1716,7 +1724,10 @@ public sealed class GitBranchService
         catch (Win32Exception exception)
         {
             _logger.LogError(exception, "Could not start git command: git {GitArguments}", command);
-            return new GitOperationResult(false, _localization.T("Git is not available in PATH."), string.Empty);
+            var message = OperatingSystem.IsMacCatalyst()
+                ? $"Git could not be started ({exception.GetType().Name}: {exception.Message})"
+                : _localization.T("Git is not available in PATH.");
+            return new GitOperationResult(false, message, string.Empty);
         }
         catch (DirectoryNotFoundException exception)
         {

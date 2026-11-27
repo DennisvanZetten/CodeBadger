@@ -1,6 +1,6 @@
 # Agent terminals and sessions
 
-A repository tab combines the project folder, a terminal for the selected agent, and Git status. CodeBadger starts the agent in the repository folder when the terminal first opens. The built-in terminal is available on Windows.
+A repository tab combines the project folder, a terminal for the selected agent, and Git status. CodeBadger starts the agent in the repository folder when the terminal first opens. The built-in terminal is available on Windows and macOS.
 
 ## Start and use an agent
 

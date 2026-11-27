@@ -56,7 +56,6 @@ public static class MauiProgram
 		builder.Services.AddSingleton<GitHostService>();
 		builder.Services.AddSingleton<TicketMcpService>();
 		builder.Services.AddSingleton<RepositoryFolderPicker>();
-		builder.Services.AddSingleton<MacTerminalLauncher>();
 		builder.Services.AddSingleton<AiCommitMessageService>();
 		builder.Services.AddSingleton<AgentConfigService>();
 		builder.Services.AddSingleton<CodexConfigService>();

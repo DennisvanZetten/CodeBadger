@@ -814,7 +814,7 @@ public sealed class OpenCodeActivityService
     {
         if (NormalizePath(directory) is null || !Directory.Exists(directory))
             return [];
-        using var response = await RequestAsync("/api/session?limit=30", cancellationToken, workingDirectory: directory);
+        using var response = await RequestAsync($"/api/session?limit=30&directory={Uri.EscapeDataString(directory)}", cancellationToken, workingDirectory: directory);
         if (response is null || !response.RootElement.TryGetProperty("data", out var sessions) ||
             sessions.ValueKind != JsonValueKind.Array)
             return null;
@@ -1066,9 +1066,24 @@ public sealed class OpenCodeActivityService
 
     public async Task<IReadOnlyList<AvailableModel>> GetAvailableModelsAsync(string directory, CancellationToken cancellationToken)
     {
-        using var response = await RequestAsync("/api/model", cancellationToken, workingDirectory: directory);
-        if (response?.RootElement.TryGetProperty("data", out var models) != true || models.ValueKind != JsonValueKind.Array)
-            return [];
+        // A freshly loaded location can return an empty catalog while providers warm up.
+        for (var attempt = 0; ; attempt++)
+        {
+            var models = await GetAvailableModelsOnceAsync(directory, cancellationToken);
+            if (models.Count > 0 || attempt == 2)
+                return models;
+            await Task.Delay(TimeSpan.FromMilliseconds(300), cancellationToken);
+        }
+    }
+
+    private async Task<IReadOnlyList<AvailableModel>> GetAvailableModelsOnceAsync(string directory, CancellationToken cancellationToken)
+    {
+        using var response = await RequestAsync(WithLocation("/api/model", directory), cancellationToken, workingDirectory: directory);
+        if (response is null)
+            throw new InvalidOperationException("Could not query the OpenCode model catalog. Check the OpenCode service and application logs.");
+        if (response.RootElement.ValueKind != JsonValueKind.Object ||
+            !response.RootElement.TryGetProperty("data", out var models) || models.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException("OpenCode returned an unexpected model catalog response.");
 
         return models.EnumerateArray().Select(model =>
         {
@@ -1095,7 +1110,7 @@ public sealed class OpenCodeActivityService
 
     public async Task<IReadOnlyList<AvailableAgent>> GetAvailableAgentOptionsAsync(string directory, CancellationToken cancellationToken)
     {
-        using var response = await RequestAsync("/api/agent", cancellationToken, workingDirectory: directory);
+        using var response = await RequestAsync(WithLocation("/api/agent", directory), cancellationToken, workingDirectory: directory);
         if (response?.RootElement.TryGetProperty("data", out var agents) != true || agents.ValueKind != JsonValueKind.Array)
             return new[] { new AvailableAgent("build", "Build", "primary"), new AvailableAgent("plan", "Plan", "primary") };
         return agents.EnumerateArray().Select(agent => new AvailableAgent(
@@ -1107,19 +1122,30 @@ public sealed class OpenCodeActivityService
 
     public async Task<string?> GetDefaultAgentIdAsync(string directory, CancellationToken cancellationToken)
     {
-        using var response = await RequestAsync("/api/config", cancellationToken, workingDirectory: directory);
-        if (response?.RootElement.TryGetProperty("data", out var entries) != true || entries.ValueKind != JsonValueKind.Array)
+        using var response = await RequestAsync(WithLocation("/api/config", directory), cancellationToken, workingDirectory: directory);
+        if (response is null)
             return null;
+        var entries = response.RootElement;
+        if (entries.ValueKind == JsonValueKind.Object && entries.TryGetProperty("data", out var wrapped))
+            entries = wrapped;
+        if (entries.ValueKind != JsonValueKind.Array)
+            return null;
+        string? defaultAgent = null;
         foreach (var entry in entries.EnumerateArray())
         {
-            if (!entry.TryGetProperty("path", out var path) || path.ValueKind != JsonValueKind.String ||
-                !string.Equals(path.GetString(), "default_agent", StringComparison.OrdinalIgnoreCase))
+            if (entry.ValueKind != JsonValueKind.Object)
                 continue;
-            if (entry.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.String &&
-                !string.IsNullOrWhiteSpace(value.GetString()))
-                return value.GetString();
+            if (entry.TryGetProperty("info", out var info) && info.ValueKind == JsonValueKind.Object &&
+                info.TryGetProperty("default_agent", out var configured) && configured.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(configured.GetString()))
+                defaultAgent = configured.GetString();
+            else if (entry.TryGetProperty("path", out var path) && path.ValueKind == JsonValueKind.String &&
+                     string.Equals(path.GetString(), "default_agent", StringComparison.OrdinalIgnoreCase) &&
+                     entry.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.String &&
+                     !string.IsNullOrWhiteSpace(value.GetString()))
+                defaultAgent = value.GetString();
         }
-        return null;
+        return defaultAgent;
     }
 
     public async Task<ActiveSession> CreateOrchestrationSessionAsync(string directory, string role, string title,
@@ -1308,13 +1334,17 @@ public sealed class OpenCodeActivityService
         catch (PathTooLongException) { return null; }
     }
 
+    private static string WithLocation(string path, string directory) =>
+        string.IsNullOrWhiteSpace(directory) ? path :
+        $"{path}{(path.Contains('?') ? '&' : '?')}location%5Bdirectory%5D={Uri.EscapeDataString(directory)}";
+
     private async Task<JsonDocument?> RequestAsync(string path, CancellationToken cancellationToken,
         HttpMethod? method = null, string? body = null, string? workingDirectory = null, int timeoutSeconds = 5)
     {
         using var repositoryScope = !string.IsNullOrWhiteSpace(workingDirectory)
             ? _logger.BeginScope(new Dictionary<string, object?> { ["RepositoryPath"] = workingDirectory })
             : null;
-        if (OperatingSystem.IsAndroid() || OperatingSystem.IsIOS())
+        if (OperatingSystem.IsAndroid() || (OperatingSystem.IsIOS() && !OperatingSystem.IsMacCatalyst()))
             return null;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
@@ -1374,13 +1404,15 @@ public sealed class OpenCodeActivityService
                 return null;
             }
             var json = await output;
-            if (method is not null)
+            var containsProviderConfiguration = path.StartsWith("/api/model", StringComparison.Ordinal) ||
+                                                path.StartsWith("/api/config", StringComparison.Ordinal);
+            if (method is not null && !containsProviderConfiguration)
             {
                 const int maximumResponseLogLength = 12000;
                 var responseExcerpt = json.Length <= maximumResponseLogLength ? json : json[..maximumResponseLogLength] + "… [truncated]";
                 _logger.LogInformation("Managed OpenCode API {ApiPath} response body: {ResponseBody}", path, responseExcerpt);
             }
-            if (method != HttpMethod.Post)
+            if (method != HttpMethod.Post && !containsProviderConfiguration)
             {
                 const int maximumResponseLogLength = 12000;
                 var responseExcerpt = json.Length <= maximumResponseLogLength ? json : json[..maximumResponseLogLength] + "… [truncated]";

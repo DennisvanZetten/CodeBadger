@@ -352,7 +352,7 @@ public sealed class StartupDetectionService(
         OpenCodeStartupHealthChanged?.Invoke(OpenCodeHealth);
     }
 
-    private static async Task<string> RunExecutableAsync(string executable, IReadOnlyList<string> arguments,
+    private async Task<string> RunExecutableAsync(string executable, IReadOnlyList<string> arguments,
         CancellationToken cancellationToken)
     {
         var startInfo = new ProcessStartInfo
@@ -365,19 +365,52 @@ public sealed class StartupDetectionService(
         };
         foreach (var argument in arguments)
             startInfo.ArgumentList.Add(argument);
-        using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("The OpenCode executable could not be started.");
+
+        var workingDirectory = Environment.CurrentDirectory;
+        logger.LogInformation(
+            "Starting OpenCode version check. ExecutablePath={ExecutablePath}, ExecutableExists={ExecutableExists}, WorkingDirectory={WorkingDirectory}, WorkingDirectoryExists={WorkingDirectoryExists}, Platform={Platform}, ArgumentCount={ArgumentCount}",
+            executable, File.Exists(executable), workingDirectory, Directory.Exists(workingDirectory),
+            System.Runtime.InteropServices.RuntimeInformation.OSDescription, arguments.Count);
+        Process process;
+        try
+        {
+            process = Process.Start(startInfo) ?? throw new InvalidOperationException("The OpenCode executable could not be started.");
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
+        {
+            logger.LogWarning(exception,
+                "Could not start OpenCode version check. ExecutablePath={ExecutablePath}, ExecutableExists={ExecutableExists}, WorkingDirectory={WorkingDirectory}, WorkingDirectoryExists={WorkingDirectoryExists}",
+                executable, File.Exists(executable), workingDirectory, Directory.Exists(workingDirectory));
+            throw;
+        }
+
+        using var processLifetime = process;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(8));
+        var startedAt = Stopwatch.GetTimestamp();
         try
         {
             var stdout = process.StandardOutput.ReadToEndAsync(timeout.Token);
             var stderr = process.StandardError.ReadToEndAsync(timeout.Token);
             await process.WaitForExitAsync(timeout.Token);
+            logger.LogInformation(
+                "OpenCode version check exited. ExecutablePath={ExecutablePath}, ExitCode={ExitCode}, ElapsedMilliseconds={ElapsedMilliseconds}",
+                executable, process.ExitCode, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
             return process.ExitCode == 0 ? await stdout : await stderr;
         }
         catch (OperationCanceledException)
         {
-            try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+            var killed = false;
+            try
+            {
+                process.Kill(entireProcessTree: true);
+                killed = true;
+            }
+            catch (InvalidOperationException) { }
+            catch (System.ComponentModel.Win32Exception) { }
+            logger.LogWarning(
+                "OpenCode version check timed out. ExecutablePath={ExecutablePath}, ProcessId={ProcessId}, ElapsedMilliseconds={ElapsedMilliseconds}, ProcessKillRequested={ProcessKillRequested}, WorkingDirectory={WorkingDirectory}",
+                executable, process.Id, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds, killed, workingDirectory);
             if (cancellationToken.IsCancellationRequested)
                 throw;
             throw new TimeoutException("OpenCode version check timed out.");
@@ -589,7 +622,7 @@ public sealed class StartupDetectionService(
 
     private static async Task<AgentProbeResult> ProbeAgentAsync(string command, string? executable, ILogger logger)
     {
-        if (OperatingSystem.IsIOS() || OperatingSystem.IsAndroid())
+        if (OperatingSystem.IsAndroid() || (OperatingSystem.IsIOS() && !OperatingSystem.IsMacCatalyst()))
             return new AgentProbeResult(false, null, "External agent processes are unavailable on this platform.");
 
         if (string.IsNullOrWhiteSpace(executable))

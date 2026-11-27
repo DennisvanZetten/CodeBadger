@@ -276,6 +276,10 @@ h1:focus {
     opacity: 1;
 }
 
+html[data-platform="macos"] .mud-appbar .appbar-action-button {
+    margin-inline: 4px;
+}
+
 @media (hover: hover) {
     .appbar-action-button {
         border-radius: 6px;

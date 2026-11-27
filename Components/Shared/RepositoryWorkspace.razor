@@ -1,5 +1,6 @@
 @implements IAsyncDisposable
 @using System.Text
+@using System.Diagnostics
 @using CodeBadger.Components.Pages
 @inject LocalizationService L
 @inject RepositoryDetachedWindowService DetachedWindows
@@ -8,6 +9,8 @@
 @inject SandboxOpenCodeProviderService OpenCodeProviders
 @inject OpenCodeActivityService OpenCodeActivity
 @inject IEnumerable<ICodeBadgerAgentInteractionProvider> AgentInteractionProviders
+@inject IEnumerable<ICodeBadgerAgentConnector> AgentConnectors
+@inject CodeBadgerCliAgentRunner CliAgentRunner
 @inject CodeBadgerTerminalStateService TerminalStateService
 @inject LauncherSettingsService SettingsService
 @inject GitBranchService GitBranchService
@@ -75,7 +78,7 @@
                 <div class="repository-terminal-splitter">
                     <div class="repository-codebadger-session-tabs-row">
                         <div class="repository-codebadger-session-tabs-viewport">
-                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="repository-codebadger-session-tabs">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="repository-codebadger-session-tabs">
                                 @foreach (var session in _terminalSessions)
                                 {
                                     <div class="repository-codebadger-session-tab @(session.Id == _selectedTerminalSessionId ? "selected" : string.Empty)" data-session-id="@session.Id"
@@ -315,32 +318,43 @@
                                                         }
                                                     </div>
                                                     <div class="repository-codebadger-message-content">
-                                                        @if (message.IsModelPicker)
-                                                        {
-                                                            <div class="repository-command-response">
-                                                                <h3 class="repository-command-response-title">@L.T("Available OpenCode models")</h3>
-                                                                <ul class="repository-model-picker" aria-label="@L.T("Available OpenCode models")">
-                                                                    @foreach (var model in GetTerminalModelOptions(session, string.Empty))
-                                                                    {
-                                                                        var isCurrentModel = IsCurrentTerminalModel(session, model.Reference);
-                                                                        <li>
-                                                                            <button type="button" class="repository-model-picker-option @(isCurrentModel ? "current" : string.Empty)"
-                                                                                    aria-pressed="@(isCurrentModel ? "true" : "false")"
-                                                                                    @onclick="() => SelectTerminalModelAsync(session, model.Reference)">
-                                                                                <span class="repository-command-option-text">
-                                                                                    <span class="repository-model-picker-name">@model.Name</span>
-                                                                                    <span class="repository-model-picker-reference">@model.Reference</span>
-                                                                                </span>
-                                                                                @if (isCurrentModel)
-                                                                                {
-                                                                                    <span class="repository-model-picker-current">@L.T("Current model")</span>
-                                                                                }
-                                                                            </button>
-                                                                        </li>
-                                                                    }
-                                                                </ul>
-                                                            </div>
-                                                        }
+                                                         @if (message.IsModelPicker)
+                                                         {
+                                                             <div class="repository-command-response">
+                                                                 @if (AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode)
+                                                                     {
+                                                                         <h3 class="repository-command-response-title">@L.T("Available OpenCode models")</h3>
+                                                                         <ul class="repository-model-picker" aria-label="@L.T("Available OpenCode models")">
+                                                                             @foreach (var model in GetTerminalModelOptions(session, string.Empty))
+                                                                             {
+                                                                                 var isCurrentModel = IsCurrentTerminalModel(session, model.Reference);
+                                                                                 <li>
+                                                                                     <button type="button" class="repository-model-picker-option @(isCurrentModel ? "current" : string.Empty)"
+                                                                                             aria-pressed="@(isCurrentModel ? "true" : "false")"
+                                                                                             @onclick="() => SelectTerminalModelAsync(session, model.Reference)">
+                                                                                         <span class="repository-command-option-text">
+                                                                                             <span class="repository-model-picker-name">@model.Name</span>
+                                                                                             <span class="repository-model-picker-reference">@model.Reference</span>
+                                                                                         </span>
+                                                                                         @if (isCurrentModel)
+                                                                                         {
+                                                                                             <span class="repository-model-picker-current">@L.T("Current model")</span>
+                                                                                         }
+                                                                                     </button>
+                                                                                 </li>
+                                                                             }
+                                                                         </ul>
+                                                                     }
+                                                                 else
+                                                                 {
+                                                                     <h3 class="repository-command-response-title">@L.T("Set model for {0}", AgentTools.GetDisplayName(Repository.AgentTool))</h3>
+                                                                     <MudText Typo="Typo.body2">@L.T("Model list is provided by the selected agent. Choose a model by entering /model followed by its ID.")</MudText>
+                                                                     <MudTextField T="string" Label="@L.T("Model ID")" @bind-Value="session.ModelPickerInput" />
+                                                                     <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                                                                                OnClick="() => SelectCliAgentModelAsync(session, session.ModelPickerInput)">@L.T("Use model")</MudButton>
+                                                                 }
+                                                             </div>
+                                                         }
                                                         else if (message.IsCommandHelp)
                                                         {
                                                             <div class="repository-command-response">
@@ -1049,6 +1063,8 @@
     private async Task RefreshAgentContextAsync(CodeBadgerTerminalSession session, string role, string sessionKey,
         string sessionId, CancellationToken cancellationToken)
     {
+        if (AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode)
+            return;
         try
         {
             var usage = await OpenCodeActivity.GetLatestContextUsageAsync(sessionId, Repository.Path, cancellationToken);
@@ -1074,6 +1090,11 @@
 
     private async Task RotateAgentSessionAsync(CodeBadgerTerminalSession session, string role)
     {
+        if (AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode)
+        {
+            Snackbar.Add(L.T("Start a new CodeBadger session to begin a fresh {0} session.", RoleDisplayName(role)), Severity.Info);
+            return;
+        }
         if (IsAgentRoleBusy(session, role) || session.IsRotatingAgentRole)
             return;
         var agentPreferences = GetAgentPreferences(Repository.AgentTool);
@@ -1388,7 +1409,18 @@
     {
         if (AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode)
         {
-            Snackbar.Add(L.T("Model switching is currently available for OpenCode only."), Severity.Info);
+            session.ModelPickerInput = session.State.RoleModelOverrides.GetValueOrDefault(
+                CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) == CodeBadgerOrchestrationModes.SingleAgent
+                    ? "SingleAgent" : GetModelSelectionRole(session)) ?? string.Empty;
+            session.Messages.Add(new CodeBadgerTerminalMessage
+            {
+                Role = "assistant", IsCodeBadgerMessage = true, IsModelPicker = true
+            });
+            session.Input = string.Empty;
+            await PersistTerminalStateAsync();
+            await InvokeAsync(StateHasChanged);
+            if (_composerModule is not null)
+                await _composerModule.InvokeVoidAsync("clear", _terminalStack, session.Id.ToString());
             return;
         }
 
@@ -1400,7 +1432,6 @@
                 Snackbar.Add(L.T("No active OpenCode models are available."), Severity.Warning);
                 return;
             }
-
             session.Messages.Add(new CodeBadgerTerminalMessage
             {
                 Role = "assistant",
@@ -1505,6 +1536,47 @@
             Text = L.T("Model for {0} changed to {1}.", RoleDisplayName(role), model.Name)
         });
 
+        session.Input = string.Empty;
+        await PersistTerminalStateAsync();
+        await InvokeAsync(StateHasChanged);
+        if (_composerModule is not null)
+            await _composerModule.InvokeVoidAsync("clear", _terminalStack, session.Id.ToString());
+    }
+
+    private async Task SelectCliAgentModelAsync(CodeBadgerTerminalSession session, string modelReference)
+    {
+        modelReference = modelReference.Trim();
+        if (modelReference.Length is < 1 or > 160 || modelReference.Any(char.IsControl))
+        {
+            Snackbar.Add(L.T("Enter a valid model ID."), Severity.Warning);
+            return;
+        }
+
+        var role = GetModelSelectionRole(session);
+        var mode = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode);
+        var roleOverrideKey = mode == CodeBadgerOrchestrationModes.SingleAgent ? "SingleAgent" : role;
+        session.State.RoleModelOverrides[roleOverrideKey] = modelReference;
+        RememberTerminalModel(session, modelReference);
+        session.State.AgentSessionIds.TryGetValue(roleOverrideKey, out var modelSessionId);
+        var changed = false;
+        if (!string.IsNullOrWhiteSpace(modelSessionId) && AgentTools.Normalize(Repository.AgentTool) == AgentTools.Codex)
+        {
+            var connector = AgentConnectors.FirstOrDefault(candidate => candidate.Supports(Repository.AgentTool));
+            if (connector is not null)
+            {
+                await connector.SendPromptAsync(Repository.Path, modelSessionId, role,
+                    $"Use the model {modelReference} for this and future turns in this session. Confirm the change briefly.",
+                    [], modelReference, null, CancellationToken.None, null);
+                changed = true;
+            }
+        }
+        session.Messages.Add(new CodeBadgerTerminalMessage
+        {
+            Role = "assistant", IsCodeBadgerMessage = true,
+            Text = L.T(changed
+                ? "Model for {0} changed to {1}."
+                : "Model for {0} is set to {1} for the next request.", RoleDisplayName(role), modelReference)
+        });
         session.Input = string.Empty;
         await PersistTerminalStateAsync();
         await InvokeAsync(StateHasChanged);
@@ -1715,6 +1787,7 @@
 
         var prompt = session.Input.Trim();
         var images = session.InputImages.ToArray();
+        var forceBuildRequest = false;
 
         if (session.PendingCommitMessage)
         {
@@ -1731,7 +1804,55 @@
             return;
         }
 
-        var forceBuildRequest = false;
+        if (images.Length == 0 && AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode &&
+            CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.Full)
+        {
+            if (prompt.Equals("/plan", StringComparison.OrdinalIgnoreCase))
+            {
+                session.Mode = TerminalMode.Plan;
+                session.State.Mode = "Plan";
+                session.Input = string.Empty;
+                await PersistTerminalStateAsync();
+                await InvokeAsync(StateHasChanged);
+                if (_composerModule is not null)
+                    await _composerModule.InvokeVoidAsync("clear", _terminalStack, sessionId);
+                return;
+            }
+            if (prompt.Equals("/build", StringComparison.OrdinalIgnoreCase))
+            {
+                session.Mode = TerminalMode.Build;
+                session.State.Mode = "Build";
+                session.Input = string.Empty;
+                await PersistTerminalStateAsync();
+                await InvokeAsync(StateHasChanged);
+                if (_composerModule is not null)
+                    await _composerModule.InvokeVoidAsync("clear", _terminalStack, sessionId);
+                return;
+            }
+            if (prompt.StartsWith("/plan ", StringComparison.OrdinalIgnoreCase))
+            {
+                session.Mode = TerminalMode.Plan;
+                session.State.Mode = "Plan";
+                prompt = prompt["/plan ".Length..].Trim();
+            }
+            else if (prompt.StartsWith("/build ", StringComparison.OrdinalIgnoreCase))
+            {
+                session.Mode = TerminalMode.Build;
+                session.State.Mode = "Build";
+                prompt = prompt["/build ".Length..].Trim();
+                forceBuildRequest = true;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(prompt) && images.Length == 0)
+        {
+            session.Input = string.Empty;
+            await InvokeAsync(StateHasChanged);
+            if (_composerModule is not null)
+                await _composerModule.InvokeVoidAsync("clear", _terminalStack, sessionId);
+            return;
+        }
+
         string? forcedRole = null;
         if (images.Length == 0)
         {
@@ -1754,6 +1875,11 @@
             if (prompt.StartsWith("/model ", StringComparison.OrdinalIgnoreCase))
             {
                 var modelReference = prompt["/model ".Length..].Trim();
+                if (AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode)
+                {
+                    await SelectCliAgentModelAsync(session, modelReference);
+                    return;
+                }
                 if (_availableOpenCodeModels.Count == 0)
                     _availableOpenCodeModels = await OpenCodeActivity.GetAvailableModelsAsync(Repository.Path, CancellationToken.None);
                 var match = _availableOpenCodeModels.FirstOrDefault(model => model.Enabled && model.Status == "active" &&
@@ -1771,7 +1897,30 @@
                 return;
             }
 
-            var commandResult = ProcessTerminalCommand(session, ref prompt, ref forceBuildRequest, ref forcedRole);
+            if (AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode &&
+                CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) == CodeBadgerOrchestrationModes.Full)
+            {
+                var externalCommand = ProcessTerminalCommand(session, ref prompt, ref forceBuildRequest, ref forcedRole);
+                if (externalCommand == TerminalCommandResult.Handled)
+                {
+                    session.Input = string.Empty;
+                    await PersistTerminalStateAsync();
+                    await InvokeAsync(StateHasChanged);
+                    if (_composerModule is not null)
+                        await _composerModule.InvokeVoidAsync("clear", _terminalStack, sessionId);
+                    return;
+                }
+                if (externalCommand == TerminalCommandResult.Commit)
+                {
+                    Snackbar.Add(L.T("The /commit command currently requires OpenCode."), Severity.Info);
+                    return;
+                }
+            }
+
+            var commandResult = AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode &&
+                CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) == CodeBadgerOrchestrationModes.Full
+                    ? TerminalCommandResult.NotACommand
+                    : ProcessTerminalCommand(session, ref prompt, ref forceBuildRequest, ref forcedRole);
             if (commandResult == TerminalCommandResult.Handled)
             {
                 session.Input = string.Empty;
@@ -1826,6 +1975,12 @@
         }
 
         return false;
+    }
+
+    private static string CreateTerminalSessionTitle(string prompt)
+    {
+        var title = prompt.Split(['\r', '\n'], 2, StringSplitOptions.TrimEntries)[0].Trim();
+        return title.Length <= 72 ? title : title[..69].TrimEnd() + "…";
     }
 
     private string GetTerminalSessionDisplayTitle(CodeBadgerTerminalSession session) =>
@@ -2137,12 +2292,12 @@
         await InvokeAsync(StateHasChanged);
         try
         {
-            if (AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode)
-                throw new NotSupportedException(L.T("The CodeBadger connector currently supports OpenCode. Other agent connectors will be added later."));
-
-            _availableOpenCodeModels = await OpenCodeActivity.GetAvailableModelsAsync(Repository.Path, cancellationToken);
-            if (_availableOpenCodeModels.Count == 0)
-                throw new InvalidOperationException(L.T("OpenCode did not return any available models for this repository."));
+            if (AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode)
+            {
+                _availableOpenCodeModels = await OpenCodeActivity.GetAvailableModelsAsync(Repository.Path, cancellationToken);
+                if (_availableOpenCodeModels.Count == 0)
+                    throw new InvalidOperationException(L.T("OpenCode did not return any available models for this repository."));
+            }
             cancellationToken.ThrowIfCancellationRequested();
             _settings = await SettingsService.LoadAsync();
             var agentPreferences = GetAgentPreferences(Repository.AgentTool);
@@ -2217,6 +2372,7 @@
         finally
         {
             session.IsBusy = false;
+            session.ActiveCliProcess = null;
             if (!string.IsNullOrWhiteSpace(session.ActiveAgentSessionId))
                 _pendingTerminalInteractions.Remove(session.ActiveAgentSessionId);
             session.ActiveAgentSessionId = null;
@@ -2235,7 +2391,18 @@
             return;
 
         cancellation.Cancel();
-        if (session.ActiveAgentSessionId is { Length: > 0 } sessionId &&
+        if (session.ActiveCliProcess is { } process)
+        {
+            try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+            catch (InvalidOperationException) { }
+            catch (System.ComponentModel.Win32Exception exception)
+            {
+                Logger.LogWarning(exception, "Could not stop {Agent} CLI process {ProcessId}.",
+                    session.ActiveAgentTool, process.Id);
+            }
+        }
+        if (AgentTools.Normalize(session.ActiveAgentTool) == AgentTools.OpenCode &&
+            session.ActiveAgentSessionId is { Length: > 0 } sessionId &&
             GetInteractionProvider(session.ActiveAgentTool) is { } provider)
         {
             try
@@ -2268,6 +2435,12 @@
         if (session.Id == _selectedTerminalSessionId)
             SynchronizeOpenCodeSessionSelection();
         await InvokeAsync(StateHasChanged);
+        if (AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode)
+        {
+            await RunCliAgentRoleAsync(session, role, prompt, cancellationToken, images ?? []);
+            return session.State.Messages.LastOrDefault(message =>
+                message.Role == "assistant" && message.AgentRole == role)?.Text ?? string.Empty;
+        }
         var preference = preferences.FirstOrDefault(item => item.Role == role)
             ?? new CodeBadgerRolePreference { Role = role, AgentType = CodeBadgerRoles.DefaultAgentType(role) };
         var preferenceAgent = await ResolvePreferenceAgentAsync(preference, role, cancellationToken);
@@ -2428,6 +2601,75 @@
         return response;
     }
 
+    private async Task RunCliAgentRoleAsync(CodeBadgerTerminalSession session, string role, string prompt,
+        CancellationToken cancellationToken, IReadOnlyList<string> images)
+    {
+        var connector = AgentConnectors.FirstOrDefault(candidate => candidate.Supports(Repository.AgentTool));
+        if (connector is null)
+            throw new NotSupportedException(L.T("No CodeBadger connector is registered for {0}.", AgentTools.GetDisplayName(Repository.AgentTool)));
+
+        session.ActiveAgentTool = Repository.AgentTool;
+        await InvokeAsync(StateHasChanged);
+        var mode = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode);
+        var key = mode == CodeBadgerOrchestrationModes.SingleAgent ? "SingleAgent" : role;
+        session.State.AgentSessionIds.TryGetValue(key, out var agentSessionId);
+        var isNewAgentSession = string.IsNullOrWhiteSpace(agentSessionId);
+        var model = session.State.RoleModelOverrides.GetValueOrDefault(
+            mode == CodeBadgerOrchestrationModes.SingleAgent ? "SingleAgent" : role);
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            var preferences = GetAgentPreferences(Repository.AgentTool);
+            var configured = mode switch
+            {
+                CodeBadgerOrchestrationModes.SingleAgent => preferences.SingleAgentPreferredModels,
+                CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Planner => preferences.PlanPreferredModels,
+                CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Worker => preferences.BuildPreferredModels,
+                _ => preferences.RolePreferences.FirstOrDefault(item => item.Role == role)?.PreferredModels ?? []
+            };
+            model = configured.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+        }
+        if (string.IsNullOrWhiteSpace(model) && AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode)
+            model = _settings.CodeBadgerTerminalModel;
+
+        var pending = new CodeBadgerTerminalMessage
+        {
+            Role = "assistant", AgentRole = role, ModelReference = model ?? string.Empty,
+            Text = L.T("Sending to {0}...", RoleDisplayName(role))
+        };
+        session.State.Messages.Add(pending);
+        await PersistTerminalStateAsync();
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var reply = await connector.SendPromptAsync(Repository.Path, agentSessionId, role, prompt, images, model,
+                async delta =>
+                {
+                    pending.Text = pending.Text == L.T("Sending to {0}...", RoleDisplayName(role))
+                        ? delta : pending.Text + delta;
+                    await InvokeAsync(StateHasChanged);
+                }, cancellationToken, process => session.ActiveCliProcess = process);
+            session.State.AgentSessionIds[key] = reply.SessionId;
+            session.ActiveAgentSessionId = reply.SessionId;
+            pending.Text = reply.Text;
+            pending.ModelReference = model ?? string.Empty;
+            if (isNewAgentSession && session.State.Messages.Count(message => message.Role == "user") == 1 &&
+                IsGenericTerminalSessionTitle(session.State.Title))
+                session.State.Title = CreateTerminalSessionTitle(prompt);
+            session.RoleProgress[role] = AgentRoleProgress.Completed;
+            await PersistTerminalStateAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+            session.State.Messages.Remove(pending);
+            throw;
+        }
+        finally
+        {
+            session.ActiveCliProcess = null;
+        }
+    }
+
     private async Task WaitForAgentCompletionAsync(CodeBadgerTerminalSession session, string role, string agentTool, string agentSessionId,
         CancellationToken cancellationToken, Func<Task>? onProgress = null)
     {
@@ -2494,6 +2736,8 @@
     private async Task<string> ResolvePreferenceAgentAsync(CodeBadgerRolePreference preference, string role,
         CancellationToken cancellationToken)
     {
+        if (AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode)
+            return preference.CustomAgentId;
         var agents = await OpenCodeActivity.GetAvailableAgentOptionsAsync(Repository.Path, cancellationToken);
         string? requestedId = preference.AgentType switch
         {
@@ -2617,6 +2861,23 @@
         CodeBadgerRolePreference preference, string role, string taskDescription,
         IReadOnlyList<CodeBadgerRolePreference> preferences, CancellationToken cancellationToken)
     {
+        if (AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode)
+        {
+            var externalMode = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode);
+            var externalPreferences = GetAgentPreferences(Repository.AgentTool);
+            var selectedModels = externalMode switch
+            {
+                CodeBadgerOrchestrationModes.SingleAgent => externalPreferences.SingleAgentPreferredModels,
+                CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Worker => externalPreferences.BuildPreferredModels,
+                CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Planner => externalPreferences.PlanPreferredModels,
+                _ => preference.PreferredModels
+            };
+            var overrideKey = externalMode == CodeBadgerOrchestrationModes.SingleAgent ? "SingleAgent" : role;
+            if (session.State.RoleModelOverrides.TryGetValue(overrideKey, out var overridden) && !string.IsNullOrWhiteSpace(overridden))
+                return overridden;
+            return selectedModels.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+        }
+
         var available = _availableOpenCodeModels.Where(model => model.Enabled && model.Status == "active").ToArray();
         var roleOverrideKey = CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) == CodeBadgerOrchestrationModes.SingleAgent
             ? "SingleAgent" : role;
@@ -2768,6 +3029,13 @@
             CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Worker => agentPreferences.BuildPreferredModels.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)),
             _ => preference?.PreferredModels.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))
         };
+        if (AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode)
+        {
+            var externalModel = storedModel ?? fallbackModel ?? _agentModelReference;
+            return string.IsNullOrWhiteSpace(externalModel)
+                ? AgentTools.GetDisplayName(Repository.AgentTool)
+                : $"{AgentTools.GetDisplayName(Repository.AgentTool)} · {FormatModelName(externalModel.Split('/').Last())}";
+        }
         var model = storedModel ??
             (!string.IsNullOrWhiteSpace(_settings.CodeBadgerTerminalModel) ? _settings.CodeBadgerTerminalModel : null) ??
             fallbackModel ?? _agentModelReference;
@@ -2849,6 +3117,7 @@
         public Guid Id => State.Id;
         public string Title => State.Title;
         public string Input { get; set; } = string.Empty;
+        public string ModelPickerInput { get; set; } = string.Empty;
         public List<string> InputImages { get; } = [];
         public Dictionary<string, string?> InteractionAnswers { get; } = new(StringComparer.Ordinal);
         public TerminalMode Mode { get; set; } = TerminalMode.Plan;
@@ -2862,6 +3131,7 @@
         public CancellationTokenSource? RunCancellation { get; set; }
         public string? ActiveAgentSessionId { get; set; }
         public string ActiveAgentTool { get; set; } = string.Empty;
+        public Process? ActiveCliProcess { get; set; }
     }
 
 }

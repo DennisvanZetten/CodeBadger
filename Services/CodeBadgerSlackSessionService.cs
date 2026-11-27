@@ -259,11 +259,14 @@ public sealed class CodeBadgerSlackSessionService(
             if (string.IsNullOrWhiteSpace(cliModel))
                 cliModel = (await connector.GetDefaultModelAsync(repository.Path, cancellationToken))?.Reference;
             terminal.AgentSessionIds.TryGetValue(sessionKey, out var oldSessionId);
+            var handoff = terminal.AgentSessionHandoffContext.GetValueOrDefault(sessionKey);
             var instruction = role == CodeBadgerRoles.Planner
                 ? "CodeBadger role: Planner. Create an actionable plan only; do not edit files.\n\n"
                 : $"CodeBadger role: {role}. Complete the task using the repository and report the result.\n\n";
-            var reply = await connector.SendPromptAsync(repository.Path, oldSessionId, role, instruction + prompt,
+            var request = (string.IsNullOrWhiteSpace(handoff) ? string.Empty : handoff + "\nLatest user request:\n") + instruction + prompt;
+            var reply = await connector.SendPromptAsync(repository.Path, oldSessionId, role, request,
                 [], cliModel, null, cancellationToken, null);
+            if (!string.IsNullOrWhiteSpace(handoff)) terminal.AgentSessionHandoffContext.Remove(sessionKey);
             terminal.AgentSessionIds[sessionKey] = reply.SessionId;
             if (!string.IsNullOrWhiteSpace(cliModel))
                 terminal.AgentSessionModels[sessionKey] = cliModel;

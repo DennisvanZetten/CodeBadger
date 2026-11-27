@@ -1609,20 +1609,16 @@
             !string.Equals(previousModel, selected.Reference, StringComparison.OrdinalIgnoreCase);
         if (resetHermesSession)
         {
-            // Hermes freezes --model when resuming a saved session. The CodeBadger conversation stays intact.
+            // Hermes freezes --model when resuming a saved session. Preserve a bounded handoff
+            // summary so the new model can continue the same CodeBadger conversation.
+            var handoff = BuildAgentSessionHandoff(session, role);
+            if (!string.IsNullOrWhiteSpace(handoff))
+                session.State.AgentSessionHandoffContext[sessionKey] = handoff;
             session.State.AgentSessionIds.Remove(sessionKey);
             session.State.AgentSessionModels.Remove(sessionKey);
         }
-        try
-        {
-            session.State.RoleModelOverrides[roleOverrideKey] = selected.Reference;
-            session.State.AgentSessionModels[sessionKey] = selected.Reference;
-        }
-        catch (Exception exception)
-        {
-            Snackbar.Add(L.T("Could not switch the {0} model: {1}", AgentTools.GetDisplayName(Repository.AgentTool), exception.Message), Severity.Error);
-            return;
-        }
+        session.State.RoleModelOverrides[roleOverrideKey] = selected.Reference;
+        session.State.AgentSessionModels[sessionKey] = selected.Reference;
         RememberTerminalModel(session, selected.Reference);
         session.Messages.Add(new CodeBadgerTerminalMessage
         {
@@ -2084,6 +2080,55 @@
         return title.Length <= 72 ? title : title[..69].TrimEnd() + "…";
     }
 
+    private static string BuildAgentSessionHandoff(CodeBadgerTerminalSession session, string role)
+    {
+        const int maxCharacters = 12_000;
+        var context = new StringBuilder();
+        context.AppendLine("Continue the existing CodeBadger conversation below. This is a context handoff because the model changed.");
+        context.AppendLine($"Role: {role}");
+        context.AppendLine($"Mode: {session.Mode}");
+        context.AppendLine("Use this history as context, do not repeat completed work, and answer the latest user request.");
+        context.AppendLine();
+
+        var history = session.Messages
+            .Where(message => !message.IsCodeBadgerMessage && !message.IsCommandHelp && !message.IsModelPicker &&
+                message.Role is "user" or "assistant")
+            .TakeLast(20)
+            .ToArray();
+        foreach (var message in history)
+        {
+            var author = message.Role == "user" ? "User" : "Assistant";
+            var text = message.Text ?? string.Empty;
+            if (message.Images.Count > 0)
+                text += $"\n[Attached {message.Images.Count} image(s) in the original CodeBadger message.]";
+            var entry = $"{author}: {text.Trim()}\n\n";
+            if (context.Length + entry.Length > maxCharacters)
+            {
+                context.AppendLine("[Earlier conversation omitted to keep the model handoff concise.]");
+                break;
+            }
+            context.Append(entry);
+        }
+
+        if (context.Length > maxCharacters)
+            return context.ToString()[..maxCharacters];
+        return context.ToString();
+    }
+
+    private static string? TakeAgentSessionHandoff(CodeBadgerTerminalSession session, string role)
+    {
+        var orchestrationMode = CodeBadgerOrchestrationModes.Normalize(session.State.Mode);
+        var key = orchestrationMode == CodeBadgerOrchestrationModes.SingleAgent ? "SingleAgent" : role;
+        if (!session.State.AgentSessionHandoffContext.Remove(key, out var context) || string.IsNullOrWhiteSpace(context))
+            return null;
+        return context;
+    }
+
+    private static string AddAgentSessionHandoff(string? handoff, string prompt) =>
+        string.IsNullOrWhiteSpace(handoff)
+            ? prompt
+            : handoff + "\nLatest user request:\n" + prompt;
+
     private string GetTerminalSessionDisplayTitle(CodeBadgerTerminalSession session) =>
         GetTerminalSessionDisplayTitle(session.State);
 
@@ -2179,6 +2224,7 @@
             _pendingTerminalInteractions.Remove(agentSessionId);
         session.State.Messages.Clear();
         session.State.AgentSessionIds.Clear();
+        session.State.AgentSessionHandoffContext.Clear();
         session.State.AgentSessionGenerations.Clear();
         session.State.AgentContextTokens.Clear();
         session.State.AgentContextModels.Clear();
@@ -2524,7 +2570,8 @@
         IReadOnlyList<CodeBadgerRolePreference> preferences, CancellationToken cancellationToken, IReadOnlyList<string> images)
     {
         var role = session.Mode == TerminalMode.Plan ? CodeBadgerRoles.Planner : CodeBadgerRoles.Worker;
-        await RunRoleAsync(session, role, prompt, parentRole: null, preferences, cancellationToken, images);
+        var handoff = TakeAgentSessionHandoff(session, role);
+        await RunRoleAsync(session, role, AddAgentSessionHandoff(handoff, prompt), parentRole: null, preferences, cancellationToken, images);
     }
 
     private async Task<string> RunRoleAsync(CodeBadgerTerminalSession session, string role, string prompt,
@@ -2540,7 +2587,8 @@
         await InvokeAsync(StateHasChanged);
         if (AgentTools.Normalize(Repository.AgentTool) != AgentTools.OpenCode)
         {
-            await RunCliAgentRoleAsync(session, role, prompt, cancellationToken, images ?? []);
+            var handoff = TakeAgentSessionHandoff(session, role);
+            await RunCliAgentRoleAsync(session, role, AddAgentSessionHandoff(handoff, prompt), cancellationToken, images ?? []);
             return session.State.Messages.LastOrDefault(message =>
                 message.Role == "assistant" && message.AgentRole == role)?.Text ?? string.Empty;
         }
@@ -2768,7 +2816,7 @@
             session.ActiveAgentSessionId = reply.SessionId;
             pending.Text = reply.Text;
             pending.ModelReference = model ?? string.Empty;
-            if (isNewAgentSession && session.State.Messages.Count(message => message.Role == "user") == 1 &&
+        if (isNewAgentSession && session.State.Messages.Count(message => message.Role == "user") == 1 &&
                 IsGenericTerminalSessionTitle(session.State.Title))
                 session.State.Title = CreateTerminalSessionTitle(prompt);
             session.RoleProgress[role] = AgentRoleProgress.Completed;

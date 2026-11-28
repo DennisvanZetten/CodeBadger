@@ -1,5 +1,6 @@
 @inject LocalizationService L
 @inject OpenCodeActivityService OpenCodeActivity
+@inject IEnumerable<ICodeBadgerAgentConnector> AgentConnectors
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 
@@ -18,12 +19,12 @@
             }
         </MudStack>
         <MudText Typo="Typo.body2" Color="Color.Secondary">
-            @L.T("Model preferences are saved separately for each agent. OpenCode models are loaded from its catalog; for other agents enter model IDs supported by their provider.")
+            @L.T("Model preferences are saved separately for each agent. Model choices are loaded from the selected agent when available.")
         </MudText>
 
         @if (_isLoadingModels)
         {
-            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Loading OpenCode models...")</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Loading agent models...")</MudText>
         }
         else if (!string.IsNullOrWhiteSpace(_loadError))
         {
@@ -115,6 +116,7 @@
     [Parameter, EditorRequired] public string AgentTool { get; set; } = AgentTools.OpenCode;
 
     private IReadOnlyList<OpenCodeActivityService.AvailableModel> _models = [];
+    private IReadOnlyList<CodeBadgerAgentModel> _agentModels = [];
     private IReadOnlyList<OpenCodeActivityService.AvailableAgent> _agents = [];
     private bool _isLoadingModels;
     private string _loadError = string.Empty;
@@ -125,30 +127,45 @@
     {
         Settings.CodeBadgerAgentPreferences ??= CodeBadgerRoles.CreateAgentDefaults();
         CodeBadgerRoles.NormalizeAgentPreferences(Settings.CodeBadgerAgentPreferences);
-        if (IsOpenCode)
-            await LoadOpenCodeCatalogAsync();
+        await LoadModelCatalogAsync();
     }
 
-    private async Task LoadOpenCodeCatalogAsync()
+    private async Task LoadModelCatalogAsync()
     {
+        var selectedAgent = AgentTools.Normalize(AgentTool);
         var repositoryPath = Settings.Repositories.FirstOrDefault(repository => repository.IsActive &&
-            AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)?.Path;
+            AgentTools.Normalize(repository.AgentTool) == selectedAgent)?.Path;
         repositoryPath ??= Settings.Repositories.FirstOrDefault(repository =>
-            AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode)?.Path;
+            AgentTools.Normalize(repository.AgentTool) == selectedAgent)?.Path;
         if (string.IsNullOrWhiteSpace(repositoryPath) || !Directory.Exists(repositoryPath))
             return;
         _isLoadingModels = true;
         try
         {
-            _models = await OpenCodeActivity.GetAvailableModelsAsync(repositoryPath, CancellationToken.None);
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-            _agents = await OpenCodeActivity.GetAvailableAgentOptionsAsync(repositoryPath, timeout.Token);
-            if (_models.Count == 0)
-                _loadError = L.T("OpenCode did not return any available models for this repository.");
+            if (IsOpenCode)
+            {
+                _models = await OpenCodeActivity.GetAvailableModelsAsync(repositoryPath, CancellationToken.None);
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                _agents = await OpenCodeActivity.GetAvailableAgentOptionsAsync(repositoryPath, timeout.Token);
+                if (_models.Count == 0)
+                    _loadError = L.T("OpenCode did not return any available models for this repository.");
+            }
+            else
+            {
+                var connector = AgentConnectors.FirstOrDefault(item => item.Supports(selectedAgent));
+                if (connector is null)
+                    return;
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                _agentModels = await connector.GetAvailableModelsAsync(repositoryPath, timeout.Token);
+                if (_agentModels.Count == 0)
+                    _loadError = L.T("No model catalog was returned by this agent. You can still enter a model ID.");
+            }
         }
         catch (Exception exception)
         {
-            _loadError = L.T("Could not load OpenCode models: {0}", exception.Message);
+            _loadError = IsOpenCode
+                ? L.T("Could not load OpenCode models: {0}", exception.Message)
+                : L.T("Could not load agent models: {0}", exception.Message);
         }
         finally { _isLoadingModels = false; }
     }
@@ -176,6 +193,42 @@
                     items.AddAttribute(seq++, "Value", model.Reference);
                     items.AddAttribute(seq++, "Disabled", !model.Enabled);
                     items.AddAttribute(seq++, "ChildContent", (RenderFragment)(content => content.AddContent(0, ModelLabel(model))));
+                    items.CloseComponent();
+                }
+            }));
+            builder.CloseComponent();
+        }
+        else if (_agentModels.Count > 0)
+        {
+            builder.OpenComponent<MudSelect<string>>(0);
+            builder.AddAttribute(1, "Value", GetModel(values, index));
+            builder.AddAttribute(2, "ValueChanged", EventCallback.Factory.Create<string>(this, value => SetModel(values, index, value)));
+            builder.AddAttribute(3, "Label", label);
+            builder.AddAttribute(4, "Margin", Margin.Dense);
+            builder.AddAttribute(5, "Variant", Variant.Outlined);
+            builder.AddAttribute(6, "ChildContent", (RenderFragment)(items =>
+            {
+                var seq = 0;
+                items.OpenComponent<MudSelectItem<string>>(seq++);
+                items.AddAttribute(seq++, "Value", string.Empty);
+                items.AddAttribute(seq++, "ChildContent", (RenderFragment)(content => content.AddContent(0, L.T("Automatic selection"))));
+                items.CloseComponent();
+                var current = GetModel(values, index);
+                if (!string.IsNullOrWhiteSpace(current) && !_agentModels.Any(model =>
+                        string.Equals(model.Reference, current, StringComparison.OrdinalIgnoreCase)))
+                {
+                    items.OpenComponent<MudSelectItem<string>>(seq++);
+                    items.AddAttribute(seq++, "Value", current);
+                    items.AddAttribute(seq++, "ChildContent", (RenderFragment)(content => content.AddContent(0,
+                        L.T("{0} (not in current catalog)", current))));
+                    items.CloseComponent();
+                }
+                foreach (var model in _agentModels)
+                {
+                    items.OpenComponent<MudSelectItem<string>>(seq++);
+                    items.AddAttribute(seq++, "Value", model.Reference);
+                    items.AddAttribute(seq++, "ChildContent", (RenderFragment)(content => content.AddContent(0,
+                        model.IsDefault ? $"{model.Name} · {model.Reference} · {L.T("Default")}" : $"{model.Name} · {model.Reference}")));
                     items.CloseComponent();
                 }
             }));

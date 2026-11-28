@@ -29,6 +29,7 @@
                              RepositoryExists="@Directory.Exists(_repository.Path)"
                              AgentAvailable="@StartupDetection.IsAgentAvailable(_repository.AgentTool)"
                              IsVisible="true" GitBranchLabel="@BranchLabel" GitSnapshot="@_snapshot"
+                             OnGitStatusRefresh="RefreshGitStatusAsync"
                              OnOpenGitOverview="OpenGitOverviewAsync" />
     }
 </MudContainer>
@@ -158,6 +159,14 @@
         await dialog.Result;
         if (Directory.Exists(_repository.Path))
             _snapshot = await GitBranchService.GetRepositorySnapshotAsync(_repository.Path);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshGitStatusAsync()
+    {
+        if (_repository is null || !Directory.Exists(_repository.Path))
+            return;
+        _snapshot = await GitBranchService.GetRepositorySnapshotAsync(_repository.Path);
         await InvokeAsync(StateHasChanged);
     }
 

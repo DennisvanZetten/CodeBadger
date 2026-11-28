@@ -106,8 +106,9 @@
                                                IsVisible="@(DockedRepositories.IndexOf(repository) == _activeTabIndex)"
                                                OpenCodeSessionId="@SelectedOpenCodeSession(repository)"
                                                GitBranchLabel="@BranchLabel(repository)"
-                                              GitSnapshot="@(_gitSnapshots.TryGetValue(repository, out var workspaceSnapshot) ? workspaceSnapshot : null)"
-                                                OnOpenGitOverview="@(() => OpenGitDialogAsync(repository))" />
+                                               GitSnapshot="@(_gitSnapshots.TryGetValue(repository, out var workspaceSnapshot) ? workspaceSnapshot : null)"
+                                               OnGitStatusRefresh="@(() => LoadRepositoryStatusAsync(repository))"
+                                               OnOpenGitOverview="@(() => OpenGitDialogAsync(repository))" />
                     </ChildContent>
                 </MudTabPanel>
             }

@@ -15,6 +15,7 @@
 @inject LauncherSettingsService SettingsService
 @inject GitBranchService GitBranchService
 @inject AiCommitMessageService AiCommitMessageService
+@inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 
@@ -694,6 +695,7 @@
     [Parameter] public GitRepositorySnapshot? GitSnapshot { get; set; }
     [Parameter] public string? OpenCodeSessionId { get; set; }
     [Parameter, EditorRequired] public EventCallback OnOpenGitOverview { get; set; }
+    [Parameter] public EventCallback OnGitStatusRefresh { get; set; }
 
     private string TerminalKey =>
         $"{Repository.Id}:{Repository.Path}:{AgentTools.Normalize(Repository.AgentTool)}:{Repository.OpenCodeSandboxEnabled}:{Repository.OpenCodeSandboxModel}:{Repository.OpenCodeSandboxFiles}:{OpenCodeSessionId}";
@@ -1400,6 +1402,8 @@
         ("/review", "Review current repository changes"),
         ("/test", "Identify and run relevant tests"),
         ("/commit", "Review changes and suggest a commit message"),
+        ("/pull", "Pull changes using the Git view settings"),
+        ("/push", "Push changes using the Git view safe check"),
         ("/clear", "Clear this CodeBadger session")
     ];
 
@@ -1999,6 +2003,11 @@
                 CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) == CodeBadgerOrchestrationModes.Full)
             {
                 var externalCommand = ProcessTerminalCommand(session, ref prompt, ref forceBuildRequest, ref forcedRole);
+                if (externalCommand is TerminalCommandResult.Pull or TerminalCommandResult.Push)
+                {
+                    await StartTerminalGitOperationAsync(session, externalCommand, session.Input.Trim(), sessionId);
+                    return;
+                }
                 if (externalCommand == TerminalCommandResult.Handled)
                 {
                     session.Input = string.Empty;
@@ -2039,6 +2048,12 @@
                 _ = RunTerminalCommitAsync(session, prompt);
                 if (_composerModule is not null)
                     await _composerModule.InvokeVoidAsync("clear", _terminalStack, sessionId);
+                return;
+            }
+
+            if (commandResult is TerminalCommandResult.Pull or TerminalCommandResult.Push)
+            {
+                await StartTerminalGitOperationAsync(session, commandResult, session.Input.Trim(), sessionId);
                 return;
             }
         }
@@ -2214,6 +2229,12 @@
                 prompt = argument;
                 return TerminalCommandResult.Commit;
 
+            case "/pull":
+                return TerminalCommandResult.Pull;
+
+            case "/push":
+                return TerminalCommandResult.Push;
+
             default:
                 return TerminalCommandResult.NotACommand;
         }
@@ -2351,6 +2372,128 @@
             await PersistTerminalStateAsync();
             await InvokeAsync(StateHasChanged);
         }
+    }
+
+    private async Task StartTerminalGitOperationAsync(CodeBadgerTerminalSession session, TerminalCommandResult command,
+        string submittedText, string sessionId)
+    {
+        session.IsSubmitting = true;
+        session.Messages.Add(new CodeBadgerTerminalMessage { Role = "user", Text = submittedText });
+        session.Input = string.Empty;
+        session.InputImages.Clear();
+        await PersistTerminalStateAsync();
+        await InvokeAsync(StateHasChanged);
+        _ = RunTerminalGitOperationAsync(session, command);
+        if (_composerModule is not null)
+            await _composerModule.InvokeVoidAsync("clear", _terminalStack, sessionId);
+    }
+
+    private async Task RunTerminalGitOperationAsync(CodeBadgerTerminalSession session, TerminalCommandResult command)
+    {
+        var name = command == TerminalCommandResult.Push ? "Push" : "Pull";
+        try
+        {
+            var autoSync = Repository.AutoSyncSubmodules;
+            var syncAfterOperation = autoSync;
+            if (autoSync)
+            {
+                var safety = await GitBranchService.CheckSubmoduleTreesCleanAsync(Repository.Path);
+                if (!safety.Success)
+                {
+                    var warning = command == TerminalCommandResult.Push
+                        ? "The push may pull remote changes, but submodules will not be synchronized to preserve local changes. Continue?\n\n{0}"
+                        : "The pull can continue, but submodules will not be synchronized to preserve local changes. Continue?\n\n{0}";
+                    var proceed = await DialogService.ShowMessageBoxAsync(L.T("Submodule changes detected"), L.T(warning, safety.Message),
+                        yesText: L.T("Continue without syncing"), cancelText: L.T("Cancel"));
+                    if (proceed != true)
+                    {
+                        AddTerminalCommandResponse(session, L.T(command == TerminalCommandResult.Push ? "Push cancelled." : "Pull cancelled."));
+                        return;
+                    }
+                    autoSync = false;
+                }
+            }
+
+            var result = command == TerminalCommandResult.Push
+                ? await GitBranchService.PushWhenUpToDateAsync(Repository.Path, false)
+                : await GitBranchService.PullAsync(Repository.Path, false);
+
+            if (result.Success && syncAfterOperation && autoSync)
+            {
+                var postOperationSafety = await GitBranchService.CheckSubmoduleTreesCleanAsync(Repository.Path);
+                if (!postOperationSafety.Success)
+                    result = new GitOperationResult(false,
+                        L.T("Pull completed, but submodules were not updated to preserve local changes: {0}", postOperationSafety.Message), result.Output);
+                else
+                {
+                    var update = await GitBranchService.UpdateSubmodulesAsync(Repository.Path);
+                    if (!update.Success)
+                        result = new GitOperationResult(false,
+                            L.T("Pull completed, but submodules were not fully updated: {0}", update.Message), update.Output, update.ExitCode);
+                }
+            }
+
+            if (command == TerminalCommandResult.Push && !result.Success && IsGitAuthenticationFailure(result.Message))
+                await ShowGitAuthenticationHelpAsync(result.Message);
+
+            AddTerminalCommandResponse(session, result.Success
+                ? L.T(command == TerminalCommandResult.Push ? "Push completed." : "Pull completed.")
+                : L.T(command == TerminalCommandResult.Push ? "Push failed: {0}" : "Pull failed: {0}", result.Message));
+        }
+        catch (Exception exception)
+        {
+            Logger.LogWarning(exception, "Could not run the CodeBadger terminal {Operation} command for repository {RepositoryPath}.", name, Repository.Path);
+            AddTerminalCommandResponse(session, L.T(command == TerminalCommandResult.Push ? "Push failed: {0}" : "Pull failed: {0}", exception.Message));
+        }
+        finally
+        {
+            session.IsSubmitting = false;
+            await OnGitStatusRefresh.InvokeAsync();
+            await PersistTerminalStateAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static bool IsGitAuthenticationFailure(string message) =>
+        message.Contains("could not read Username", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("could not read Password", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("Authentication failed", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("terminal prompts disabled", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("Permission denied (publickey)", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("could not read from remote repository", StringComparison.OrdinalIgnoreCase);
+
+    private async Task ShowGitAuthenticationHelpAsync(string error)
+    {
+        var host = GetGitHostFromError(error);
+        var parameters = new DialogParameters<GitAuthenticationHelpDialog>
+        {
+            { dialog => dialog.Host, host },
+            { dialog => dialog.Error, error },
+            { dialog => dialog.ShowGitKrakenNote, OperatingSystem.IsMacCatalyst() }
+        };
+        await DialogService.ShowAsync<GitAuthenticationHelpDialog>(L.T("Git authentication required"), parameters,
+            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Small, CloseButton = true, CloseOnEscapeKey = true });
+    }
+
+    private static string GetGitHostFromError(string error)
+    {
+        var httpsIndex = error.IndexOf("https://", StringComparison.OrdinalIgnoreCase);
+        if (httpsIndex >= 0)
+        {
+            var hostStart = httpsIndex + "https://".Length;
+            var hostEnd = error.IndexOfAny(['/', '\'', '"', ' ', ')'], hostStart);
+            var host = hostEnd < 0 ? error[hostStart..] : error[hostStart..hostEnd];
+            if (host.Equals("github.com", StringComparison.OrdinalIgnoreCase)) return "GitHub";
+            if (host.Equals("gitlab.com", StringComparison.OrdinalIgnoreCase)) return "GitLab";
+            if (host.Equals("bitbucket.org", StringComparison.OrdinalIgnoreCase)) return "Bitbucket";
+            if (host.Equals("dev.azure.com", StringComparison.OrdinalIgnoreCase) || host.EndsWith(".visualstudio.com", StringComparison.OrdinalIgnoreCase)) return "Azure DevOps";
+            if (!string.IsNullOrWhiteSpace(host)) return host;
+        }
+
+        if (error.Contains("github", StringComparison.OrdinalIgnoreCase)) return "GitHub";
+        if (error.Contains("gitlab", StringComparison.OrdinalIgnoreCase)) return "GitLab";
+        if (error.Contains("bitbucket", StringComparison.OrdinalIgnoreCase)) return "Bitbucket";
+        return "the Git remote";
     }
 
     private async Task CompleteTerminalCommitAsync(CodeBadgerTerminalSession session, string message)
@@ -3273,7 +3416,7 @@
 
     private enum AiPanelMode { Split, Collapsed, Expanded }
     private enum TerminalMode { Plan, Build }
-    private enum TerminalCommandResult { NotACommand, Handled, SubmitPrompt, Commit }
+    private enum TerminalCommandResult { NotACommand, Handled, SubmitPrompt, Commit, Pull, Push }
     private enum AgentRoleProgress { NotStarted, Working, Waiting, Completed, Stopped, Failed }
 
     private sealed class SessionCostLimitReachedException(string message) : InvalidOperationException(message);

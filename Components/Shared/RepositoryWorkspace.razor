@@ -585,7 +585,8 @@
                                                 {
                                                     <li>
                                                         <button type="button" class="repository-command-autocomplete-option"
-                                                                role="option" aria-selected="false" data-command="@suggestion.Command">
+                                                                role="option" aria-selected="false" data-command="@suggestion.Command"
+                                                                data-command-submit-on-select="@(suggestion.Command is "/help" or "/model" or "/plan" or "/build" or "/review" or "/test" or "/commit" or "/pull" or "/push" or "/clear" ? "true" : "false")">
                                                             <code>@suggestion.Command</code>
                                                             <span>@L.T(suggestion.Description)</span>
                                                         </button>

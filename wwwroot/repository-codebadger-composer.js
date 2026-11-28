@@ -180,13 +180,18 @@ function updateCommandSelection(editor, index) {
     return true;
 }
 
-function selectCommand(editor, option) {
+function selectCommand(editor, option, dotNetReference, submitWithoutArguments = false) {
     const command = option?.dataset.command;
     if (!command) return false;
-    editor.replaceChildren(document.createTextNode(`${command} `));
+    const submitNow = submitWithoutArguments && option.dataset.commandSubmitOnSelect === "true";
+    editor.replaceChildren(document.createTextNode(submitNow ? command : `${command} `));
     delete editor.dataset.commandSelection;
     delete editor.dataset.commandAutocompleteDismissed;
     syncModel(editor, true);
+    if (submitNow) {
+        dotNetReference.invokeMethodAsync("SubmitTerminalInputAsync", editor.dataset.sessionId, command);
+        return true;
+    }
     editor.focus({ preventScroll: true });
     const selection = window.getSelection();
     const range = document.createRange();
@@ -324,7 +329,7 @@ export function attach(root, dotNetReference) {
             }
             if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
-                selectCommand(editor, options[selectedIndex >= 0 ? selectedIndex : 0]);
+                selectCommand(editor, options[selectedIndex >= 0 ? selectedIndex : 0], dotNetReference, true);
                 return;
             }
         }

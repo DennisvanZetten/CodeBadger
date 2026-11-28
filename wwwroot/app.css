@@ -3206,6 +3206,8 @@ body.repository-terminal-resizing * {
 }
 
 .repository-codebadger-composer {
+    position: relative;
+    z-index: 3;
     display: flex;
     flex: 0 0 auto;
     align-items: flex-start;
@@ -3219,7 +3221,11 @@ body.repository-terminal-resizing * {
     box-shadow: 0 1px 4px color-mix(in srgb, var(--mud-palette-text-primary) 8%, transparent);
 }
 
-.repository-codebadger-composer-body { flex: 1 1 auto; min-width: 0; }
+.repository-codebadger-composer-body {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+}
 
 .repository-codebadger-input-row {
     display: flex;
@@ -3240,15 +3246,17 @@ body.repository-terminal-resizing * {
 }
 
 .repository-command-autocomplete {
-    position: relative;
-    z-index: 2;
+    position: absolute;
+    z-index: 4;
+    bottom: calc(100% + 0.45rem);
+    left: 1.9rem;
     display: grid;
     gap: 0.1rem;
     width: max-content;
     max-width: min(28rem, calc(100% - 1.9rem));
     max-height: min(40vh, 18rem);
     overflow-y: auto;
-    margin: 0.25rem 0 0 1.9rem;
+    margin: 0;
     padding: 0.3rem;
     border: 1px solid var(--mud-palette-divider);
     border-radius: 0.5rem;

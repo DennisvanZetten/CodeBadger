@@ -565,6 +565,7 @@
                                                      data-placeholder="@L.T("Ask anything or type /help for commands...")"
                                                      data-preview-label="@L.T("Preview pasted text")"
                                                      data-edit-label="@L.T("Edit pasted text")"
+                                                     data-close-preview-label="@L.T("Close preview")"
                                                      data-mode-toggle-enabled="@(CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.Full ? "true" : "false")"
                                                      contenteditable="@(!session.IsRotatingAgentRole)" role="textbox" aria-multiline="true"
                                                      aria-label="@L.T("Universal command")" spellcheck="false"></div>
@@ -635,26 +636,28 @@
                                     </div>
                                 </div>
                                 <footer class="repository-codebadger-statusbar">
-                                    @if (CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.Full)
-                                    {
-                                        <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.SwapHoriz"
-                                                   aria-label="@L.T("Switch between Plan and Build mode")"
-                                                   title="@L.T("Switch between Plan and Build mode (Shift+Tab)")"
-                                                   OnClick="() => ToggleSessionMode(session)">
-                                            @L.T(session.Mode == TerminalMode.Plan ? "Plan" : "Build")
-                                        </MudButton>
-                                    }
-                                    else
-                                    {
-                                        <MudText Typo="Typo.button">@L.T("Full orchestration")</MudText>
-                                    }
-                                    @if (session.IsBusy)
-                                    {
-                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error"
-                                                   StartIcon="@Icons.Material.Filled.StopCircle" OnClick="() => CancelPromptAsync(session)">
-                                            @L.T("Stop agent")
-                                        </MudButton>
-                                    }
+                                    <div class="repository-codebadger-statusbar-left">
+                                        @if (CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.Full)
+                                        {
+                                            <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.SwapHoriz"
+                                                       aria-label="@L.T("Switch between Plan and Build mode")"
+                                                       title="@L.T("Switch between Plan and Build mode (Shift+Tab)")"
+                                                       OnClick="() => ToggleSessionMode(session)">
+                                                @L.T(session.Mode == TerminalMode.Plan ? "Plan" : "Build")
+                                            </MudButton>
+                                        }
+                                        else
+                                        {
+                                            <MudText Typo="Typo.button">@L.T("Full orchestration")</MudText>
+                                        }
+                                        @if (session.IsBusy)
+                                        {
+                                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error"
+                                                       StartIcon="@Icons.Material.Filled.StopCircle" OnClick="() => CancelPromptAsync(session)">
+                                                @L.T("Stop agent")
+                                            </MudButton>
+                                        }
+                                    </div>
                                     <div class="repository-codebadger-statusbar-right">
                                         <div class="repository-codebadger-session-info" title="@SessionAgentModelLabel(session)">
                                             <MudText Typo="Typo.caption" Color="Color.Secondary">@SessionAgentModelLabel(session)</MudText>

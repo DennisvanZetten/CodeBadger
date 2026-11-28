@@ -1,4 +1,5 @@
 const observers = new WeakMap();
+const activeComposerRoots = new Set();
 
 function getEditor(target) {
     return target?.closest?.(".repository-codebadger-input");
@@ -80,12 +81,7 @@ function makeChip(editor, text) {
     editButton.setAttribute("aria-label", editor.dataset.editLabel ?? "Edit pasted text");
     editButton.innerHTML = "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25Zm17.71-10.04a1 1 0 0 0 0-1.41l-2.51-2.51a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 2-1.66Z\"/></svg>";
 
-    const preview = document.createElement("pre");
-    preview.className = "repository-codebadger-paste-chip-preview";
-    preview.hidden = true;
-    preview.textContent = text;
-
-    chip.append(label, previewButton, editButton, preview);
+    chip.append(label, previewButton, editButton);
     return chip;
 }
 
@@ -138,12 +134,45 @@ function insertPlainText(editor, text) {
     selection.addRange(caret);
 }
 
-function setPastePreview(button, open) {
+function closePastePreview(root) {
+    const state = observers.get(root);
+    if (!state?.previewPanel) return;
+    const wasOpen = !state.previewPanel.hidden;
+    state.previewButton?.setAttribute("aria-expanded", "false");
+    state.previewPanel.hidden = true;
+    state.previewButton = null;
+    return wasOpen;
+}
+
+function positionPastePreview(button, panel) {
+    const rect = button.getBoundingClientRect();
+    const margin = 12;
+    const width = Math.min(480, window.innerWidth - margin * 2);
+    panel.style.width = `${width}px`;
+    panel.style.left = `${Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin))}px`;
+    const panelHeight = panel.getBoundingClientRect().height;
+    const top = rect.top - panelHeight - 8 >= margin
+        ? rect.top - panelHeight - 8
+        : Math.min(window.innerHeight - panelHeight - margin, rect.bottom + 8);
+    panel.style.top = `${Math.max(margin, top)}px`;
+}
+
+function setPastePreview(root, button, open) {
+    const state = observers.get(root);
     const chip = button.closest(".repository-codebadger-paste-chip");
-    const preview = chip?.querySelector(".repository-codebadger-paste-chip-preview");
-    if (!preview) return;
-    preview.hidden = !open;
-    button.setAttribute("aria-expanded", String(open));
+    if (!state?.previewPanel || !chip) return;
+    if (!open) {
+        closePastePreview(root);
+        return;
+    }
+    closePastePreview(root);
+    state.previewPanel.querySelector(".repository-codebadger-paste-preview-content").textContent =
+        chip.dataset.pasteText ?? "";
+    state.previewButton = button;
+    button.setAttribute("aria-expanded", "true");
+    state.previewPanel.hidden = false;
+    positionPastePreview(button, state.previewPanel);
+    state.previewPanel.querySelector(".repository-codebadger-paste-preview-content")?.focus({ preventScroll: true });
 }
 
 function expandPasteChip(button) {
@@ -155,6 +184,72 @@ function expandPasteChip(button) {
     const selection = window.getSelection();
     const range = document.createRange();
     range.setStart(textNode, textNode.length);
+    range.collapse(true);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    editor.focus({ preventScroll: true });
+    syncModel(editor, true);
+}
+
+function getAdjacentChip(selection, editor, direction) {
+    if (!selection?.isCollapsed || !selection.anchorNode || !editor.contains(selection.anchorNode)) return null;
+    const node = selection.anchorNode;
+    const offset = selection.anchorOffset;
+    if (node.nodeType === Node.TEXT_NODE) {
+        if (direction < 0 && offset === 0 && isChip(node.previousSibling)) return node.previousSibling;
+        if (direction > 0 && offset === node.length && isChip(node.nextSibling)) return node.nextSibling;
+        return null;
+    }
+    if (node.nodeType === Node.ELEMENT_NODE) {
+        if (node === editor && direction < 0 && offset > 0 && isChip(node.childNodes[offset - 1]))
+            return node.childNodes[offset - 1];
+        if (node === editor && direction > 0 && offset < node.childNodes.length && isChip(node.childNodes[offset]))
+            return node.childNodes[offset];
+        const adjacent = node.childNodes[direction < 0 ? offset - 1 : offset];
+        return isChip(adjacent) ? adjacent : null;
+    }
+    return null;
+}
+
+function removeChipAtCaret(editor, chip, direction) {
+    closePastePreview(editor.closest(".repository-terminal-stack"));
+    const previous = chip.previousSibling;
+    const next = chip.nextSibling;
+    chip.remove();
+
+    let caretNode;
+    let caretOffset;
+    if (direction < 0 && previous?.nodeType === Node.TEXT_NODE) {
+        caretNode = previous;
+        caretOffset = previous.length;
+    } else if (direction > 0 && next?.nodeType === Node.TEXT_NODE) {
+        caretNode = next;
+        caretOffset = 0;
+    } else if (previous?.nodeType === Node.TEXT_NODE) {
+        caretNode = previous;
+        caretOffset = previous.length;
+    } else if (next?.nodeType === Node.TEXT_NODE) {
+        caretNode = next;
+        caretOffset = 0;
+    } else {
+        caretNode = document.createTextNode("");
+        editor.append(caretNode);
+        caretOffset = 0;
+    }
+
+    if (previous?.nodeType === Node.TEXT_NODE && next?.nodeType === Node.TEXT_NODE && previous.parentNode === editor) {
+        const previousLength = previous.length;
+        previous.appendData(next.data);
+        if (caretNode === next) {
+            caretNode = previous;
+            caretOffset = previousLength;
+        }
+        next.remove();
+    }
+
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.setStart(caretNode, Math.min(caretOffset, caretNode.length ?? caretNode.childNodes.length));
     range.collapse(true);
     selection?.removeAllRanges();
     selection?.addRange(range);
@@ -281,7 +376,7 @@ export function attach(root, dotNetReference) {
         if (previewButton) {
             event.preventDefault();
             event.stopPropagation();
-            setPastePreview(previewButton, previewButton.getAttribute("aria-expanded") !== "true");
+            setPastePreview(root, previewButton, previewButton.getAttribute("aria-expanded") !== "true");
             return;
         }
         const editButton = target.closest?.(".repository-codebadger-paste-edit");
@@ -318,6 +413,18 @@ export function attach(root, dotNetReference) {
     const onKeyDown = event => {
         const editor = getEditor(event.target);
         if (!editor || event.isComposing) return;
+        if (event.key === "Escape" && !observers.get(root)?.previewPanel?.hidden) {
+            closePastePreview(root);
+            return;
+        }
+        if (event.key === "Backspace" || event.key === "Delete") {
+            const chip = getAdjacentChip(window.getSelection(), editor, event.key === "Backspace" ? -1 : 1);
+            if (chip) {
+                event.preventDefault();
+                removeChipAtCaret(editor, chip, event.key === "Backspace" ? -1 : 1);
+                return;
+            }
+        }
         const options = commandOptions(editor);
         if (options.length && !editor.dataset.commandAutocompleteDismissed) {
             const selectedIndex = Number.parseInt(editor.dataset.commandSelection ?? "-1", 10);
@@ -405,11 +512,57 @@ export function attach(root, dotNetReference) {
         if (editor.dataset.syncedValue === undefined) {
             if (model?.value) editor.append(document.createTextNode(model.value));
             editor.dataset.syncedValue = model?.value ?? "";
-        } else if (!editorChanged && model?.value !== editor.dataset.syncedValue) {
-            editor.replaceChildren(...(model.value ? [document.createTextNode(model.value)] : []));
-            editor.dataset.syncedValue = model.value;
+        } else if (!editorChanged && model) {
+            const currentText = getEditorText(editor, true);
+            if (model.value !== editor.dataset.syncedValue || currentText !== model.value) {
+                editor.replaceChildren(...(model.value ? [document.createTextNode(model.value)] : []));
+                editor.dataset.syncedValue = model.value;
+            }
         }
     });
+    const previewPanel = document.createElement("div");
+    previewPanel.className = "repository-codebadger-paste-preview-panel";
+    previewPanel.hidden = true;
+    previewPanel.innerHTML = `<div class="repository-codebadger-paste-preview-header"><span></span><button type="button" aria-label="Close preview">×</button></div><pre class="repository-codebadger-paste-preview-content"></pre>`;
+    previewPanel.querySelector(".repository-codebadger-paste-preview-header span").textContent =
+        root.querySelector(".repository-codebadger-input")?.dataset.previewLabel ?? "Pasted text preview";
+    previewPanel.querySelector(".repository-codebadger-paste-preview-content").tabIndex = 0;
+    const closePreviewButton = previewPanel.querySelector("button");
+    closePreviewButton.setAttribute("aria-label", root.querySelector(".repository-codebadger-input")?.dataset.closePreviewLabel ?? "Close preview");
+    closePreviewButton.addEventListener("click", () => closePastePreview(root));
+    const onDocumentPointerDown = event => {
+        const state = observers.get(root);
+        if (!state || state.previewPanel.hidden) return;
+        if (!state.previewPanel.contains(event.target) && !event.target.closest?.(".repository-codebadger-paste-preview-toggle"))
+            closePastePreview(root);
+    };
+    const onDocumentKeyDown = event => {
+        if (event.key === "Escape" && !previewPanel.hidden) {
+            event.preventDefault();
+            const previewButton = observers.get(root)?.previewButton;
+            if (closePastePreview(root)) previewButton?.focus({ preventScroll: true });
+        }
+    };
+    const onPreviewResize = () => {
+        const state = observers.get(root);
+        if (state?.previewButton && !state.previewPanel.hidden)
+            positionPastePreview(state.previewButton, state.previewPanel);
+    };
+    const onPreviewScroll = () => onPreviewResize();
+    document.body.append(previewPanel);
+    observers.set(root, { previewPanel, previewButton: null, onDocumentPointerDown, onPreviewResize });
+    document.addEventListener("pointerdown", onDocumentPointerDown, true);
+    document.addEventListener("keydown", onDocumentKeyDown, true);
+    window.addEventListener("resize", onPreviewResize);
+    window.addEventListener("scroll", onPreviewScroll, true);
+    const onAnyPreviewClick = event => {
+        const button = event.target.closest?.(".repository-codebadger-paste-preview-toggle");
+        if (!button) return;
+        for (const otherRoot of activeComposerRoots)
+            if (otherRoot !== root) closePastePreview(otherRoot);
+    };
+    activeComposerRoots.add(root);
+    document.addEventListener("click", onAnyPreviewClick, true);
     root.addEventListener("input", onInput);
     root.addEventListener("pointerdown", onPointerDown, true);
     root.addEventListener("click", onClick);
@@ -426,12 +579,13 @@ export function attach(root, dotNetReference) {
     });
     observer.observe(root, { childList: true, subtree: true });
     scan();
-    observers.set(root, { observer, onInput, onPointerDown, onClick, onKeyDown, onPaste });
+    Object.assign(observers.get(root), { observer, onInput, onPointerDown, onClick, onKeyDown, onPaste, onPreviewScroll, onAnyPreviewClick, onDocumentKeyDown });
 }
 
 export function clear(root, sessionId) {
     const editor = root?.querySelector(`.repository-codebadger-input[data-session-id="${CSS.escape(sessionId)}"]`);
     if (!editor) return;
+    closePastePreview(root);
     editor.replaceChildren();
     const model = getModel(editor);
     if (model) model.value = "";
@@ -443,7 +597,8 @@ export function sync(root) {
     for (const editor of root.querySelectorAll(".repository-codebadger-input")) {
         const model = getModel(editor);
         if (!model) continue;
-        if (editor.dataset.syncedValue === undefined || editor.dataset.syncedValue !== model.value) {
+        if (editor.dataset.syncedValue === undefined || editor.dataset.syncedValue !== model.value ||
+            getEditorText(editor, true) !== model.value) {
             editor.replaceChildren(...(model.value ? [document.createTextNode(model.value)] : []));
             editor.dataset.syncedValue = model.value;
         }
@@ -454,6 +609,13 @@ export function detach(root) {
     const state = root && observers.get(root);
     if (!state) return;
     state.observer.disconnect();
+    document.removeEventListener("pointerdown", state.onDocumentPointerDown, true);
+    document.removeEventListener("keydown", state.onDocumentKeyDown, true);
+    window.removeEventListener("resize", state.onPreviewResize);
+    window.removeEventListener("scroll", state.onPreviewScroll, true);
+    document.removeEventListener("click", state.onAnyPreviewClick, true);
+    activeComposerRoots.delete(root);
+    state.previewPanel?.remove();
     root.removeEventListener("input", state.onInput);
     root.removeEventListener("pointerdown", state.onPointerDown, true);
     root.removeEventListener("click", state.onClick);

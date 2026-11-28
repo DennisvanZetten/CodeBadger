@@ -82,6 +82,7 @@ public sealed class LocalizationService
         ["{0} line"] = ["{0} line", "{0} regel", "{0} Zeile", "{0} ligne"],
         ["Preview pasted text"] = ["Preview pasted text", "Geplakte tekst bekijken", "Eingefügten Text anzeigen", "Aperçu du texte collé"],
         ["Edit pasted text"] = ["Edit pasted text", "Geplakte tekst bewerken", "Eingefügten Text bearbeiten", "Modifier le texte collé"],
+        ["Close preview"] = ["Close preview", "Preview sluiten", "Vorschau schließen", "Fermer l’aperçu"],
         ["{0} lines"] = ["{0} lines", "{0} regels", "{0} Zeilen", "{0} lignes"],
         ["CodeBadger terminal"] = ["CodeBadger terminal", "CodeBadger-terminal", "CodeBadger-Terminal", "Terminal CodeBadger"],
         ["Ask anything or type /help for commands..."] = ["Ask anything or type /help for commands...", "Stel je vraag of typ /help voor commando's...", "Stelle eine Frage oder gib /help für Befehle ein...", "Posez une question ou saisissez /help pour afficher les commandes..."],

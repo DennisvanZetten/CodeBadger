@@ -3590,42 +3590,84 @@ body.repository-terminal-resizing * {
 
 .repository-codebadger-paste-chip button svg { width: 0.9rem; height: 0.9rem; }
 
-.repository-codebadger-paste-chip-preview {
-    position: absolute;
-    z-index: 5;
-    top: calc(100% + 0.35rem);
-    left: 0;
-    display: block;
-    width: min(32rem, 75vw);
-    max-height: min(40vh, 16rem);
+.repository-codebadger-paste-preview-panel {
+    position: fixed;
+    z-index: 1400;
+    max-height: min(22rem, 60vh);
+    overflow: hidden;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 0.55rem;
+    background: var(--mud-palette-surface);
+    box-shadow: 0 8px 28px color-mix(in srgb, var(--mud-palette-text-primary) 26%, transparent);
+    color: var(--mud-palette-text-primary);
+}
+
+.repository-codebadger-paste-preview-panel[hidden] { display: none; }
+
+.repository-codebadger-paste-preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.35rem 0.6rem;
+    border-bottom: 1px solid var(--mud-palette-divider);
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.8rem;
+}
+
+.repository-codebadger-paste-preview-header button {
+    display: inline-grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 1.1rem;
+    cursor: pointer;
+}
+
+.repository-codebadger-paste-preview-header button:hover {
+    background: color-mix(in srgb, var(--mud-palette-primary) 12%, transparent);
+}
+
+.repository-codebadger-paste-preview-content {
+    max-height: calc(min(22rem, 60vh) - 2.3rem);
     overflow: auto;
     margin: 0;
-    padding: 0.6rem;
-    border: 1px solid var(--mud-palette-divider);
-    border-radius: 0.4rem;
-    background: var(--mud-palette-surface);
-    box-shadow: 0 4px 14px color-mix(in srgb, var(--mud-palette-text-primary) 18%, transparent);
-    color: var(--mud-palette-text-secondary);
+    padding: 0.65rem;
+    color: var(--mud-palette-text-primary);
     font: inherit;
     font-size: 0.85rem;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
 
-.repository-codebadger-paste-chip-preview[hidden] { display: none; }
+.repository-codebadger-paste-preview-content:focus-visible {
+    outline: 2px solid var(--mud-palette-primary);
+    outline-offset: -2px;
 }
 
 .repository-codebadger-statusbar {
     display: flex;
     flex: 0 0 auto;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: space-between;
     gap: 0.35rem;
     flex-wrap: wrap;
     min-height: 2.5rem;
     padding: 0 0.6rem;
     border-top: 1px solid var(--mud-palette-divider);
     color: var(--mud-palette-text-secondary);
+}
+
+.repository-codebadger-statusbar-left {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.35rem;
 }
 
 .repository-codebadger-statusbar > .mud-typography {
@@ -3635,7 +3677,7 @@ body.repository-terminal-resizing * {
 
 .repository-codebadger-statusbar-right {
     display: flex;
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     align-items: center;
     gap: 0.3rem;
     min-width: 0;

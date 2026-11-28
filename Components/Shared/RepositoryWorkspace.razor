@@ -558,25 +558,18 @@
                                         <div class="repository-codebadger-input-row">
                                             <span class="repository-codebadger-prompt" aria-hidden="true">›</span>
                                             <div class="repository-codebadger-editor">
-                                                <textarea class="repository-codebadger-input" data-session-id="@session.Id"
-                                                          data-paste-collapse-threshold="@_settings.CodeBadgerPasteCollapseThreshold"
-                                                          data-pasted-summary-singular="@L.T("{0} line")"
-                                                          data-pasted-summary-plural="@L.T("{0} lines")"
-                                                          rows="1" autocomplete="off" spellcheck="false"
-                                                          data-mode-toggle-enabled="@(CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.Full ? "true" : "false")"
-                                                          disabled="@session.IsRotatingAgentRole"
-                                                          aria-label="@L.T("Universal command")" placeholder="@L.T("Ask anything or type /help for commands...")"
-                                                          @bind="session.Input" @bind:event="oninput"></textarea>
-                                                <div class="repository-codebadger-paste-summary" role="group" tabindex="-1" hidden>
-                                                    <span class="repository-codebadger-paste-summary-label"></span>
-                                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Visibility"
-                                                                   Class="repository-codebadger-paste-preview-toggle"
-                                                                   aria-label="@L.T("Preview pasted text")" aria-expanded="false" />
-                                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit"
-                                                                   Class="repository-codebadger-paste-edit"
-                                                                   aria-label="@L.T("Edit pasted text")" />
-                                                </div>
-                                                <pre class="repository-codebadger-paste-preview" hidden></pre>
+                                                <div class="repository-codebadger-input" data-session-id="@session.Id"
+                                                     data-paste-collapse-threshold="@_settings.CodeBadgerPasteCollapseThreshold"
+                                                     data-pasted-summary-singular="@L.T("{0} line")"
+                                                     data-pasted-summary-plural="@L.T("{0} lines")"
+                                                     data-placeholder="@L.T("Ask anything or type /help for commands...")"
+                                                     data-preview-label="@L.T("Preview pasted text")"
+                                                     data-edit-label="@L.T("Edit pasted text")"
+                                                     data-mode-toggle-enabled="@(CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.Full ? "true" : "false")"
+                                                     contenteditable="@(!session.IsRotatingAgentRole)" role="textbox" aria-multiline="true"
+                                                     aria-label="@L.T("Universal command")" spellcheck="false"></div>
+                                                <textarea class="repository-codebadger-input-model" tabindex="-1" aria-hidden="true" hidden="hidden"
+                                                          data-session-id="@session.Id" @bind="session.Input" @bind:event="oninput"></textarea>
                                             </div>
                                             <MudTooltip Text="@L.T("Show terminal commands")">
                                                 <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.HelpOutline"
@@ -1377,6 +1370,15 @@
                 Logger.LogWarning(exception, "CodeBadger composer behavior could not be initialized.");
             }
         }
+
+        if (_composerModule is not null)
+        {
+            try { await _composerModule.InvokeVoidAsync("sync", _terminalStack); }
+            catch (JSException exception)
+            {
+                Logger.LogDebug(exception, "CodeBadger composer input could not be synchronized.");
+            }
+        }
     }
 
     private void ToggleAiPanel() => _aiPanelMode = _aiPanelMode == AiPanelMode.Collapsed
@@ -1946,9 +1948,13 @@
     }
 
     [JSInvokable]
-    public async Task SubmitTerminalInputAsync(string sessionId)
+    public async Task SubmitTerminalInputAsync(string sessionId, string? inputText = null)
     {
-        if (!Guid.TryParse(sessionId, out var id) || _terminalSessions.FirstOrDefault(candidate => candidate.Id == id) is not { } session ||
+        if (!Guid.TryParse(sessionId, out var id) || _terminalSessions.FirstOrDefault(candidate => candidate.Id == id) is not { } session)
+            return;
+        if (inputText is not null)
+            session.Input = inputText;
+        if (
             session.IsBusy || session.IsSubmitting || session.IsRotatingAgentRole ||
             string.IsNullOrWhiteSpace(session.Input) && session.InputImages.Count == 0)
             return;

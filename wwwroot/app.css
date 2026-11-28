@@ -3232,51 +3232,7 @@ body.repository-terminal-resizing * {
     min-width: 0;
 }
 
-.repository-codebadger-input[hidden],
-.repository-codebadger-paste-summary[hidden],
-.repository-codebadger-paste-preview[hidden] {
-    display: none;
-}
-
-.repository-codebadger-paste-summary {
-    display: flex;
-    align-items: center;
-    gap: 0.15rem;
-    min-height: 2.5rem;
-    padding: 0.25rem 0.4rem;
-    border: 1px solid var(--mud-palette-divider);
-    border-radius: 0.5rem;
-    background: color-mix(in srgb, var(--mud-palette-surface) 88%, var(--mud-palette-primary));
-    color: var(--mud-palette-text-secondary);
-    cursor: text;
-}
-
-.repository-codebadger-paste-summary-label {
-    flex: 1 1 auto;
-    min-width: 0;
-    padding-left: 0.35rem;
-    font-family: Consolas, "Cascadia Mono", monospace;
-    font-size: 0.85rem;
-}
-
-.repository-codebadger-paste-summary .mud-icon-button {
-    flex: 0 0 auto;
-}
-
-.repository-codebadger-paste-preview {
-    max-height: min(40vh, 16rem);
-    overflow: auto;
-    margin: 0.35rem 0 0;
-    padding: 0.6rem;
-    border: 1px solid var(--mud-palette-divider);
-    border-radius: 0.4rem;
-    background: var(--mud-palette-surface);
-    color: var(--mud-palette-text-secondary);
-    font: inherit;
-    font-size: 0.85rem;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-}
+.repository-codebadger-input-model { display: none !important; }
 
 .repository-codebadger-input-row > .mud-icon-button {
     flex: 0 0 auto;
@@ -3524,11 +3480,11 @@ body.repository-terminal-resizing * {
 
 .repository-codebadger-input {
     display: block;
-    flex: 1 1 auto;
     width: 100%;
     min-width: 0;
     min-height: 2.5rem;
     max-height: 9rem;
+    overflow-y: auto;
     padding: 0.55rem 0;
     border: 0;
     outline: 0;
@@ -3537,14 +3493,82 @@ body.repository-terminal-resizing * {
     caret-color: var(--mud-palette-primary);
     font: inherit;
     line-height: 1.45rem;
-    resize: none;
-    overflow-y: auto;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
 
-.repository-codebadger-input::placeholder {
+.repository-codebadger-input:empty::before {
+    content: attr(data-placeholder);
     color: var(--mud-palette-text-disabled);
+    pointer-events: none;
+}
+
+.repository-codebadger-paste-chip {
+    position: relative;
+    display: inline-flex;
+    vertical-align: baseline;
+    align-items: center;
+    gap: 0.1rem;
+    margin: 0 0.12rem;
+    padding: 0.05rem 0.2rem 0.05rem 0.4rem;
+    border: 1px solid color-mix(in srgb, var(--mud-palette-primary) 32%, var(--mud-palette-divider));
+    border-radius: 0.4rem;
+    background: color-mix(in srgb, var(--mud-palette-primary) 10%, var(--mud-palette-surface));
+    color: var(--mud-palette-text-secondary);
+    line-height: 1.5;
+    white-space: nowrap;
+}
+
+.repository-codebadger-paste-chip-label {
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 0.8em;
+}
+
+.repository-codebadger-paste-chip button {
+    display: inline-grid;
+    place-items: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--mud-palette-text-secondary);
+    cursor: pointer;
+}
+
+.repository-codebadger-paste-chip button:hover,
+.repository-codebadger-paste-chip button:focus-visible {
+    outline: 0;
+    background: color-mix(in srgb, var(--mud-palette-primary) 16%, transparent);
+    color: var(--mud-palette-primary);
+}
+
+.repository-codebadger-paste-chip button svg { width: 0.9rem; height: 0.9rem; }
+
+.repository-codebadger-paste-chip-preview {
+    position: absolute;
+    z-index: 5;
+    top: calc(100% + 0.35rem);
+    left: 0;
+    display: block;
+    width: min(32rem, 75vw);
+    max-height: min(40vh, 16rem);
+    overflow: auto;
+    margin: 0;
+    padding: 0.6rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 0.4rem;
+    background: var(--mud-palette-surface);
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--mud-palette-text-primary) 18%, transparent);
+    color: var(--mud-palette-text-secondary);
+    font: inherit;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.repository-codebadger-paste-chip-preview[hidden] { display: none; }
 }
 
 .repository-codebadger-statusbar {

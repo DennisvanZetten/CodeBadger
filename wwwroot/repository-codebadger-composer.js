@@ -1,58 +1,174 @@
 const observers = new WeakMap();
 
-function resize(textarea) {
-    if (textarea.dataset.pasteCollapsed === "true") return;
-    textarea.style.height = "auto";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
+function getEditor(target) {
+    return target?.closest?.(".repository-codebadger-input");
 }
 
-function setPastePreview(textarea, open) {
-    const editor = textarea.closest(".repository-codebadger-editor");
-    const button = editor?.querySelector(".repository-codebadger-paste-preview-toggle");
-    const preview = editor?.querySelector(".repository-codebadger-paste-preview");
-    if (!button || !preview) return;
+function getModel(editor) {
+    return editor?.closest(".repository-codebadger-editor")
+        ?.querySelector(`.repository-codebadger-input-model[data-session-id="${CSS.escape(editor.dataset.sessionId ?? "")}"]`);
+}
+
+function isChip(node) {
+    return node?.nodeType === Node.ELEMENT_NODE && node.matches(".repository-codebadger-paste-chip");
+}
+
+function getNodeText(node) {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+    if (node.nodeType !== Node.ELEMENT_NODE) return "";
+    if (isChip(node)) return node.dataset.pasteText ?? "";
+    if (node.tagName === "BR") return "\n";
+    if (node.tagName === "DIV" || node.tagName === "P") {
+        const children = Array.from(node.childNodes).map(getNodeText).join("");
+        return node.nextSibling ? `${children}\n` : children;
+    }
+    return Array.from(node.childNodes).map(getNodeText).join("");
+}
+
+function getEditorText(editor, trimTrailingNewline = false) {
+    const value = Array.from(editor.childNodes).map(getNodeText).join("");
+    return trimTrailingNewline && value.endsWith("\n") ? value.slice(0, -1) : value;
+}
+
+function syncModel(editor, editorChanged = true) {
+    const model = getModel(editor);
+    if (!model) return;
+    const editorValue = getEditorText(editor, true);
+    const lastValue = editor.dataset.syncedValue;
+
+    // Blazor may replace the bound model after processing an input event.
+    // Treat that as a model-originated update and rebuild plain text, rather than
+    // retaining DOM-only chips whose source content no longer exists.
+    if (!editorChanged && lastValue !== undefined && model.value !== lastValue) {
+        editor.replaceChildren(...(model.value ? [document.createTextNode(model.value)] : []));
+        editor.dataset.syncedValue = model.value;
+        return;
+    }
+
+    const value = editorChanged || lastValue === undefined ? editorValue : model.value;
+    editor.dataset.syncedValue = value;
+    if (model.value !== value) {
+        model.value = value;
+        model.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+}
+
+function makeChip(editor, text) {
+    const chip = document.createElement("span");
+    chip.className = "repository-codebadger-paste-chip";
+    chip.contentEditable = "false";
+    chip.dataset.pasteText = text;
+
+    const label = document.createElement("span");
+    label.className = "repository-codebadger-paste-chip-label";
+    const count = text.split("\n").length;
+    const format = count === 1
+        ? editor.dataset.pastedSummarySingular ?? "{0} line"
+        : editor.dataset.pastedSummaryPlural ?? "{0} lines";
+    label.textContent = `[${format.replace("{0}", String(count))}]`;
+
+    const previewButton = document.createElement("button");
+    previewButton.type = "button";
+    previewButton.className = "repository-codebadger-paste-preview-toggle";
+    previewButton.setAttribute("aria-label", editor.dataset.previewLabel ?? "Preview pasted text");
+    previewButton.setAttribute("aria-expanded", "false");
+    previewButton.innerHTML = "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M12 5c-5 0-9.27 3.11-11 7 1.73 3.89 6 7 11 7s9.27-3.11 11-7c-1.73-3.89-6-7-11-7Zm0 12a5 5 0 1 1 0-10 5 5 0 0 1 0 10Zm0-2a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z\"/></svg>";
+
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "repository-codebadger-paste-edit";
+    editButton.setAttribute("aria-label", editor.dataset.editLabel ?? "Edit pasted text");
+    editButton.innerHTML = "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25Zm17.71-10.04a1 1 0 0 0 0-1.41l-2.51-2.51a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 2-1.66Z\"/></svg>";
+
+    const preview = document.createElement("pre");
+    preview.className = "repository-codebadger-paste-chip-preview";
+    preview.hidden = true;
+    preview.textContent = text;
+
+    chip.append(label, previewButton, editButton, preview);
+    return chip;
+}
+
+function placeCaretAfter(node) {
+    const selection = window.getSelection();
+    if (!selection) return;
+    let followingText = node.nextSibling;
+    if (followingText?.nodeType !== Node.TEXT_NODE) {
+        followingText = document.createTextNode("");
+        node.after(followingText);
+    }
+    const range = document.createRange();
+    range.setStart(followingText, 0);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+}
+
+function replaceSelectionWithChip(editor, text) {
+    const selection = window.getSelection();
+    const chip = makeChip(editor, text);
+    if (selection?.rangeCount && editor.contains(selection.anchorNode)) {
+        const range = selection.getRangeAt(0);
+        range.deleteContents();
+        range.insertNode(chip);
+    } else {
+        editor.append(chip);
+    }
+
+    // Keep following text on its own editable side of the non-editable inline chip.
+    placeCaretAfter(chip);
+    editor.focus({ preventScroll: true });
+    syncModel(editor, true);
+}
+
+function insertPlainText(editor, text) {
+    const selection = window.getSelection();
+    if (!selection?.rangeCount || !editor.contains(selection.anchorNode)) {
+        editor.append(document.createTextNode(text));
+        return;
+    }
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    const textNode = document.createTextNode(text);
+    range.insertNode(textNode);
+    const caret = document.createRange();
+    caret.setStart(textNode, textNode.length);
+    caret.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(caret);
+}
+
+function setPastePreview(button, open) {
+    const chip = button.closest(".repository-codebadger-paste-chip");
+    const preview = chip?.querySelector(".repository-codebadger-paste-chip-preview");
+    if (!preview) return;
     preview.hidden = !open;
     button.setAttribute("aria-expanded", String(open));
-    if (open) preview.textContent = textarea.value;
 }
 
-function collapsePastedText(textarea) {
-    const threshold = Number.parseInt(textarea.dataset.pasteCollapseThreshold ?? "0", 10);
-    if (!(threshold > 0) || textarea.value.length < threshold) return;
-    const editor = textarea.closest(".repository-codebadger-editor");
-    const summary = editor?.querySelector(".repository-codebadger-paste-summary");
-    const label = summary?.querySelector(".repository-codebadger-paste-summary-label");
-    if (!summary || !label) return;
-    const lineCount = textarea.value.split("\n").length;
-    const format = lineCount === 1
-        ? textarea.dataset.pastedSummarySingular ?? "{0} line"
-        : textarea.dataset.pastedSummaryPlural ?? "{0} lines";
-    label.textContent = `[${format.replace("{0}", String(lineCount))}]`;
-    textarea.dataset.pasteCollapsed = "true";
-    textarea.hidden = true;
-    summary.hidden = false;
-    summary.focus({ preventScroll: true });
-    setPastePreview(textarea, false);
+function expandPasteChip(button) {
+    const chip = button.closest(".repository-codebadger-paste-chip");
+    const editor = chip?.closest(".repository-codebadger-input");
+    if (!chip || !editor) return;
+    const textNode = document.createTextNode(chip.dataset.pasteText ?? "");
+    chip.replaceWith(textNode);
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.setStart(textNode, textNode.length);
+    range.collapse(true);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    editor.focus({ preventScroll: true });
+    syncModel(editor, true);
 }
 
-function expandPastedText(textarea) {
-    const editor = textarea.closest(".repository-codebadger-editor");
-    textarea.dataset.pasteCollapsed = "false";
-    textarea.hidden = false;
-    const summary = editor?.querySelector(".repository-codebadger-paste-summary");
-    if (summary) summary.hidden = true;
-    setPastePreview(textarea, false);
-    resize(textarea);
-    textarea.focus({ preventScroll: true });
-}
-
-function commandOptions(textarea) {
-    return Array.from(textarea.closest(".repository-codebadger-composer")
+function commandOptions(editor) {
+    return Array.from(editor.closest(".repository-codebadger-composer")
         ?.querySelectorAll(".repository-command-autocomplete-option") ?? []);
 }
 
-function updateCommandSelection(textarea, index) {
-    const options = commandOptions(textarea);
+function updateCommandSelection(editor, index) {
+    const options = commandOptions(editor);
     if (!options.length) return false;
     const boundedIndex = (index + options.length) % options.length;
     options.forEach((option, optionIndex) => {
@@ -60,19 +176,24 @@ function updateCommandSelection(textarea, index) {
         option.setAttribute("aria-selected", String(selected));
         option.classList.toggle("selected", selected);
     });
-    textarea.dataset.commandSelection = String(boundedIndex);
+    editor.dataset.commandSelection = String(boundedIndex);
     return true;
 }
 
-function selectCommand(textarea, option) {
+function selectCommand(editor, option) {
     const command = option?.dataset.command;
     if (!command) return false;
-    textarea.value = `${command} `;
-    delete textarea.dataset.commandSelection;
-    delete textarea.dataset.commandAutocompleteDismissed;
-    textarea.dispatchEvent(new Event("input", { bubbles: true }));
-    textarea.focus({ preventScroll: true });
-    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    editor.replaceChildren(document.createTextNode(`${command} `));
+    delete editor.dataset.commandSelection;
+    delete editor.dataset.commandAutocompleteDismissed;
+    syncModel(editor, true);
+    editor.focus({ preventScroll: true });
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
     return true;
 }
 
@@ -120,56 +241,41 @@ export function attach(root, dotNetReference) {
     if (!root || observers.has(root)) return;
 
     const onInput = event => {
-        const textarea = event.target.closest?.(".repository-codebadger-input");
-        if (textarea) {
-            delete textarea.dataset.commandAutocompleteDismissed;
-            delete textarea.dataset.commandSelection;
-            const list = textarea.closest(".repository-codebadger-composer")
-                ?.querySelector(".repository-command-autocomplete");
-            if (list) list.hidden = false;
-            resize(textarea);
-            if (textarea.dataset.collapseAfterPaste === "true") {
-                delete textarea.dataset.collapseAfterPaste;
-                collapsePastedText(textarea);
-            }
-        }
+        const editor = getEditor(event.target);
+        if (!editor) return;
+        delete editor.dataset.commandAutocompleteDismissed;
+        delete editor.dataset.commandSelection;
+        const list = editor.closest(".repository-codebadger-composer")
+            ?.querySelector(".repository-command-autocomplete");
+        if (list) list.hidden = false;
+        syncModel(editor, true);
     };
     const onPointerDown = event => {
-        const textarea = event.target.closest?.(".repository-codebadger-input");
-        if (textarea && !textarea.disabled && document.activeElement !== textarea)
-            textarea.focus({ preventScroll: true });
+        const editor = getEditor(event.target);
+        if (editor?.getAttribute("contenteditable") === "true" && document.activeElement !== editor)
+            editor.focus({ preventScroll: true });
     };
     const onClick = event => {
         const target = event.target;
         const previewButton = target.closest?.(".repository-codebadger-paste-preview-toggle");
         if (previewButton) {
             event.preventDefault();
-            const textarea = previewButton.closest(".repository-codebadger-editor")
-                ?.querySelector(".repository-codebadger-input");
-            if (textarea) setPastePreview(textarea, previewButton.getAttribute("aria-expanded") !== "true");
+            event.stopPropagation();
+            setPastePreview(previewButton, previewButton.getAttribute("aria-expanded") !== "true");
             return;
         }
         const editButton = target.closest?.(".repository-codebadger-paste-edit");
         if (editButton) {
             event.preventDefault();
-            const textarea = editButton.closest(".repository-codebadger-editor")
-                ?.querySelector(".repository-codebadger-input");
-            if (textarea) expandPastedText(textarea);
+            event.stopPropagation();
+            expandPasteChip(editButton);
             return;
         }
-        const pasteSummary = target.closest?.(".repository-codebadger-paste-summary");
-        if (pasteSummary && !target.closest("button")) {
-            const textarea = pasteSummary.closest(".repository-codebadger-editor")
-                ?.querySelector(".repository-codebadger-input");
-            if (textarea) expandPastedText(textarea);
-            return;
-        }
-        const commandOption = target.closest?.(".repository-command-autocomplete-option");
-        if (commandOption) {
+        const option = target.closest?.(".repository-command-autocomplete-option");
+        if (option) {
             event.preventDefault();
-            const textarea = commandOption.closest(".repository-codebadger-composer")
-                ?.querySelector(".repository-codebadger-input");
-            if (textarea) selectCommand(textarea, commandOption);
+            const editor = option.closest(".repository-codebadger-composer")?.querySelector(".repository-codebadger-input");
+            if (editor) selectCommand(editor, option);
             return;
         }
         const codeCopyButton = target.closest?.(".markdown-code-copy");
@@ -185,87 +291,95 @@ export function attach(root, dotNetReference) {
         }
         if (target.closest?.("button, a, input, select, [role='button']")) return;
         const composer = target.closest?.(".repository-codebadger-composer");
-        const textarea = target.closest?.(".repository-codebadger-input")
-            ?? composer?.querySelector(".repository-codebadger-input");
-        if (textarea && !textarea.disabled && document.activeElement !== textarea)
-            textarea.focus({ preventScroll: true });
+        const editor = getEditor(target) ?? composer?.querySelector(".repository-codebadger-input");
+        if (editor && editor.getAttribute("contenteditable") === "true" && document.activeElement !== editor)
+            editor.focus({ preventScroll: true });
     };
     const onKeyDown = event => {
-        const summary = event.target.closest?.(".repository-codebadger-paste-summary");
-        const textarea = event.target.closest?.(".repository-codebadger-input")
-            ?? summary?.closest(".repository-codebadger-editor")?.querySelector(".repository-codebadger-input");
-        if (!textarea || event.isComposing) return;
-        if (summary) {
-            if (event.target.closest?.("button")) return;
-            if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                dotNetReference.invokeMethodAsync("SubmitTerminalInputAsync", textarea.dataset.sessionId);
-            } else if (event.key === "Escape") {
-                event.preventDefault();
-                expandPastedText(textarea);
-            }
-            return;
-        }
-        const options = commandOptions(textarea);
-        if (options.length && !textarea.dataset.commandAutocompleteDismissed) {
-            const selectedIndex = Number.parseInt(textarea.dataset.commandSelection ?? "-1", 10);
+        const editor = getEditor(event.target);
+        if (!editor || event.isComposing) return;
+        const options = commandOptions(editor);
+        if (options.length && !editor.dataset.commandAutocompleteDismissed) {
+            const selectedIndex = Number.parseInt(editor.dataset.commandSelection ?? "-1", 10);
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                 event.preventDefault();
                 const nextIndex = selectedIndex < 0
                     ? (event.key === "ArrowDown" ? 0 : options.length - 1)
                     : selectedIndex + (event.key === "ArrowDown" ? 1 : -1);
-                updateCommandSelection(textarea, nextIndex);
+                updateCommandSelection(editor, nextIndex);
                 return;
             }
             if (event.key === "Tab" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
                 event.preventDefault();
-                selectCommand(textarea, options[selectedIndex >= 0 ? selectedIndex : 0]);
+                selectCommand(editor, options[selectedIndex >= 0 ? selectedIndex : 0]);
                 return;
             }
             if (event.key === "Escape") {
                 event.preventDefault();
-                textarea.dataset.commandAutocompleteDismissed = "true";
-                delete textarea.dataset.commandSelection;
-                textarea.closest(".repository-codebadger-composer")
+                editor.dataset.commandAutocompleteDismissed = "true";
+                delete editor.dataset.commandSelection;
+                editor.closest(".repository-codebadger-composer")
                     ?.querySelector(".repository-command-autocomplete")?.setAttribute("hidden", "");
                 return;
             }
             if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
-                selectCommand(textarea, options[selectedIndex >= 0 ? selectedIndex : 0]);
+                selectCommand(editor, options[selectedIndex >= 0 ? selectedIndex : 0]);
                 return;
             }
         }
         if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey &&
-            textarea.dataset.modeToggleEnabled === "true") {
+            editor.dataset.modeToggleEnabled === "true") {
             event.preventDefault();
-            dotNetReference.invokeMethodAsync("ToggleTerminalModeAsync", textarea.dataset.sessionId);
+            dotNetReference.invokeMethodAsync("ToggleTerminalModeAsync", editor.dataset.sessionId);
             return;
         }
         if (event.key !== "Enter" || event.shiftKey) return;
         event.preventDefault();
-        dotNetReference.invokeMethodAsync("SubmitTerminalInputAsync", textarea.dataset.sessionId)
-            .then(() => resize(textarea));
+        syncModel(editor);
+        dotNetReference.invokeMethodAsync("SubmitTerminalInputAsync", editor.dataset.sessionId,
+            getEditorText(editor, true));
     };
     const onPaste = async event => {
-        const textarea = event.target.closest?.(".repository-codebadger-input");
-        if (!textarea) return;
-        if ((event.clipboardData?.getData("text/plain") ?? "").length > 0)
-            textarea.dataset.collapseAfterPaste = "true";
+        const editor = getEditor(event.target);
+        if (!editor) return;
+        const clipboardText = event.clipboardData?.getData("text/plain") ?? "";
         const images = Array.from(event.clipboardData?.items ?? [])
             .filter(item => item.kind === "file" && item.type.startsWith("image/"));
-        if (!images.length) return;
-        event.preventDefault();
-        for (const item of images.slice(0, 3)) {
-            try {
-                const dataUrl = await imageToJpeg(item.getAsFile());
-                await dotNetReference.invokeMethodAsync("AddClipboardImageAsync", textarea.dataset.sessionId, dataUrl);
-            } catch (error) {
-                console.warn("Could not process a pasted CodeBadger image.", error);
+        if (images.length) {
+            event.preventDefault();
+            for (const item of images.slice(0, 3)) {
+                try {
+                    const dataUrl = await imageToJpeg(item.getAsFile());
+                    await dotNetReference.invokeMethodAsync("AddClipboardImageAsync", editor.dataset.sessionId, dataUrl);
+                } catch (error) {
+                    console.warn("Could not process a pasted CodeBadger image.", error);
+                }
             }
+            return;
+        }
+
+        if (!clipboardText) return;
+        event.preventDefault();
+        const threshold = Number.parseInt(editor.dataset.pasteCollapseThreshold ?? "0", 10);
+        if (threshold > 0 && clipboardText.length >= threshold) {
+            replaceSelectionWithChip(editor, clipboardText);
+        } else {
+            insertPlainText(editor, clipboardText);
+            editor.focus({ preventScroll: true });
+            syncModel(editor, true);
         }
     };
-    const scan = () => root.querySelectorAll(".repository-codebadger-input").forEach(resize);
+    const scan = (editorChanged = false) => root.querySelectorAll(".repository-codebadger-input").forEach(editor => {
+        const model = getModel(editor);
+        if (editor.dataset.syncedValue === undefined) {
+            if (model?.value) editor.append(document.createTextNode(model.value));
+            editor.dataset.syncedValue = model?.value ?? "";
+        } else if (!editorChanged && model?.value !== editor.dataset.syncedValue) {
+            editor.replaceChildren(...(model.value ? [document.createTextNode(model.value)] : []));
+            editor.dataset.syncedValue = model.value;
+        }
+    });
     root.addEventListener("input", onInput);
     root.addEventListener("pointerdown", onPointerDown, true);
     root.addEventListener("click", onClick);
@@ -275,8 +389,8 @@ export function attach(root, dotNetReference) {
         for (const record of records) {
             for (const node of record.addedNodes) {
                 if (node.nodeType !== Node.ELEMENT_NODE) continue;
-                if (node.matches?.(".repository-codebadger-input")) resize(node);
-                node.querySelectorAll?.(".repository-codebadger-input").forEach(resize);
+                if (node.matches?.(".repository-codebadger-input")) scan(false);
+                if (node.querySelector?.(".repository-codebadger-input")) scan(false);
             }
         }
     });
@@ -286,17 +400,24 @@ export function attach(root, dotNetReference) {
 }
 
 export function clear(root, sessionId) {
-    const textarea = root?.querySelector(`.repository-codebadger-input[data-session-id="${sessionId}"]`);
-    if (!textarea) return;
-    textarea.value = "";
-    delete textarea.dataset.pasteCollapsed;
-    delete textarea.dataset.collapseAfterPaste;
-    textarea.hidden = false;
-    const editor = textarea.closest(".repository-codebadger-editor");
-    const summary = editor?.querySelector(".repository-codebadger-paste-summary");
-    if (summary) summary.hidden = true;
-    setPastePreview(textarea, false);
-    resize(textarea);
+    const editor = root?.querySelector(`.repository-codebadger-input[data-session-id="${CSS.escape(sessionId)}"]`);
+    if (!editor) return;
+    editor.replaceChildren();
+    const model = getModel(editor);
+    if (model) model.value = "";
+    editor.dataset.syncedValue = "";
+}
+
+export function sync(root) {
+    if (!root) return;
+    for (const editor of root.querySelectorAll(".repository-codebadger-input")) {
+        const model = getModel(editor);
+        if (!model) continue;
+        if (editor.dataset.syncedValue === undefined || editor.dataset.syncedValue !== model.value) {
+            editor.replaceChildren(...(model.value ? [document.createTextNode(model.value)] : []));
+            editor.dataset.syncedValue = model.value;
+        }
+    }
 }
 
 export function detach(root) {

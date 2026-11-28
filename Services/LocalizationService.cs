@@ -81,6 +81,8 @@ public sealed class LocalizationService
         ["Ask anything or type /help for commands..."] = ["Ask anything or type /help for commands...", "Stel je vraag of typ /help voor commando's...", "Stelle eine Frage oder gib /help für Befehle ein...", "Posez une question ou saisissez /help pour afficher les commandes..."],
         ["Show terminal commands"] = ["Show terminal commands", "Toon terminalcommando's", "Terminalbefehle anzeigen", "Afficher les commandes du terminal"],
         ["Available terminal commands"] = ["Available terminal commands", "Beschikbare terminalcommando's", "Verfügbare Terminalbefehle", "Commandes du terminal disponibles"],
+        ["Agent commands"] = ["Agent commands", "Agentcommando's", "Agentenbefehle", "Commandes de l’agent"],
+        ["Git commands"] = ["Git commands", "Git-commando's", "Git-Befehle", "Commandes Git"],
         ["Pull changes using the Git view settings"] = ["Pull changes using the Git view settings", "Haal wijzigingen op met de instellingen uit de Git-weergave", "Änderungen mit den Einstellungen der Git-Ansicht abrufen", "Récupérer les modifications avec les paramètres de la vue Git"],
         ["Push changes using the Git view safe check"] = ["Push changes using the Git view safe check", "Push wijzigingen met de veilige controle uit de Git-weergave", "Änderungen mit der Sicherheitsprüfung der Git-Ansicht pushen", "Pousser les modifications avec la vérification de sécurité de la vue Git"],
         ["Pull cancelled."] = ["Pull cancelled.", "Pull geannuleerd.", "Pull abgebrochen.", "Pull annulé."],

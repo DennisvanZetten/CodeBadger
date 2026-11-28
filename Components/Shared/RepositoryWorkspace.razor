@@ -386,25 +386,15 @@
                                                              </div>
                                                          }
                                                         else if (message.IsCommandHelp)
-                                                        {
-                                                            <div class="repository-command-response">
-                                                                <h3 class="repository-command-response-title">@L.T("Available terminal commands")</h3>
-                                                                <ul class="repository-command-help">
-                                                                    @foreach (var command in GetAvailableTerminalCommands())
-                                                                    {
-                                                                        <li>
-                                                                            <button type="button" class="repository-command-help-option"
-                                                                                    @onclick="() => HandleHelpCommandAsync(session, command.Command)">
-                                                                                <span class="repository-command-option-text">
-                                                                                    <code>@command.Command</code>
-                                                                                    <span class="repository-command-option-description">@L.T(command.Description)</span>
-                                                                                </span>
-                                                                            </button>
-                                                                        </li>
-                                                                    }
-                                                                </ul>
-                                                            </div>
-                                                        }
+                                                         {
+                                                             <div class="repository-command-response">
+                                                                 <h3 class="repository-command-response-title">@L.T("Available terminal commands")</h3>
+                                                                 <h4 class="repository-command-section-title">@L.T("Agent commands")</h4>
+                                                                 @RenderTerminalCommandList(session, GetAvailableAgentTerminalCommands())
+                                                                 <h4 class="repository-command-section-title">@L.T("Git commands")</h4>
+                                                                 @RenderTerminalCommandList(session, GetAvailableGitTerminalCommands())
+                                                             </div>
+                                                         }
                                                         else if (message.Role == "assistant")
                                                         {
                                                             <MarkdownContent Content="@message.Text" Compact="true" />
@@ -1411,6 +1401,28 @@
         AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode
             ? TerminalCommands.Where(command => command.Command != "/commit" || !Repository.OpenCodeSandboxEnabled).ToArray()
             : TerminalCommands.Where(command => command.Command is not ("/model" or "/commit")).ToArray();
+
+    private IReadOnlyList<(string Command, string Description)> GetAvailableAgentTerminalCommands() =>
+        GetAvailableTerminalCommands().Where(command => command.Command is not ("/pull" or "/push")).ToArray();
+
+    private IReadOnlyList<(string Command, string Description)> GetAvailableGitTerminalCommands() =>
+        GetAvailableTerminalCommands().Where(command => command.Command is "/pull" or "/push").ToArray();
+
+    private RenderFragment RenderTerminalCommandList(CodeBadgerTerminalSession session,
+        IReadOnlyList<(string Command, string Description)> commands) => @<ul class="repository-command-help">
+        @foreach (var command in commands)
+        {
+            <li>
+                <button type="button" class="repository-command-help-option"
+                        @onclick="() => HandleHelpCommandAsync(session, command.Command)">
+                    <span class="repository-command-option-text">
+                        <code>@command.Command</code>
+                        <span class="repository-command-option-description">@L.T(command.Description)</span>
+                    </span>
+                </button>
+            </li>
+        }
+    </ul>;
 
     private IReadOnlyList<OpenCodeActivityService.AvailableModel> GetTerminalModelOptions(CodeBadgerTerminalSession session, string query) =>
         _availableOpenCodeModels

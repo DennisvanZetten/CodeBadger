@@ -28,12 +28,20 @@ public sealed class LauncherSettingsService
 
             LauncherSettings settings;
             string? debugAiApiKey = null;
+#if MACCATALYST && DEBUG
+            string? debugSlackBotToken = null;
+            string? debugSlackAppToken = null;
+            string? debugDiscordBotToken = null;
+#endif
             try
             {
                 var json = await File.ReadAllTextAsync(_settingsPath);
                 var root = JsonNode.Parse(json);
 #if MACCATALYST && DEBUG
                 debugAiApiKey = root?[nameof(LauncherSettings.AiApiKey)]?.GetValue<string>();
+                debugSlackBotToken = root?[nameof(LauncherSettings.SlackBotToken)]?.GetValue<string>();
+                debugSlackAppToken = root?[nameof(LauncherSettings.SlackAppToken)]?.GetValue<string>();
+                debugDiscordBotToken = root?[nameof(LauncherSettings.DiscordBotToken)]?.GetValue<string>();
 #endif
                 MigrateLoggingDefaults(root);
                 MigrateLegacyTicketSettings(root);
@@ -82,9 +90,17 @@ public sealed class LauncherSettingsService
 #else
             settings.AiApiKey = await SecureStorage.Default.GetAsync(AiApiKeyStorageKey) ?? string.Empty;
 #endif
+#if MACCATALYST && DEBUG
+            // Temporary local-development fallback: ad-hoc Mac Catalyst builds do not
+            // have the provisioning profile required for Keychain access groups.
+            settings.SlackBotToken = debugSlackBotToken ?? string.Empty;
+            settings.SlackAppToken = debugSlackAppToken ?? string.Empty;
+            settings.DiscordBotToken = debugDiscordBotToken ?? string.Empty;
+#else
             settings.SlackBotToken = await SecureStorage.Default.GetAsync(SlackBotTokenStorageKey) ?? string.Empty;
             settings.SlackAppToken = await SecureStorage.Default.GetAsync(SlackAppTokenStorageKey) ?? string.Empty;
             settings.DiscordBotToken = await SecureStorage.Default.GetAsync(DiscordBotTokenStorageKey) ?? string.Empty;
+#endif
             settings.SlackAllowedUserId ??= string.Empty;
             settings.DiscordChannelId ??= string.Empty;
             settings.DiscordGuildId ??= string.Empty;
@@ -138,6 +154,11 @@ public sealed class LauncherSettingsService
             // Insecure by design and limited to local Debug builds. Replace this with
             // Keychain storage once Developer ID signing and provisioning are available.
             settingsJson[nameof(LauncherSettings.AiApiKey)] = settings.AiApiKey;
+            // Match the AI key fallback above: ad-hoc Debug builds lack the Keychain
+            // access-group provisioning used by SecureStorage.
+            settingsJson[nameof(LauncherSettings.SlackBotToken)] = settings.SlackBotToken;
+            settingsJson[nameof(LauncherSettings.SlackAppToken)] = settings.SlackAppToken;
+            settingsJson[nameof(LauncherSettings.DiscordBotToken)] = settings.DiscordBotToken;
 #endif
             await using (var stream = File.Create(_settingsPath))
                 await JsonSerializer.SerializeAsync(stream, settingsJson, JsonOptions);
@@ -149,6 +170,7 @@ public sealed class LauncherSettingsService
                 await SecureStorage.Default.SetAsync(AiApiKeyStorageKey, settings.AiApiKey);
 #endif
 
+#if !MACCATALYST || !DEBUG
             if (string.IsNullOrWhiteSpace(settings.SlackBotToken))
                 SecureStorage.Default.Remove(SlackBotTokenStorageKey);
             else
@@ -163,6 +185,7 @@ public sealed class LauncherSettingsService
                 SecureStorage.Default.Remove(DiscordBotTokenStorageKey);
             else
                 await SecureStorage.Default.SetAsync(DiscordBotTokenStorageKey, settings.DiscordBotToken);
+#endif
 
             _localization.SetLanguage(settings.Language);
         }

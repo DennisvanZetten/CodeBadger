@@ -586,12 +586,50 @@
                                                     <li>
                                                         <button type="button" class="repository-command-autocomplete-option"
                                                                 role="option" aria-selected="false" data-command="@suggestion.Command"
-                                                                data-command-submit-on-select="@(suggestion.Command is "/help" or "/model" or "/plan" or "/build" or "/review" or "/test" or "/commit" or "/pull" or "/push" or "/clear" ? "true" : "false")">
+                                                                data-command-submit-on-select="@(suggestion.Command is "/help" or "/plan" or "/build" or "/review" or "/test" or "/commit" or "/pull" or "/push" or "/clear" ? "true" : "false")">
                                                             <code>@suggestion.Command</code>
                                                             <span>@L.T(suggestion.Description)</span>
                                                         </button>
                                                     </li>
                                                 }
+                                            </ul>
+                                        }
+                                        else if (GetTerminalModelSuggestions(session) is { Count: > 0 } modelSuggestions)
+                                        {
+                                            <ul class="repository-command-autocomplete repository-model-autocomplete" role="listbox"
+                                                aria-label="@L.T("Available models")">
+                                                @foreach (var model in modelSuggestions)
+                                                {
+                                                    <li>
+                                                        <button type="button" class="repository-command-autocomplete-option repository-model-autocomplete-option"
+                                                                role="option" aria-selected="false" data-model-reference="@model.Reference"
+                                                                data-command-submit-on-select="true">
+                                                            <span class="repository-model-autocomplete-name">@model.Name</span>
+                                                            <span class="repository-model-autocomplete-reference">@model.Reference</span>
+                                                            @if (model.IsCurrent)
+                                                            {
+                                                                <span class="repository-model-picker-current">@L.T("Current model")</span>
+                                                            }
+                                                            else if (model.IsDefault)
+                                                            {
+                                                                <span class="repository-model-picker-current">@L.T("Default")</span>
+                                                            }
+                                                        </button>
+                                                    </li>
+                                                }
+                                            </ul>
+                                        }
+                                        else if (session.IsLoadingAgentModels && session.Input.TrimStart().StartsWith("/model", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <ul class="repository-command-autocomplete repository-model-autocomplete" role="listbox" aria-label="@L.T("Available models")">
+                                                <li class="repository-model-autocomplete-status">@L.T("Loading models...")</li>
+                                            </ul>
+                                        }
+                                        else if (session.Input.TrimStart().StartsWith("/model", StringComparison.OrdinalIgnoreCase) &&
+                                                 GetTerminalModelSuggestions(session).Count == 0)
+                                        {
+                                            <ul class="repository-command-autocomplete repository-model-autocomplete" role="listbox" aria-label="@L.T("Available models")">
+                                                <li class="repository-model-autocomplete-status">@L.T("No matching models.")</li>
                                             </ul>
                                         }
                                     </div>
@@ -1194,6 +1232,8 @@
         public int Percent => (int)Math.Clamp(Math.Round(Used * 100d / Limit), 0, 100);
     }
 
+    private sealed record TerminalModelSuggestion(string Name, string Reference, bool IsCurrent, bool IsDefault);
+
     protected override void OnInitialized() => SettingsService.SettingsSaved += HandleSettingsSaved;
 
     private void HandleSettingsSaved() => _ = InvokeAsync(async () =>
@@ -1448,12 +1488,89 @@
     private IReadOnlyList<(string Command, string Description)> GetTerminalCommandSuggestions(CodeBadgerTerminalSession session)
     {
         var input = session.Input.TrimStart();
-        if (input.Length == 0 || input[0] != '/' || input.Any(char.IsWhiteSpace))
+        if (input.Length == 0 || input[0] != '/' || input.Any(char.IsWhiteSpace) ||
+            input.Equals("/model", StringComparison.OrdinalIgnoreCase))
             return [];
 
         return GetAvailableTerminalCommands()
             .Where(command => command.Command.StartsWith(input, StringComparison.OrdinalIgnoreCase))
             .ToArray();
+    }
+
+    private IReadOnlyList<TerminalModelSuggestion> GetTerminalModelSuggestions(CodeBadgerTerminalSession session)
+    {
+        var input = session.Input.TrimStart();
+        if (!input.StartsWith("/model", StringComparison.OrdinalIgnoreCase) ||
+            input.Length > "/model".Length && !char.IsWhiteSpace(input["/model".Length]))
+            return [];
+
+        var query = input.Length == "/model".Length ? string.Empty : input["/model".Length..].TrimStart();
+        if (AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode)
+        {
+            return GetTerminalModelOptions(session, query)
+                .Select(model => new TerminalModelSuggestion(model.Name, model.Reference,
+                    IsCurrentTerminalModel(session, model.Reference), false))
+                .ToArray();
+        }
+
+        return FilterAgentModelOptions(session, query)
+            .Select(model => new TerminalModelSuggestion(model.Name, model.Reference,
+                IsCurrentAgentModel(session, model.Reference), model.IsDefault))
+            .ToArray();
+    }
+
+    [JSInvokable]
+    public async Task LoadTerminalModelSuggestionsAsync(string sessionId)
+    {
+        if (!Guid.TryParse(sessionId, out var id) ||
+            _terminalSessions.FirstOrDefault(candidate => candidate.Id == id) is not { } session)
+            return;
+
+        if (session.IsLoadingAgentModels ||
+            (AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode
+                ? _availableOpenCodeModels.Count > 0
+                : session.AvailableAgentModels.Count > 0))
+            return;
+
+        session.IsLoadingAgentModels = true;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            if (AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode)
+            {
+                _availableOpenCodeModels = await OpenCodeActivity.GetAvailableModelsAsync(Repository.Path, CancellationToken.None);
+            }
+            else
+            {
+                var connector = AgentConnectors.FirstOrDefault(candidate => candidate.Supports(Repository.AgentTool))
+                    ?? throw new NotSupportedException(L.T("No CodeBadger connector is registered for {0}.", AgentTools.GetDisplayName(Repository.AgentTool)));
+                session.AvailableAgentModels = await connector.GetAvailableModelsAsync(Repository.Path, CancellationToken.None);
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogWarning(exception, "Could not load model suggestions for {Agent} in {RepositoryPath}.",
+                AgentTools.GetDisplayName(Repository.AgentTool), Repository.Path);
+            Snackbar.Add(L.T("Could not load {0} models: {1}", AgentTools.GetDisplayName(Repository.AgentTool), exception.Message), Severity.Warning);
+        }
+        finally
+        {
+            session.IsLoadingAgentModels = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [JSInvokable]
+    public async Task SelectTerminalModelSuggestionAsync(string sessionId, string modelReference)
+    {
+        if (!Guid.TryParse(sessionId, out var id) ||
+            _terminalSessions.FirstOrDefault(candidate => candidate.Id == id) is not { } session)
+            return;
+
+        if (AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode)
+            await SelectTerminalModelAsync(session, modelReference);
+        else
+            await SelectCliAgentModelAsync(session, modelReference);
     }
 
     private IReadOnlyList<(string Command, string Description)> GetAvailableAgentTerminalCommands() =>
@@ -1602,7 +1719,8 @@
         }
         if (command == "/model")
         {
-            await OpenTerminalModelPickerAsync(session);
+            session.Input = "/model ";
+            await LoadTerminalModelSuggestionsAsync(session.Id.ToString());
             return;
         }
         session.Input = command + " ";
@@ -1664,7 +1782,7 @@
     private async Task SelectCliAgentModelAsync(CodeBadgerTerminalSession session, string modelReference)
     {
         modelReference = modelReference.Trim();
-        var selected = FilterAgentModelOptions(session).FirstOrDefault(model =>
+        var selected = session.AvailableAgentModels.FirstOrDefault(model =>
             string.Equals(model.Reference, modelReference, StringComparison.OrdinalIgnoreCase));
         if (selected is null)
         {
@@ -1713,13 +1831,14 @@
             await _composerModule.InvokeVoidAsync("clear", _terminalStack, session.Id.ToString());
     }
 
-    private IEnumerable<CodeBadgerAgentModel> FilterAgentModelOptions(CodeBadgerTerminalSession session)
+    private IEnumerable<CodeBadgerAgentModel> FilterAgentModelOptions(CodeBadgerTerminalSession session, string? query = null)
     {
         var models = session.AvailableAgentModels;
+        query ??= session.ModelPickerSearch;
         return models
-            .Where(model => session.ModelPickerSearch.Length == 0 ||
-                model.Name.Contains(session.ModelPickerSearch, StringComparison.OrdinalIgnoreCase) ||
-                model.Reference.Contains(session.ModelPickerSearch, StringComparison.OrdinalIgnoreCase))
+            .Where(model => query.Length == 0 ||
+                model.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                model.Reference.Contains(query, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(model => IsCurrentAgentModel(session, model.Reference))
             .ThenByDescending(model => model.IsDefault)
             .ThenBy(model => model.Name, StringComparer.OrdinalIgnoreCase);

@@ -164,7 +164,7 @@ function expandPasteChip(button) {
 
 function commandOptions(editor) {
     return Array.from(editor.closest(".repository-codebadger-composer")
-        ?.querySelectorAll(".repository-command-autocomplete-option") ?? []);
+        ?.querySelectorAll(".repository-command-autocomplete:not([hidden]) .repository-command-autocomplete-option") ?? []);
 }
 
 function updateCommandSelection(editor, index) {
@@ -176,11 +176,18 @@ function updateCommandSelection(editor, index) {
         option.setAttribute("aria-selected", String(selected));
         option.classList.toggle("selected", selected);
     });
+    options[boundedIndex].scrollIntoView({ block: "nearest" });
     editor.dataset.commandSelection = String(boundedIndex);
     return true;
 }
 
 function selectCommand(editor, option, dotNetReference, submitWithoutArguments = false) {
+    const modelReference = option?.dataset.modelReference;
+    if (modelReference) {
+        delete editor.dataset.commandSelection;
+        dotNetReference.invokeMethodAsync("SelectTerminalModelSuggestionAsync", editor.dataset.sessionId, modelReference);
+        return true;
+    }
     const command = option?.dataset.command;
     if (!command) return false;
     const submitNow = submitWithoutArguments && option.dataset.commandSubmitOnSelect === "true";
@@ -254,6 +261,14 @@ export function attach(root, dotNetReference) {
             ?.querySelector(".repository-command-autocomplete");
         if (list) list.hidden = false;
         syncModel(editor, true);
+        if (!/^\/model(?:\s|$)/i.test(getEditorText(editor, true).trimStart())) {
+            const staleModelList = editor.closest(".repository-codebadger-composer")
+                ?.querySelector(".repository-model-autocomplete");
+            if (staleModelList) staleModelList.hidden = true;
+        }
+        const input = getEditorText(editor, true).trimStart();
+        if (/^\/model(?:\s|$)/i.test(input))
+            dotNetReference.invokeMethodAsync("LoadTerminalModelSuggestionsAsync", editor.dataset.sessionId);
     };
     const onPointerDown = event => {
         const editor = getEditor(event.target);
@@ -280,7 +295,7 @@ export function attach(root, dotNetReference) {
         if (option) {
             event.preventDefault();
             const editor = option.closest(".repository-codebadger-composer")?.querySelector(".repository-codebadger-input");
-            if (editor) selectCommand(editor, option);
+            if (editor) selectCommand(editor, option, dotNetReference);
             return;
         }
         const codeCopyButton = target.closest?.(".markdown-code-copy");
@@ -327,11 +342,21 @@ export function attach(root, dotNetReference) {
                     ?.querySelector(".repository-command-autocomplete")?.setAttribute("hidden", "");
                 return;
             }
+            if (event.key === "Enter" && !event.shiftKey && options[0]?.dataset.modelReference) {
+                event.preventDefault();
+                selectCommand(editor, options[selectedIndex >= 0 ? selectedIndex : 0], dotNetReference, true);
+                return;
+            }
             if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
                 selectCommand(editor, options[selectedIndex >= 0 ? selectedIndex : 0], dotNetReference, true);
                 return;
             }
+        }
+        if (event.key === "Enter" && !event.shiftKey && /^\/model(?:\s|$)/i.test(getEditorText(editor, true).trimStart())) {
+            event.preventDefault();
+            dotNetReference.invokeMethodAsync("LoadTerminalModelSuggestionsAsync", editor.dataset.sessionId);
+            return;
         }
         if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey &&
             editor.dataset.modeToggleEnabled === "true") {

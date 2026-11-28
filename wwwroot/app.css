@@ -3307,6 +3307,36 @@ body.repository-terminal-resizing * {
     white-space: nowrap;
 }
 
+.repository-model-autocomplete-option {
+    align-items: center;
+}
+
+.repository-model-autocomplete-name {
+    flex: 0 1 auto;
+    overflow: hidden;
+    color: var(--mud-palette-text-primary);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.repository-model-autocomplete-reference {
+    flex: 1 1 auto;
+    color: var(--mud-palette-text-secondary);
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 0.75rem;
+}
+
+.repository-model-autocomplete .repository-model-picker-current {
+    margin: 0;
+}
+
+.repository-model-autocomplete-status {
+    padding: 0.4rem 0.55rem;
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.8rem;
+}
+
 .repository-codebadger-command-list {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));

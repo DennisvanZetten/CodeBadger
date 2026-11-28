@@ -3244,6 +3244,8 @@ body.repository-terminal-resizing * {
     z-index: 2;
     display: grid;
     gap: 0.1rem;
+    width: max-content;
+    max-width: min(28rem, calc(100% - 1.9rem));
     max-height: min(40vh, 18rem);
     overflow-y: auto;
     margin: 0.25rem 0 0 1.9rem;
@@ -3253,12 +3255,16 @@ body.repository-terminal-resizing * {
     background: var(--mud-palette-surface);
     box-shadow: 0 4px 14px color-mix(in srgb, var(--mud-palette-text-primary) 12%, transparent);
     list-style: none;
+    text-align: left;
 }
+
+.repository-command-autocomplete li { min-width: 0; }
 
 .repository-command-autocomplete-option {
     display: flex;
     align-items: baseline;
     gap: 0.65rem;
+    justify-content: flex-start;
     width: 100%;
     min-width: 0;
     padding: 0.4rem 0.55rem;

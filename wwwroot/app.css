@@ -3232,6 +3232,60 @@ body.repository-terminal-resizing * {
     margin-top: 0.25rem;
 }
 
+.repository-command-autocomplete {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    gap: 0.1rem;
+    max-height: min(40vh, 18rem);
+    overflow-y: auto;
+    margin: 0.25rem 0 0 1.9rem;
+    padding: 0.3rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 0.5rem;
+    background: var(--mud-palette-surface);
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--mud-palette-text-primary) 12%, transparent);
+    list-style: none;
+}
+
+.repository-command-autocomplete-option {
+    display: flex;
+    align-items: baseline;
+    gap: 0.65rem;
+    width: 100%;
+    min-width: 0;
+    padding: 0.4rem 0.55rem;
+    border: 0;
+    border-radius: 0.3rem;
+    background: transparent;
+    color: var(--mud-palette-text-secondary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.repository-command-autocomplete-option:hover,
+.repository-command-autocomplete-option:focus-visible,
+.repository-command-autocomplete-option.selected {
+    outline: 0;
+    background: color-mix(in srgb, var(--mud-palette-primary) 10%, transparent);
+}
+
+.repository-command-autocomplete-option code {
+    flex: 0 0 auto;
+    color: var(--mud-palette-primary);
+    font-family: Consolas, "Cascadia Mono", monospace;
+}
+
+.repository-command-autocomplete-option span {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.8rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .repository-codebadger-command-list {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));

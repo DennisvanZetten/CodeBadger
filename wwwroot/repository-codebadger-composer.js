@@ -5,6 +5,36 @@ function resize(textarea) {
     textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
 }
 
+function commandOptions(textarea) {
+    return Array.from(textarea.closest(".repository-codebadger-composer")
+        ?.querySelectorAll(".repository-command-autocomplete-option") ?? []);
+}
+
+function updateCommandSelection(textarea, index) {
+    const options = commandOptions(textarea);
+    if (!options.length) return false;
+    const boundedIndex = (index + options.length) % options.length;
+    options.forEach((option, optionIndex) => {
+        const selected = optionIndex === boundedIndex;
+        option.setAttribute("aria-selected", String(selected));
+        option.classList.toggle("selected", selected);
+    });
+    textarea.dataset.commandSelection = String(boundedIndex);
+    return true;
+}
+
+function selectCommand(textarea, option) {
+    const command = option?.dataset.command;
+    if (!command) return false;
+    textarea.value = `${command} `;
+    delete textarea.dataset.commandSelection;
+    delete textarea.dataset.commandAutocompleteDismissed;
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    textarea.focus({ preventScroll: true });
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    return true;
+}
+
 function imageToJpeg(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -50,7 +80,14 @@ export function attach(root, dotNetReference) {
 
     const onInput = event => {
         const textarea = event.target.closest?.(".repository-codebadger-input");
-        if (textarea) resize(textarea);
+        if (textarea) {
+            delete textarea.dataset.commandAutocompleteDismissed;
+            delete textarea.dataset.commandSelection;
+            const list = textarea.closest(".repository-codebadger-composer")
+                ?.querySelector(".repository-command-autocomplete");
+            if (list) list.hidden = false;
+            resize(textarea);
+        }
     };
     const onPointerDown = event => {
         const textarea = event.target.closest?.(".repository-codebadger-input");
@@ -59,6 +96,14 @@ export function attach(root, dotNetReference) {
     };
     const onClick = event => {
         const target = event.target;
+        const commandOption = target.closest?.(".repository-command-autocomplete-option");
+        if (commandOption) {
+            event.preventDefault();
+            const textarea = commandOption.closest(".repository-codebadger-composer")
+                ?.querySelector(".repository-codebadger-input");
+            if (textarea) selectCommand(textarea, commandOption);
+            return;
+        }
         const codeCopyButton = target.closest?.(".markdown-code-copy");
         if (codeCopyButton) {
             event.preventDefault();
@@ -80,6 +125,36 @@ export function attach(root, dotNetReference) {
     const onKeyDown = event => {
         const textarea = event.target.closest?.(".repository-codebadger-input");
         if (!textarea || event.isComposing) return;
+        const options = commandOptions(textarea);
+        if (options.length && !textarea.dataset.commandAutocompleteDismissed) {
+            const selectedIndex = Number.parseInt(textarea.dataset.commandSelection ?? "-1", 10);
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                const nextIndex = selectedIndex < 0
+                    ? (event.key === "ArrowDown" ? 0 : options.length - 1)
+                    : selectedIndex + (event.key === "ArrowDown" ? 1 : -1);
+                updateCommandSelection(textarea, nextIndex);
+                return;
+            }
+            if (event.key === "Tab" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+                event.preventDefault();
+                selectCommand(textarea, options[selectedIndex >= 0 ? selectedIndex : 0]);
+                return;
+            }
+            if (event.key === "Escape") {
+                event.preventDefault();
+                textarea.dataset.commandAutocompleteDismissed = "true";
+                delete textarea.dataset.commandSelection;
+                textarea.closest(".repository-codebadger-composer")
+                    ?.querySelector(".repository-command-autocomplete")?.setAttribute("hidden", "");
+                return;
+            }
+            if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                selectCommand(textarea, options[selectedIndex >= 0 ? selectedIndex : 0]);
+                return;
+            }
+        }
         if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey &&
             textarea.dataset.modeToggleEnabled === "true") {
             event.preventDefault();

@@ -564,11 +564,26 @@
                                                       @bind="session.Input" @bind:event="oninput"></textarea>
                                             <MudTooltip Text="@L.T("Show terminal commands")">
                                                 <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.HelpOutline"
-                                                               Color="Color.Default"
-                                                               aria-label="@L.T("Show terminal commands")"
-                                                               OnClick="() => ShowTerminalHelpAsync(session)" />
+                                                                Color="Color.Default"
+                                                                aria-label="@L.T("Show terminal commands")"
+                                                                OnClick="() => ShowTerminalHelpAsync(session)" />
                                             </MudTooltip>
                                         </div>
+                                        @if (GetTerminalCommandSuggestions(session) is { Count: > 0 } suggestions)
+                                        {
+                                            <ul class="repository-command-autocomplete" role="listbox" aria-label="@L.T("Available commands")">
+                                                @foreach (var suggestion in suggestions)
+                                                {
+                                                    <li>
+                                                        <button type="button" class="repository-command-autocomplete-option"
+                                                                role="option" aria-selected="false" data-command="@suggestion.Command">
+                                                            <code>@suggestion.Command</code>
+                                                            <span>@L.T(suggestion.Description)</span>
+                                                        </button>
+                                                    </li>
+                                                }
+                                            </ul>
+                                        }
                                     </div>
                                 </div>
                                 <footer class="repository-codebadger-statusbar">
@@ -1402,6 +1417,17 @@
         AgentTools.Normalize(Repository.AgentTool) == AgentTools.OpenCode
             ? TerminalCommands.Where(command => command.Command != "/commit" || !Repository.OpenCodeSandboxEnabled).ToArray()
             : TerminalCommands.Where(command => command.Command is not ("/model" or "/commit")).ToArray();
+
+    private IReadOnlyList<(string Command, string Description)> GetTerminalCommandSuggestions(CodeBadgerTerminalSession session)
+    {
+        var input = session.Input.TrimStart();
+        if (input.Length == 0 || input[0] != '/' || input.Any(char.IsWhiteSpace))
+            return [];
+
+        return GetAvailableTerminalCommands()
+            .Where(command => command.Command.StartsWith(input, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+    }
 
     private IReadOnlyList<(string Command, string Description)> GetAvailableAgentTerminalCommands() =>
         GetAvailableTerminalCommands().Where(command => command.Command is not ("/help" or "/commit" or "/pull" or "/push")).ToArray();

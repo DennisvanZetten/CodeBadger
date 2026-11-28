@@ -280,6 +280,11 @@ html[data-platform="macos"] .mud-appbar .appbar-action-button {
     margin-inline: 4px;
 }
 
+html[data-platform="macos"] .mud-tooltip {
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
 @media (hover: hover) {
     .appbar-action-button {
         border-radius: 6px;

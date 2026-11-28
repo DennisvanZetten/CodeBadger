@@ -113,7 +113,7 @@ function replaceSelectionWithChip(editor, text) {
 
     // Keep following text on its own editable side of the non-editable inline chip.
     placeCaretAfter(chip);
-    editor.focus({ preventScroll: true });
+    if (document.activeElement !== editor) editor.focus({ preventScroll: true });
     syncModel(editor, true);
 }
 
@@ -247,13 +247,16 @@ function removeChipAtCaret(editor, chip, direction) {
         next.remove();
     }
 
+    // The editor remains focused when Backspace/Delete is used; avoid resetting
+    // the just-restored selection in WebViews that place the caret at the start.
+    if (document.activeElement !== editor)
+        editor.focus({ preventScroll: true });
     const selection = window.getSelection();
     const range = document.createRange();
     range.setStart(caretNode, Math.min(caretOffset, caretNode.length ?? caretNode.childNodes.length));
     range.collapse(true);
     selection?.removeAllRanges();
     selection?.addRange(range);
-    editor.focus({ preventScroll: true });
     syncModel(editor, true);
 }
 

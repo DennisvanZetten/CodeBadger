@@ -4099,6 +4099,14 @@ body.repository-terminal-resizing * {
     box-sizing: border-box;
 }
 
+/* macOS uses overlay scrollbars, so keep row controls clear of the scrollbar. */
+html[data-platform="macos"] .git-file-list-scroll,
+html[data-platform="macos"] .git-history-workspace .git-dialog-list,
+html[data-platform="macos"] .git-history-workspace .git-stash-list,
+html[data-platform="macos"] .git-commit-files-list {
+    padding-right: 1rem;
+}
+
 .git-commit-files-collapsed-rail {
     display: flex;
     flex-direction: column;

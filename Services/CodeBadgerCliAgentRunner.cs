@@ -636,6 +636,8 @@ public sealed class CodeBadgerCliAgentRunner(ILogger<CodeBadgerCliAgentRunner> l
                 throw new InvalidOperationException($"{AgentTools.GetDisplayName(agent)} completed without a text response.");
 
             var resultSessionId = output.SessionId;
+            if (string.IsNullOrWhiteSpace(resultSessionId) && agent == AgentTools.Hermes)
+                resultSessionId = GetHermesSessionId(error);
             if (string.IsNullOrWhiteSpace(resultSessionId))
                 resultSessionId = initialSessionId ?? existingSessionId;
             if (string.IsNullOrWhiteSpace(resultSessionId))
@@ -1052,6 +1054,23 @@ public sealed class CodeBadgerCliAgentRunner(ILogger<CodeBadgerCliAgentRunner> l
     private static string GetString(JsonElement element, string property) =>
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) &&
         value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : string.Empty;
+
+    private static string? GetHermesSessionId(string standardError)
+    {
+        foreach (var line in standardError.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmedLine = line.Trim();
+            const string sessionIdPrefix = "session_id:";
+            if (trimmedLine.StartsWith(sessionIdPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                var sessionId = trimmedLine[sessionIdPrefix.Length..].Trim();
+                if (!string.IsNullOrWhiteSpace(sessionId))
+                    return sessionId;
+            }
+        }
+
+        return null;
+    }
 
     private static async Task AppendAsync(System.Text.StringBuilder target, string? value,
         Func<string, Task>? onText, bool replace = false)

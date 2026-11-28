@@ -25,6 +25,7 @@ public sealed class AgentSessionNotificationService : IAsyncDisposable
     private readonly ILogger<AgentSessionNotificationService> _logger;
     private readonly SemaphoreSlim _startGate = new(1, 1);
     private readonly SemaphoreSlim _hermesConfigGate = new(1, 1);
+    private bool _hermesConfigured;
     private readonly Channel<AgentHookEvent> _events = Channel.CreateBounded<AgentHookEvent>(new BoundedChannelOptions(256)
     {
         FullMode = BoundedChannelFullMode.Wait,
@@ -348,6 +349,12 @@ public sealed class AgentSessionNotificationService : IAsyncDisposable
         await _hermesConfigGate.WaitAsync(cancellationToken);
         try
         {
+            // The listener endpoint is stable for this service instance. The Hermes
+            // hook only needs to be reconciled once per CodeBadger process; this
+            // method can be reached again whenever a repository tab rerenders.
+            if (_hermesConfigured)
+                return;
+
             var configPath = GetHermesConfigPath();
             var yaml = File.Exists(configPath)
                 ? await File.ReadAllTextAsync(configPath, cancellationToken)
@@ -369,8 +376,12 @@ public sealed class AgentSessionNotificationService : IAsyncDisposable
             var endpoint = BuildEndpoint("hermes");
             var updatedYaml = UpdateHermesOutboundYaml(yaml, endpoint);
             if (!string.Equals(yaml, updatedYaml, StringComparison.Ordinal))
+            {
                 await SaveHermesConfigAsync(configPath, updatedYaml, cancellationToken);
-            _logger.LogInformation("Configured Hermes outbound session hooks in {ConfigPath}.", configPath);
+                _logger.LogInformation("Configured Hermes outbound session hooks in {ConfigPath}.", configPath);
+            }
+
+            _hermesConfigured = true;
         }
         finally
         {

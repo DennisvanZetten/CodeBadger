@@ -15,7 +15,7 @@
                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success">@L.T("Live")</MudChip>
             </MudStack>
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                <MudSwitch T="bool" @bind-Value="_followLatest" Color="Color.Primary" Label="@L.T("Follow latest")" />
+                <MudSwitch T="bool" Value="_followLatest" ValueChanged="SetFollowLatest" Color="Color.Primary" Label="@L.T("Follow latest")" />
                 <MudIconButton Icon="@Icons.Material.Filled.Refresh" aria-label="@L.T("Refresh")" OnClick="RefreshAsync" />
                 <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Filled.DeleteOutline" OnClick="ClearLogs">@L.T("Clear logs")</MudButton>
             </MudStack>
@@ -108,7 +108,7 @@
     private static readonly string[] VisibleLevels = ["Trace", "Debug", "Information", "Warning", "Error", "Critical"];
     private ElementReference _entriesElement;
     private int _activeTab;
-    private bool _followLatest = true;
+    private bool _followLatest;
     private string _search = string.Empty;
     private string _levelFilter = "All";
     private bool _scrollPending;
@@ -117,7 +117,6 @@
     {
         LogService.EntryWritten += HandleEntryWritten;
         L.LanguageChanged += HandleLanguageChanged;
-        _scrollPending = true;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -168,10 +167,16 @@
         {
             if (string.Equals(entry.Category, ApplicationLogCategories.All[_activeTab], StringComparison.Ordinal))
             {
-                _scrollPending = true;
+                _scrollPending = _followLatest;
                 StateHasChanged();
             }
         });
+    }
+
+    private void SetFollowLatest(bool followLatest)
+    {
+        _followLatest = followLatest;
+        _scrollPending = followLatest;
     }
 
     private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);

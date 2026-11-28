@@ -2,6 +2,16 @@ html, body {
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
 }
 
+/* Mac Catalyst's WebView can render the shared compact UI smaller than Windows. */
+html[data-platform="macos"] {
+    font-size: var(--macos-scale, 130%);
+}
+
+html[data-platform="macos"],
+html[data-platform="macos"] body {
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+
 .startup-splash {
     display: flex;
     min-height: 100vh;
@@ -266,6 +276,15 @@ h1:focus {
     opacity: 1;
 }
 
+html[data-platform="macos"] .mud-appbar .appbar-action-button {
+    margin-inline: 4px;
+}
+
+html[data-platform="macos"] .mud-tooltip {
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
 @media (hover: hover) {
     .appbar-action-button {
         border-radius: 6px;
@@ -279,6 +298,31 @@ h1:focus {
 
 .appbar-action-button:active {
     background-color: var(--mud-palette-action-default-hover);
+}
+
+.git-auth-help-dialog .git-auth-command-box {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.25rem 0.5rem 0.25rem 0.85rem;
+    background: var(--mud-palette-background-grey);
+}
+
+.git-auth-help-dialog .git-auth-command-box code {
+    overflow-x: auto;
+    color: var(--mud-palette-text-primary);
+    font-family: var(--mud-typography-default-family);
+    font-size: 0.9rem;
+    white-space: nowrap;
+}
+
+.git-auth-help-dialog .git-auth-error {
+    max-height: 12rem;
+    margin: 0;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
 
 .manual-page {
@@ -1789,6 +1833,13 @@ h1:focus {
     cursor: ew-resize;
 }
 
+html[data-platform="macos"] .git-commit-splitter::before {
+    content: "";
+    position: absolute;
+    inset: 0 -8px;
+    z-index: 1;
+}
+
 @media (max-width: 960px) {
     .git-commit-workspace {
         --git-diff-panel-height: 40%;
@@ -2342,9 +2393,33 @@ h1:focus {
     touch-action: none;
 }
 
+html[data-platform="macos"] .repository-terminal-splitter-grip {
+    height: 14px;
+}
+
+html[data-platform="macos"] .repository-terminal-splitter-grip::after {
+    content: "";
+    position: absolute;
+    top: 5px;
+    left: 50%;
+    width: 2.5rem;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--mud-palette-text-secondary);
+    opacity: 0.55;
+    transform: translateX(-50%);
+    transition: background-color 120ms ease, opacity 120ms ease;
+}
+
 .repository-terminal-splitter:has(.repository-terminal-splitter-grip:hover),
 .repository-terminal-splitter:has(.repository-terminal-splitter-grip:focus-visible) {
     border-top-color: var(--mud-palette-primary);
+}
+
+html[data-platform="macos"] .repository-terminal-splitter:has(.repository-terminal-splitter-grip:hover) .repository-terminal-splitter-grip::after,
+html[data-platform="macos"] .repository-terminal-splitter:has(.repository-terminal-splitter-grip:focus-visible) .repository-terminal-splitter-grip::after {
+    background: var(--mud-palette-primary);
+    opacity: 1;
 }
 
 body.repository-terminal-resizing,
@@ -3925,6 +4000,58 @@ body.repository-terminal-resizing * {
     cursor: ew-resize !important;
 }
 
+html[data-platform="macos"] .git-history-splitter:not(.git-branch-group-splitter)::before,
+html[data-platform="macos"] .git-commit-file-detail-splitter::before {
+    content: "";
+    position: absolute;
+    z-index: 1;
+}
+
+html[data-platform="macos"] .git-history-splitter:not(.git-branch-group-splitter)::before {
+    inset: 0 -8px;
+}
+
+html[data-platform="macos"] .git-commit-file-detail-splitter::before {
+    inset: -8px 0;
+}
+
+html[data-platform="macos"] .git-branch-group-splitter::before {
+    inset: -8px 0;
+}
+
+html[data-platform="macos"] .git-commit-file-detail-splitter,
+html[data-platform="macos"] .git-branch-group-splitter,
+html[data-platform="macos"] .repository-terminal-splitter-grip {
+    cursor: row-resize !important;
+}
+
+html[data-platform="macos"] .git-history-splitter:not(.git-branch-group-splitter):not(.git-commit-file-detail-splitter) {
+    cursor: col-resize !important;
+}
+
+@media (max-width: 760px) {
+    html[data-platform="macos"] .git-history-splitter:not(.git-branch-group-splitter)::before {
+        inset: -8px 0;
+    }
+
+    html[data-platform="macos"] .git-history-splitter:not(.git-branch-group-splitter):not(.git-commit-file-detail-splitter),
+    html[data-platform="macos"] .git-commit-splitter {
+        cursor: row-resize !important;
+    }
+}
+
+@media (max-width: 960px) {
+    html[data-platform="macos"] .git-commit-splitter {
+        cursor: row-resize !important;
+    }
+}
+
+@media (min-width: 961px) {
+    html[data-platform="macos"] .git-commit-splitter {
+        cursor: col-resize !important;
+    }
+}
+
 .git-history-workspace .git-branch-group-splitter:hover,
 .git-history-workspace .git-branch-group-splitter:focus-visible {
     cursor: ns-resize !important;
@@ -4053,6 +4180,14 @@ body.repository-terminal-resizing * {
     width: 100%;
     min-height: 0;
     box-sizing: border-box;
+}
+
+/* macOS uses overlay scrollbars, so keep row controls clear of the scrollbar. */
+html[data-platform="macos"] .git-file-list-scroll,
+html[data-platform="macos"] .git-history-workspace .git-dialog-list,
+html[data-platform="macos"] .git-history-workspace .git-stash-list,
+html[data-platform="macos"] .git-commit-files-list {
+    padding-right: 1rem;
 }
 
 .git-commit-files-collapsed-rail {

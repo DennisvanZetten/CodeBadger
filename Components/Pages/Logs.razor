@@ -2,6 +2,7 @@
 @implements IDisposable
 @inject ApplicationLogService LogService
 @inject LocalizationService L
+@inject RepositoryDetachedWindowService DetachedWindows
 @inject IJSRuntime JS
 
 <PageTitle>@L.T("Application logs") - CodeBadger</PageTitle>
@@ -10,6 +11,12 @@
     <MudStack Spacing="3">
         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                @if (OperatingSystem.IsMacCatalyst())
+                {
+                    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack" OnClick="ReturnToCodeBadger">
+                        @L.T("Back to CodeBadger")
+                    </MudButton>
+                }
                 <MudIcon Icon="@Icons.Material.Filled.Article" Color="Color.Primary" />
                 <MudText Typo="Typo.h5">@L.T("Application logs")</MudText>
                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success">@L.T("Live")</MudChip>
@@ -112,6 +119,8 @@
     private string _search = string.Empty;
     private string _levelFilter = "All";
     private bool _scrollPending;
+
+    private void ReturnToCodeBadger() => DetachedWindows.CloseUtilityWindow("/logs");
 
     protected override void OnInitialized()
     {

@@ -128,6 +128,9 @@ export function attachHistorySplitter() {
                 const splitterBounds = splitter.getBoundingClientRect();
                 pointerOffset = (splitterBounds.top + splitterBounds.bottom) / 2 - event.clientY;
                 dragging = true;
+                if (document.documentElement.dataset.platform === "macos") {
+                    try { splitter.setPointerCapture(event.pointerId); } catch { }
+                }
                 document.body.classList.add("git-branch-groups-resizing");
                 window.addEventListener("pointermove", onPointerMove);
                 window.addEventListener("pointerup", stopDragging);
@@ -195,6 +198,9 @@ export function attachHistorySplitter() {
                     return;
                 event.preventDefault();
                 dragging = true;
+                if (document.documentElement.dataset.platform === "macos") {
+                    try { splitter.setPointerCapture(event.pointerId); } catch { }
+                }
                 document.body.classList.add("git-commit-file-resizing");
                 window.addEventListener("pointermove", onPointerMove);
                 window.addEventListener("pointerup", stopDragging);
@@ -290,6 +296,9 @@ export function attachHistorySplitter() {
                 return;
             event.preventDefault();
             dragging = true;
+            if (document.documentElement.dataset.platform === "macos") {
+                try { splitter.setPointerCapture(event.pointerId); } catch { }
+            }
             document.body.classList.add(resizingClass);
             window.addEventListener("pointermove", onPointerMove);
             window.addEventListener("pointerup", stopDragging);

@@ -86,13 +86,13 @@ else
                     <MudIconButton Class="appbar-action-button" Icon="@Icons.Material.Filled.Settings" Color="Color.Default" Size="Size.Small"
                                     aria-label="@L.T("Open settings")" OnClick="OpenSettingsAsync" />
                 </MudBadge>
-                <MudTooltip Text="@L.T("Ideas and tasks")">
+                 <MudTooltip Text="@L.T("Ideas and tasks")">
                     <MudIconButton Class="appbar-action-button" Icon="@Icons.Material.Filled.Checklist" Color="Color.Default" Size="Size.Small"
-                                   aria-label="@L.T("Ideas and tasks")" title="@L.T("Ideas and tasks")" OnClick="OpenIdeasAsync" />
+                                   aria-label="@L.T("Ideas and tasks")" OnClick="OpenIdeasAsync" />
                 </MudTooltip>
                 <MudTooltip Text="@L.T("Help menu")">
                     <MudIconButton Class="appbar-action-button help-menu-trigger" Icon="@Icons.Material.Filled.HelpOutline" Color="Color.Default" Size="Size.Small"
-                                   aria-label="@L.T("Help menu")" title="@L.T("Help menu")" OnClick="OpenHelpMenuAsync" />
+                                   aria-label="@L.T("Help menu")" OnClick="OpenHelpMenuAsync" />
                 </MudTooltip>
             </MudAppBar>
         }
@@ -193,11 +193,39 @@ else
         _theme = LauncherThemes.Get(settings.Theme);
         WindowTitleBar.ApplyTheme(_theme);
         Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
+        await ApplyMacOsScaleAsync(settings.MacOsScalePercent);
         StateHasChanged();
     });
 
+    private async Task ApplyMacOsScaleAsync(int scalePercent)
+    {
+        if (!OperatingSystem.IsMacCatalyst())
+            return;
+
+        try
+        {
+            await JS.InvokeVoidAsync("codeBadger.setMacOsScale", Math.Clamp(scalePercent, 100, 160));
+        }
+        catch (JSException)
+        {
+            // Platform-specific styling must never prevent the main page from rendering.
+        }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender && OperatingSystem.IsMacCatalyst())
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("codeBadger.setPlatform", "macos");
+            }
+            catch (JSException)
+            {
+                // Platform-specific styling must never prevent the main page from rendering.
+            }
+        }
+
         if (firstRender && IsMainWindowRoute())
             WindowTitleBar.SetSettingsState(!_isStarting || StartupDetection.OpenCodeHealth.Warning is not null, L.T("Open settings"));
         if (firstRender && IsMainWindowRoute() && _isStarting)
@@ -285,6 +313,7 @@ else
         _theme = LauncherThemes.Get(settings.Theme);
         WindowTitleBar.ApplyTheme(_theme);
         Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
+        await ApplyMacOsScaleAsync(settings.MacOsScalePercent);
         _isStarting = false;
         await InvokeAsync(StateHasChanged);
     }
@@ -296,6 +325,7 @@ else
         _theme = LauncherThemes.Get(settings.Theme);
         WindowTitleBar.ApplyTheme(_theme);
         Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
+        await ApplyMacOsScaleAsync(settings.MacOsScalePercent);
         await InvokeAsync(StateHasChanged);
     }
 
@@ -309,6 +339,7 @@ else
             _theme = LauncherThemes.Get(settings.Theme);
             WindowTitleBar.ApplyTheme(_theme);
             Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
+            await ApplyMacOsScaleAsync(settings.MacOsScalePercent);
 
             if (!settings.Repositories.Any(repository => repository.IsActive))
             {
@@ -422,14 +453,14 @@ else
 
             if (!showAbout && destination == "manual")
             {
-                if (WindowTitleBar.UsesNativeTitleBar)
+                if (WindowTitleBar.UsesNativeTitleBar || OperatingSystem.IsMacCatalyst())
                     DetachedWindows.OpenManualWindow();
                 else
                     Navigation.NavigateTo("/manual");
             }
             else if (!showAbout && destination == "logs")
             {
-                if (WindowTitleBar.UsesNativeTitleBar)
+                if (WindowTitleBar.UsesNativeTitleBar || OperatingSystem.IsMacCatalyst())
                     DetachedWindows.OpenLogsWindow();
                 else
                     Navigation.NavigateTo("/logs");

@@ -41,6 +41,14 @@
                             <MudSelectItem T="string" Value="@theme.Id">@theme.Name (@L.T(theme.IsDark ? "Dark" : "Light"))</MudSelectItem>
                         }
                     </MudSelect>
+                    @if (OperatingSystem.IsMacCatalyst())
+                    {
+                        <MudStack Spacing="1">
+                            <MudText Typo="Typo.body2">@L.T("macOS interface scale"): @Settings.MacOsScalePercent%</MudText>
+                            <MudSlider T="int" @bind-Value="Settings.MacOsScalePercent" Min="100" Max="160" Step="5" Color="Color.Primary" />
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Adjust the size of the app interface on macOS. Windows is not affected.")</MudText>
+                        </MudStack>
+                    }
                     <MudNumericField T="int" @bind-Value="Settings.ToastDurationSeconds" Label="@L.T("Toast duration (seconds)")"
                                      Min="1" Max="10" Margin="Margin.Dense" Variant="Variant.Outlined" />
                     <MudDivider Class="my-2" />
@@ -382,9 +390,13 @@
                             @L.T("Invite the bot to the channel you choose. Replies in the notification thread are sent to that OpenCode session.")
                         </MudAlert>
                         <MudTextField @bind-Value="Settings.SlackBotToken" Label="@L.T("Slack bot token")" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                      InputType="InputType.Password" HelperText="@L.T("Starts with xoxb-. Stored securely on this device.")" />
+                                      InputType="@(_showSlackBotToken ? InputType.Text : InputType.Password)"
+                                      Adornment="Adornment.End" AdornmentIcon="@(_showSlackBotToken ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                      OnAdornmentClick="ToggleSlackBotTokenVisibility" HelperText="@L.T("Starts with xoxb-. Stored securely on this device.")" />
                         <MudTextField @bind-Value="Settings.SlackAppToken" Label="@L.T("Slack app-level token")" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                      InputType="InputType.Password" HelperText="@L.T("Starts with xapp-. Requires the connections:write scope.")" />
+                                      InputType="@(_showSlackAppToken ? InputType.Text : InputType.Password)"
+                                      Adornment="Adornment.End" AdornmentIcon="@(_showSlackAppToken ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                      OnAdornmentClick="ToggleSlackAppTokenVisibility" HelperText="@L.T("Starts with xapp-. Requires the connections:write scope.")" />
                         <MudTextField @bind-Value="Settings.SlackAllowedUserId" Label="@L.T("Your Slack member ID")" Variant="Variant.Outlined" Margin="Margin.Dense"
                                       HelperText="@L.T("Required for safety: only replies from this Slack user will be sent to OpenCode. Find it in your Slack profile under More → Copy member ID.")" />
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="flex-wrap">
@@ -419,7 +431,9 @@
                             @L.T("Enable the Message Content Intent in the Discord Developer Portal. Replies are accepted only from the Discord user ID entered below. In Developer Mode, copy the server ID and enter it below to load channels.")
                         </MudAlert>
                         <MudTextField @bind-Value="Settings.DiscordBotToken" Label="@L.T("Discord bot token")" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                      InputType="InputType.Password" HelperText="@L.T("Stored securely on this device.")" />
+                                      InputType="@(_showDiscordBotToken ? InputType.Text : InputType.Password)"
+                                      Adornment="Adornment.End" AdornmentIcon="@(_showDiscordBotToken ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                      OnAdornmentClick="ToggleDiscordBotTokenVisibility" HelperText="@L.T("Stored securely on this device.")" />
                         <MudTextField @bind-Value="Settings.DiscordGuildId" Label="@L.T("Discord server (guild) ID")" Variant="Variant.Outlined" Margin="Margin.Dense"
                                       HelperText="@L.T("Enable Developer Mode in Discord, then use the server context menu to copy its ID.")" />
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="flex-wrap">
@@ -517,12 +531,18 @@
     private bool _isTestingAi;
     private bool _isSaving;
     private bool _showAiApiKey;
+    private bool _showSlackBotToken;
+    private bool _showSlackAppToken;
+    private bool _showDiscordBotToken;
     private bool _hasTestedConnection;
     private bool _aiConnectionChanged;
     private bool _initialModelLoadsStarted;
     private string _aiConnectionError = string.Empty;
 
     private void ToggleAiApiKeyVisibility() => _showAiApiKey = !_showAiApiKey;
+    private void ToggleSlackBotTokenVisibility() => _showSlackBotToken = !_showSlackBotToken;
+    private void ToggleSlackAppTokenVisibility() => _showSlackAppToken = !_showSlackAppToken;
+    private void ToggleDiscordBotTokenVisibility() => _showDiscordBotToken = !_showDiscordBotToken;
 
     private IReadOnlyList<string> _availableModels = [];
     private IReadOnlyList<OpenCodeActivityService.AvailableModel> _terminalModels = [];

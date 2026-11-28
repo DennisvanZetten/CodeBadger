@@ -44,6 +44,9 @@ export function attach(stack, dotnet) {
         savedChatStyle = stack.style.getPropertyValue('--chat-terminal-ratio');
         pendingPercent = null;
         dragging = true;
+        if (document.documentElement.dataset.platform === 'macos') {
+            try { grip.setPointerCapture(event.pointerId); } catch { }
+        }
         document.body.classList.add('repository-terminal-resizing');
         window.addEventListener('pointermove', move);
         window.addEventListener('pointerup', finish);

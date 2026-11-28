@@ -8,6 +8,7 @@ public sealed class RepositoryDetachedWindowService(
     WindowTitleBarService titleBar)
 {
     private readonly Dictionary<Guid, Window> _windows = [];
+    private readonly Dictionary<string, Window> _utilityWindows = [];
     private readonly HashSet<Guid> _docking = [];
     private readonly HashSet<Guid> _preservingSessions = [];
     private readonly Dictionary<Guid, (int PointerX, int PointerY, int WindowX, int WindowY)> _windowDrags = [];
@@ -152,25 +153,44 @@ public sealed class RepositoryDetachedWindowService(
 
     public void OpenManualWindow()
     {
-        var window = new Window(new MainPage("/manual"))
-        {
-            Title = "CodeBadger — Manual",
-            Width = 920,
-            Height = 760
-        };
-        titleBar.Configure(window, showSettings: false, title: window.Title);
-        Application.Current?.OpenWindow(window);
+        OpenUtilityWindow("/manual", "CodeBadger — Manual", 920, 760);
     }
 
     public void OpenLogsWindow()
     {
-        var window = new Window(new MainPage("/logs"))
+        OpenUtilityWindow("/logs", "CodeBadger — Logs", 1100, 760);
+    }
+
+    public void CloseUtilityWindow(string path)
+    {
+        if (!_utilityWindows.TryGetValue(path, out var window))
+            return;
+
+        Application.Current?.CloseWindow(window);
+    }
+
+    private void OpenUtilityWindow(string path, string title, double width, double height)
+    {
+        var trackWindow = OperatingSystem.IsMacCatalyst();
+        if (trackWindow && _utilityWindows.ContainsKey(path))
+            return;
+
+        var window = new Window(new MainPage(path))
         {
-            Title = "CodeBadger — Logs",
-            Width = 1100,
-            Height = 760
+            Title = title,
+            Width = width,
+            Height = height
         };
         titleBar.Configure(window, showSettings: false, title: window.Title);
+        if (trackWindow)
+        {
+            _utilityWindows[path] = window;
+            window.Destroying += (_, _) =>
+            {
+                if (_utilityWindows.TryGetValue(path, out var current) && ReferenceEquals(current, window))
+                    _utilityWindows.Remove(path);
+            };
+        }
         Application.Current?.OpenWindow(window);
     }
 

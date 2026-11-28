@@ -3121,14 +3121,68 @@
         try
         {
             var result = await operation();
-            Snackbar.Add(result.Success ? L.T($"{name} completed.") : L.T($"{name} failed: {{0}}", result.Message),
-                result.Success ? Severity.Success : Severity.Error);
-            await RefreshAsync(fetch: true);
+            var isAuthenticationFailure = name == "Push" && !result.Success && IsGitAuthenticationFailure(result.Message);
+            if (isAuthenticationFailure)
+                await ShowGitAuthenticationHelpAsync(result.Message);
+            else
+                Snackbar.Add(result.Success ? L.T($"{name} completed.") : L.T($"{name} failed: {{0}}", result.Message),
+                    result.Success ? Severity.Success : Severity.Error);
+            await RefreshAsync(fetch: !isAuthenticationFailure);
         }
         finally
         {
             _isOperating = false;
         }
+    }
+
+    private static bool IsGitAuthenticationFailure(string message) =>
+        message.Contains("could not read Username", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("could not read Password", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("Authentication failed", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("terminal prompts disabled", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("Permission denied (publickey)", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("could not read from remote repository", StringComparison.OrdinalIgnoreCase);
+
+    private async Task ShowGitAuthenticationHelpAsync(string error)
+    {
+        var host = GetGitHostFromError(error);
+        var guidance = new List<string>
+        {
+            L.T("Git could not obtain credentials for {0}. CodeBadger runs Git without an interactive sign-in prompt.", host),
+            L.T("Configure Git credentials for this remote, or switch the remote to SSH and configure an SSH key.")
+        };
+
+        if (host == "GitHub")
+            guidance.Add(L.T("For GitHub over HTTPS, run 'gh auth login' and then 'gh auth setup-git' in Terminal."));
+        if (OperatingSystem.IsMacCatalyst())
+            guidance.Add(L.T("GitKraken manages its own sign-in. Its saved credentials are not automatically shared with CodeBadger or command-line Git."));
+
+        guidance.Add(L.T("Git's error: {0}", error));
+        await DialogService.ShowMessageBoxAsync(
+            L.T("Git authentication required"),
+            string.Join(Environment.NewLine + Environment.NewLine, guidance),
+            yesText: L.T("OK"));
+    }
+
+    private static string GetGitHostFromError(string error)
+    {
+        var httpsIndex = error.IndexOf("https://", StringComparison.OrdinalIgnoreCase);
+        if (httpsIndex >= 0)
+        {
+            var hostStart = httpsIndex + "https://".Length;
+            var hostEnd = error.IndexOfAny(['/', '\'', '"', ' ', ')'], hostStart);
+            var host = hostEnd < 0 ? error[hostStart..] : error[hostStart..hostEnd];
+            if (host.Equals("github.com", StringComparison.OrdinalIgnoreCase)) return "GitHub";
+            if (host.Equals("gitlab.com", StringComparison.OrdinalIgnoreCase)) return "GitLab";
+            if (host.Equals("bitbucket.org", StringComparison.OrdinalIgnoreCase)) return "Bitbucket";
+            if (host.Equals("dev.azure.com", StringComparison.OrdinalIgnoreCase) || host.EndsWith(".visualstudio.com", StringComparison.OrdinalIgnoreCase)) return "Azure DevOps";
+            if (!string.IsNullOrWhiteSpace(host)) return host;
+        }
+
+        if (error.Contains("github", StringComparison.OrdinalIgnoreCase)) return "GitHub";
+        if (error.Contains("gitlab", StringComparison.OrdinalIgnoreCase)) return "GitLab";
+        if (error.Contains("bitbucket", StringComparison.OrdinalIgnoreCase)) return "Bitbucket";
+        return "the Git remote";
     }
 
     private async Task CheckAiConnectionAsync()

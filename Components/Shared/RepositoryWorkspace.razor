@@ -389,6 +389,7 @@
                                                          {
                                                              <div class="repository-command-response">
                                                                  <h3 class="repository-command-response-title">@L.T("Available terminal commands")</h3>
+                                                                 @RenderTerminalCommandList(session, GetAvailableHelpTerminalCommands())
                                                                  <h4 class="repository-command-section-title">@L.T("Agent commands")</h4>
                                                                  @RenderTerminalCommandList(session, GetAvailableAgentTerminalCommands())
                                                                  <h4 class="repository-command-section-title">@L.T("Git commands")</h4>
@@ -1403,10 +1404,13 @@
             : TerminalCommands.Where(command => command.Command is not ("/model" or "/commit")).ToArray();
 
     private IReadOnlyList<(string Command, string Description)> GetAvailableAgentTerminalCommands() =>
-        GetAvailableTerminalCommands().Where(command => command.Command is not ("/pull" or "/push")).ToArray();
+        GetAvailableTerminalCommands().Where(command => command.Command is not ("/help" or "/commit" or "/pull" or "/push")).ToArray();
 
     private IReadOnlyList<(string Command, string Description)> GetAvailableGitTerminalCommands() =>
-        GetAvailableTerminalCommands().Where(command => command.Command is "/pull" or "/push").ToArray();
+        GetAvailableTerminalCommands().Where(command => command.Command is "/commit" or "/pull" or "/push").ToArray();
+
+    private IReadOnlyList<(string Command, string Description)> GetAvailableHelpTerminalCommands() =>
+        GetAvailableTerminalCommands().Where(command => command.Command == "/help").ToArray();
 
     private RenderFragment RenderTerminalCommandList(CodeBadgerTerminalSession session,
         IReadOnlyList<(string Command, string Description)> commands) => @<ul class="repository-command-help">

@@ -2991,8 +2991,26 @@ body.repository-terminal-resizing * {
     opacity: 1;
 }
 
+.log-entry .log-copy-button {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    opacity: 0.12;
+    transition: opacity 120ms ease;
+}
+
+.log-entry:hover .log-copy-button,
+.log-entry .log-copy-button:hover,
+.log-entry .log-copy-button:focus-visible {
+    opacity: 1;
+}
+
 @media (hover: none) {
     .repository-codebadger-message-copy .mud-icon-button {
+        opacity: 0.65;
+    }
+
+    .log-entry .log-copy-button {
         opacity: 0.65;
     }
 }

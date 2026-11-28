@@ -1178,6 +1178,10 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        // Set the terminal command before the first await. Blazor can render and run
+        // OnAfterRenderAsync while the remaining asynchronous initialization is pending.
+        _agentCommand = AgentTools.GetCommand(Repository.AgentTool);
+
         if (Repository.CodeBadgerTerminalEnabled && !_wasCodeBadgerTerminalEnabled)
             _aiPanelMode = AiPanelMode.Collapsed;
         _wasCodeBadgerTerminalEnabled = Repository.CodeBadgerTerminalEnabled;
@@ -1246,10 +1250,7 @@
             }
         }
 
-        var terminalAlreadyStarted = false;
-        _agentCommand = AgentTools.GetCommand(Repository.AgentTool);
-        if (!terminalAlreadyStarted &&
-            (AgentTools.Normalize(Repository.AgentTool) is AgentTools.ClaudeCode or AgentTools.Hermes or AgentTools.Codex))
+        if (AgentTools.Normalize(Repository.AgentTool) is AgentTools.ClaudeCode or AgentTools.Hermes or AgentTools.Codex)
         {
             try
             {

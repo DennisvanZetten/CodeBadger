@@ -1,7 +1,7 @@
 const observers = new WeakMap();
 const activeComposerRoots = new Set();
 const cursorDiagnostics = new WeakMap();
-const cursorDebugVersion = "cursor-debug-1";
+const cursorDebugVersion = "cursor-debug-2";
 
 function debugNodePath(editor, node) {
     if (!node) return "none";
@@ -90,6 +90,10 @@ function getNodeText(node) {
     if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
     if (node.nodeType !== Node.ELEMENT_NODE) return "";
     if (isChip(node)) return node.dataset.pasteText ?? "";
+    if (node.classList.contains("repository-codebadger-caret-anchor")) {
+        const text = node.textContent ?? "";
+        return text.startsWith("\u200B") ? text.slice(1) : text;
+    }
     if (node.tagName === "BR") return "\n";
     if (node.tagName === "DIV" || node.tagName === "P") {
         const children = Array.from(node.childNodes).map(getNodeText).join("");
@@ -271,6 +275,11 @@ function getAdjacentChip(selection, editor, direction) {
     if (!selection?.isCollapsed || !selection.anchorNode || !editor.contains(selection.anchorNode)) return null;
     const node = selection.anchorNode;
     const offset = selection.anchorOffset;
+    const anchor = (node.nodeType === Node.TEXT_NODE ? node.parentElement : node)
+        ?.closest?.(".repository-codebadger-caret-anchor");
+    if (anchor && direction < 0 && node.nodeType === Node.TEXT_NODE && offset === 1 &&
+        node.data.startsWith("\u200B") && isChip(anchor.previousSibling))
+        return anchor.previousSibling;
     if (node.nodeType === Node.TEXT_NODE) {
         if (direction < 0 && offset === 0 && isChip(node.previousSibling)) return node.previousSibling;
         if (direction > 0 && offset === node.length && isChip(node.nextSibling)) return node.nextSibling;
@@ -294,6 +303,10 @@ function selectChipForDeletion(editor, chip) {
     if (!selection) return;
     const range = document.createRange();
     range.selectNode(chip);
+    const anchor = chip.nextSibling;
+    if (anchor?.nodeType === Node.ELEMENT_NODE && anchor.matches(".repository-codebadger-caret-anchor") &&
+        anchor.firstChild?.nodeType === Node.TEXT_NODE && anchor.firstChild.data.startsWith("\u200B"))
+        range.setEnd(anchor.firstChild, 1);
     selection.removeAllRanges();
     selection.addRange(range);
     traceCursor(editor, "chip-select-after");
@@ -304,6 +317,38 @@ function selectChipForDeletion(editor, chip) {
     // Do not cancel the key's default action: the browser deletes this selection
     // through its native editing transaction, updating caret painting and undo.
     // The resulting input event synchronizes the full text with Blazor.
+}
+
+function repairEmptyChipCaret(editor) {
+    const selection = window.getSelection();
+    if (document.activeElement !== editor || !selection?.isCollapsed || !selection.rangeCount ||
+        !editor.contains(selection.anchorNode)) return;
+    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    if (rect.height > 0) return;
+
+    const node = selection.anchorNode;
+    let previous;
+    if (node.nodeType === Node.TEXT_NODE && selection.anchorOffset === 0) {
+        previous = node.previousSibling;
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+        previous = node.childNodes[selection.anchorOffset - 1];
+    }
+    while (previous?.nodeType === Node.TEXT_NODE && previous.length === 0)
+        previous = previous.previousSibling;
+    if (!isChip(previous)) return;
+
+    traceCursor(editor, "empty-chip-caret-before");
+    const anchor = document.createElement("span");
+    anchor.className = "repository-codebadger-caret-anchor";
+    const text = document.createTextNode("\u200B");
+    anchor.append(text);
+    previous.after(anchor);
+    const range = document.createRange();
+    range.setStart(text, 1);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    traceCursor(editor, "empty-chip-caret-after");
 }
 
 function commandOptions(editor) {
@@ -400,6 +445,7 @@ export function attach(root, dotNetReference) {
         const editor = getEditor(event.target);
         if (!editor) return;
         traceCursor(editor, "input-before", event.inputType ?? "");
+        if (event.inputType?.startsWith("delete")) repairEmptyChipCaret(editor);
         delete editor.dataset.commandAutocompleteDismissed;
         delete editor.dataset.commandSelection;
         const list = editor.closest(".repository-codebadger-composer")
@@ -536,7 +582,10 @@ export function attach(root, dotNetReference) {
     };
     const onKeyUp = event => {
         const editor = getEditor(event.target);
-        if (editor) traceCursor(editor, "keyup", ["Backspace", "Delete"].includes(event.key) ? event.key : "other-key");
+        if (editor) {
+            if (event.key === "Backspace" || event.key === "Delete") repairEmptyChipCaret(editor);
+            traceCursor(editor, "keyup", ["Backspace", "Delete"].includes(event.key) ? event.key : "other-key");
+        }
     };
     const onSelectionChange = () => {
         const selection = window.getSelection();

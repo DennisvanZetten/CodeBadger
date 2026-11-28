@@ -282,6 +282,7 @@ html[data-platform="macos"] .mud-appbar .appbar-action-button {
 
 .mud-tooltip {
     font-family: var(--app-font-family);
+    font-weight: 400;
 }
 
 html[data-platform="macos"] .mud-tooltip {

@@ -1,0 +1,84 @@
+@inject LocalizationService L
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+@inject ILogger<GitAuthenticationHelpDialog> Logger
+
+<MudDialog Class="git-auth-help-dialog">
+    <TitleContent>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icons.Material.Filled.Lock" Color="Color.Warning" />
+            <MudText Typo="Typo.h6">@L.T("Git authentication required")</MudText>
+        </MudStack>
+    </TitleContent>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                @L.T("Git could not obtain credentials for {0}. CodeBadger runs Git without an interactive sign-in prompt.", Host)
+            </MudAlert>
+
+            <MudText Typo="Typo.subtitle1">@L.T("How to fix it")</MudText>
+            <MudText Typo="Typo.body2">
+                @L.T("Configure Git credentials for this remote, or switch the remote to SSH and configure an SSH key.")
+            </MudText>
+
+            @if (Host == "GitHub")
+            {
+                <MudText Typo="Typo.body2">
+                    @L.T("For GitHub over HTTPS, run these commands in Terminal:")
+                </MudText>
+                <MudStack Spacing="1" Class="git-auth-command-list">
+                    @foreach (var command in GitHubCommands)
+                    {
+                        <MudPaper Outlined="true" Elevation="0" Class="git-auth-command-box">
+                            <code>@command</code>
+                            <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small"
+                                           Color="Color.Primary" aria-label="@L.T("Copy command")"
+                                           title="@L.T("Copy command")" OnClick="() => CopyCommandAsync(command)" />
+                        </MudPaper>
+                    }
+                </MudStack>
+            }
+
+            @if (ShowGitKrakenNote)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    @L.T("GitKraken manages its own sign-in. Its saved credentials are not automatically shared with CodeBadger or command-line Git.")
+                </MudAlert>
+            }
+
+            <MudExpansionPanels>
+                <MudExpansionPanel Text="@L.T("Show Git error")">
+                    <pre class="git-auth-error">@Error</pre>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Size="Size.Small" OnClick="Close">@L.T("Close")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter, EditorRequired] public string Host { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Error { get; set; } = string.Empty;
+    [Parameter] public bool ShowGitKrakenNote { get; set; }
+
+    private static readonly string[] GitHubCommands = ["gh auth login", "gh auth setup-git"];
+
+    private async Task CopyCommandAsync(string command)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", command);
+            Snackbar.Add(L.T("Command copied."), Severity.Success);
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "Could not copy a Git authentication command to the clipboard.");
+            Snackbar.Add(L.T("Could not copy to clipboard."), Severity.Error);
+        }
+    }
+
+    private void Close() => MudDialog.Close();
+}

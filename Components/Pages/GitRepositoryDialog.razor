@@ -3146,22 +3146,15 @@
     private async Task ShowGitAuthenticationHelpAsync(string error)
     {
         var host = GetGitHostFromError(error);
-        var guidance = new List<string>
+        var parameters = new DialogParameters<GitAuthenticationHelpDialog>
         {
-            L.T("Git could not obtain credentials for {0}. CodeBadger runs Git without an interactive sign-in prompt.", host),
-            L.T("Configure Git credentials for this remote, or switch the remote to SSH and configure an SSH key.")
+            { dialog => dialog.Host, host },
+            { dialog => dialog.Error, error },
+            { dialog => dialog.ShowGitKrakenNote, OperatingSystem.IsMacCatalyst() }
         };
-
-        if (host == "GitHub")
-            guidance.Add(L.T("For GitHub over HTTPS, run 'gh auth login' and then 'gh auth setup-git' in Terminal."));
-        if (OperatingSystem.IsMacCatalyst())
-            guidance.Add(L.T("GitKraken manages its own sign-in. Its saved credentials are not automatically shared with CodeBadger or command-line Git."));
-
-        guidance.Add(L.T("Git's error: {0}", error));
-        await DialogService.ShowMessageBoxAsync(
-            L.T("Git authentication required"),
-            string.Join(Environment.NewLine + Environment.NewLine, guidance),
-            yesText: L.T("OK"));
+        await DialogService.ShowAsync<GitAuthenticationHelpDialog>(
+            L.T("Git authentication required"), parameters,
+            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Small, CloseButton = true, CloseOnEscapeKey = true });
     }
 
     private static string GetGitHostFromError(string error)

@@ -300,6 +300,31 @@ html[data-platform="macos"] .mud-tooltip {
     background-color: var(--mud-palette-action-default-hover);
 }
 
+.git-auth-help-dialog .git-auth-command-box {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.25rem 0.5rem 0.25rem 0.85rem;
+    background: var(--mud-palette-background-grey);
+}
+
+.git-auth-help-dialog .git-auth-command-box code {
+    overflow-x: auto;
+    color: var(--mud-palette-text-primary);
+    font-family: var(--mud-typography-default-family);
+    font-size: 0.9rem;
+    white-space: nowrap;
+}
+
+.git-auth-help-dialog .git-auth-error {
+    max-height: 12rem;
+    margin: 0;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 .manual-page {
     min-height: calc(100vh - 8rem);
 }

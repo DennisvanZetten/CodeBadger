@@ -2578,10 +2578,14 @@
     {
         try
         {
-            await JS.InvokeVoidAsync("navigator.clipboard.writeText", value);
+            if (OperatingSystem.IsMacCatalyst())
+                await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.Default.SetTextAsync(value);
+            else
+                await JS.InvokeVoidAsync("navigator.clipboard.writeText", value);
+
             Snackbar.Add(successMessage, Severity.Success);
         }
-        catch (JSException)
+        catch (Exception)
         {
             Snackbar.Add(L.T("Could not copy to clipboard."), Severity.Error);
         }

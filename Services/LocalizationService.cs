@@ -11,6 +11,7 @@ public sealed class LocalizationService
     {
         ["About CodeBadger"] = ["About CodeBadger", "Over CodeBadger", "Über CodeBadger", "À propos de CodeBadger"],
         ["Back to help menu"] = ["Back to help menu", "Terug naar het helpmenu", "Zurück zum Hilfemenü", "Retour au menu d’aide"],
+        ["Back to CodeBadger"] = ["Back to CodeBadger", "Terug naar CodeBadger", "Zurück zu CodeBadger", "Retour à CodeBadger"],
         ["App version"] = ["App version", "App-versie", "App-Version", "Version de l’application"],
         ["Check for updates"] = ["Check for updates", "Controleren op updates", "Nach Updates suchen", "Rechercher des mises à jour"],
         ["Checking for updates..."] = ["Checking for updates...", "Controleren op updates...", "Suche nach Updates...", "Recherche des mises à jour..."],

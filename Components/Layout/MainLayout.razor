@@ -453,14 +453,14 @@ else
 
             if (!showAbout && destination == "manual")
             {
-                if (WindowTitleBar.UsesNativeTitleBar)
+                if (WindowTitleBar.UsesNativeTitleBar || OperatingSystem.IsMacCatalyst())
                     DetachedWindows.OpenManualWindow();
                 else
                     Navigation.NavigateTo("/manual");
             }
             else if (!showAbout && destination == "logs")
             {
-                if (WindowTitleBar.UsesNativeTitleBar)
+                if (WindowTitleBar.UsesNativeTitleBar || OperatingSystem.IsMacCatalyst())
                     DetachedWindows.OpenLogsWindow();
                 else
                     Navigation.NavigateTo("/logs");

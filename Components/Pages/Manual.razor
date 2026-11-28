@@ -1,5 +1,6 @@
 @page "/manual"
 @inject LocalizationService L
+@inject RepositoryDetachedWindowService DetachedWindows
 @implements IDisposable
 
 <PageTitle>@L.T(_selectedManual is null ? "Manuals" : _selectedManual.Title) - CodeBadger</PageTitle>
@@ -8,6 +9,12 @@
     <MudStack Spacing="3">
         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-wrap">
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                @if (OperatingSystem.IsMacCatalyst())
+                {
+                    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack" OnClick="ReturnToCodeBadger">
+                        @L.T("Back to CodeBadger")
+                    </MudButton>
+                }
                 @if (_selectedManual is not null)
                 {
                     <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Color="Color.Default" Size="Size.Small"
@@ -187,6 +194,8 @@
         _error = string.Empty;
         SearchManuals();
     }
+
+    private void ReturnToCodeBadger() => DetachedWindows.CloseUtilityWindow("/manual");
 
     private async Task LoadManualAsync(ManualDefinition manual)
     {

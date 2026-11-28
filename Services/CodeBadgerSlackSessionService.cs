@@ -6,7 +6,8 @@ namespace CodeBadger.Services;
 public sealed class CodeBadgerSlackSessionService(
     CodeBadgerTerminalStateService stateService,
     OpenCodeActivityService openCode,
-    LauncherSettingsService settingsService)
+    LauncherSettingsService settingsService,
+    IEnumerable<ICodeBadgerAgentConnector> agentConnectors)
 {
     public sealed record StartedSession(OpenCodeActivityService.ActiveSession Session, Guid TerminalSessionId,
         string Response);
@@ -40,10 +41,13 @@ public sealed class CodeBadgerSlackSessionService(
             ? CodeBadgerRoles.Orchestrator
             : terminal.Mode == "Build" ? CodeBadgerRoles.Worker : CodeBadgerRoles.Planner;
         var sessionKey = orchestrationMode == CodeBadgerOrchestrationModes.SingleAgent ? "SingleAgent" : finalRole;
-        var openCodeSessionId = terminal.AgentSessionIds.GetValueOrDefault(sessionKey)
-            ?? terminal.AgentSessionIds.Values.FirstOrDefault(value => value.StartsWith("ses_", StringComparison.Ordinal))
-            ?? throw new InvalidOperationException("CodeBadger Terminal did not create an OpenCode session.");
-        var session = new OpenCodeActivityService.ActiveSession(openCodeSessionId,
+        var agentSessionId = terminal.AgentSessionIds.GetValueOrDefault(sessionKey)
+            ?? terminal.AgentSessionIds.GetValueOrDefault(CodeBadgerRoles.Orchestrator)
+            ?? terminal.AgentSessionIds.GetValueOrDefault(CodeBadgerRoles.Worker)
+            ?? terminal.AgentSessionIds.GetValueOrDefault(CodeBadgerRoles.Planner)
+            ?? terminal.AgentSessionIds.Values.FirstOrDefault()
+            ?? throw new InvalidOperationException("CodeBadger Terminal did not create an agent session.");
+        var session = new OpenCodeActivityService.ActiveSession(agentSessionId,
             OpenCodeActivityService.NormalizePath(repository.Path) ?? repository.Path, finalRole == CodeBadgerRoles.Worker ? "build" : "plan", terminal.Title,
             string.IsNullOrWhiteSpace(repository.Name)
                 ? Path.GetFileName(Path.TrimEndingDirectorySeparator(repository.Path)) : repository.Name);
@@ -55,7 +59,7 @@ public sealed class CodeBadgerSlackSessionService(
     {
         var settings = await settingsService.LoadAsync();
         var repository = settings.Repositories.FirstOrDefault(candidate =>
-            candidate.CodeBadgerTerminalEnabled && AgentTools.Normalize(candidate.AgentTool) == AgentTools.OpenCode &&
+            candidate.CodeBadgerTerminalEnabled &&
             string.Equals(OpenCodeActivityService.NormalizePath(candidate.Path),
                 OpenCodeActivityService.NormalizePath(directory), StringComparison.OrdinalIgnoreCase));
         if (repository is null || !Directory.Exists(repository.Path))
@@ -80,12 +84,15 @@ public sealed class CodeBadgerSlackSessionService(
         EnsureSupported(repository);
         if (string.IsNullOrWhiteSpace(prompt) || prompt.Length > 32000)
             throw new ArgumentException("The task must contain between 1 and 32,000 characters.", nameof(prompt));
-        var availableModels = await openCode.GetAvailableModelsAsync(repository.Path, cancellationToken);
-        if (availableModels.Count == 0)
+        var isOpenCode = AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode;
+        var availableModels = AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode
+            ? await openCode.GetAvailableModelsAsync(repository.Path, cancellationToken)
+            : Array.Empty<OpenCodeActivityService.AvailableModel>();
+        if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && availableModels.Count == 0)
             throw new InvalidOperationException("OpenCode did not return any available models for this repository.");
         var preferences = settings.CodeBadgerAgentPreferences ?? CodeBadgerRoles.CreateAgentDefaults();
         CodeBadgerRoles.NormalizeAgentPreferences(preferences);
-        var agentPreferences = preferences.First(item => item.AgentTool == AgentTools.OpenCode);
+        var agentPreferences = preferences.First(item => item.AgentTool == AgentTools.Normalize(repository.AgentTool));
         var role = terminal.Mode == "Build" ? CodeBadgerRoles.Worker : CodeBadgerRoles.Planner;
         var mode = CodeBadgerOrchestrationModes.Normalize(repository.CodeBadgerOrchestrationMode);
         var forceBuild = false;
@@ -108,6 +115,37 @@ public sealed class CodeBadgerSlackSessionService(
         {
             replies.Add(await RunRoleAsync(repository, settings, agentPreferences, terminal, role, prompt,
                 availableModels, cancellationToken));
+        }
+        else if (!isOpenCode)
+        {
+            if (mode == CodeBadgerOrchestrationModes.PlanBuild && terminal.Mode == "Build")
+            {
+                var priorPlan = terminal.Messages.Take(terminal.Messages.Count - 1)
+                    .LastOrDefault(message => message.Role == "assistant" && message.AgentRole == CodeBadgerRoles.Planner &&
+                        PlanBuildHandoff.IsSameRequest(message.SourceRequest, prompt))?.Text;
+                var plan = priorPlan ?? await RunRoleAsync(repository, settings, agentPreferences, terminal,
+                    CodeBadgerRoles.Planner, "First produce an actionable plan for this implementation request. Do not edit files yet.\n\n" + prompt,
+                    availableModels, cancellationToken);
+                if (priorPlan is null && terminal.Messages.LastOrDefault(message => message.Role == "assistant" &&
+                        message.AgentRole == CodeBadgerRoles.Planner) is { } plannerMessage)
+                    plannerMessage.SourceRequest = prompt;
+                replies.Add(await RunRoleAsync(repository, settings, agentPreferences, terminal, CodeBadgerRoles.Worker,
+                    PlanBuildHandoff.CreateWorkerPrompt(prompt, plan), availableModels, cancellationToken));
+            }
+            else
+            {
+                var cliRole = mode == CodeBadgerOrchestrationModes.Full
+                    ? CodeBadgerRoles.Orchestrator : role;
+                replies.Add(await RunRoleAsync(repository, settings, agentPreferences, terminal, cliRole,
+                    prompt, availableModels, cancellationToken));
+                if (mode == CodeBadgerOrchestrationModes.PlanBuild)
+                {
+                    var planMessage = terminal.Messages.LastOrDefault(message => message.Role == "assistant" &&
+                        message.AgentRole == CodeBadgerRoles.Planner);
+                    if (planMessage is not null) planMessage.SourceRequest = prompt;
+                }
+            }
+            terminal.Mode = "Build";
         }
         else if (mode == CodeBadgerOrchestrationModes.SingleAgent)
         {
@@ -190,6 +228,55 @@ public sealed class CodeBadgerSlackSessionService(
         string prompt, IReadOnlyList<OpenCodeActivityService.AvailableModel> availableModels,
         CancellationToken cancellationToken)
     {
+        if (AgentTools.Normalize(repository.AgentTool) != AgentTools.OpenCode)
+        {
+            var connector = agentConnectors.FirstOrDefault(candidate => candidate.Supports(repository.AgentTool))
+                ?? throw new NotSupportedException($"No CodeBadger connector is registered for {AgentTools.GetDisplayName(repository.AgentTool)}.");
+            var modelCatalog = await connector.GetAvailableModelsAsync(repository.Path, cancellationToken);
+            var cliMode = CodeBadgerOrchestrationModes.Normalize(repository.CodeBadgerOrchestrationMode);
+            var rolePreference = agentPreferences.RolePreferences.FirstOrDefault(item => item.Role == role);
+            var cliConfiguredModels = cliMode switch
+            {
+                CodeBadgerOrchestrationModes.SingleAgent => agentPreferences.SingleAgentPreferredModels,
+                CodeBadgerOrchestrationModes.PlanBuild when role == CodeBadgerRoles.Worker => agentPreferences.BuildPreferredModels,
+                CodeBadgerOrchestrationModes.PlanBuild => agentPreferences.PlanPreferredModels,
+                _ => rolePreference?.PreferredModels ?? []
+            };
+            var sessionKey = cliMode == CodeBadgerOrchestrationModes.SingleAgent ? "SingleAgent" : role;
+            var cliModel = terminal.RoleModelOverrides.GetValueOrDefault(sessionKey) ??
+                terminal.AgentSessionModels.GetValueOrDefault(sessionKey) ??
+                cliConfiguredModels.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+            if (!string.IsNullOrWhiteSpace(cliModel) && modelCatalog.Count > 0)
+            {
+                cliModel = modelCatalog.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Reference, cliModel, StringComparison.OrdinalIgnoreCase))?.Reference
+                    ?? throw new InvalidOperationException($"The configured {AgentTools.GetDisplayName(repository.AgentTool)} model '{cliModel}' is not available.");
+            }
+            if (string.IsNullOrWhiteSpace(cliModel))
+                cliModel = modelCatalog.FirstOrDefault(candidate => candidate.IsDefault)?.Reference;
+            if (string.IsNullOrWhiteSpace(cliModel) && modelCatalog.Count > 0)
+                cliModel = modelCatalog[0].Reference;
+            if (string.IsNullOrWhiteSpace(cliModel))
+                cliModel = (await connector.GetDefaultModelAsync(repository.Path, cancellationToken))?.Reference;
+            terminal.AgentSessionIds.TryGetValue(sessionKey, out var oldSessionId);
+            var handoff = terminal.AgentSessionHandoffContext.GetValueOrDefault(sessionKey);
+            var instruction = role == CodeBadgerRoles.Planner
+                ? "CodeBadger role: Planner. Create an actionable plan only; do not edit files.\n\n"
+                : $"CodeBadger role: {role}. Complete the task using the repository and report the result.\n\n";
+            var request = (string.IsNullOrWhiteSpace(handoff) ? string.Empty : handoff + "\nLatest user request:\n") + instruction + prompt;
+            var reply = await connector.SendPromptAsync(repository.Path, oldSessionId, role, request,
+                [], cliModel, null, cancellationToken, null);
+            if (!string.IsNullOrWhiteSpace(handoff)) terminal.AgentSessionHandoffContext.Remove(sessionKey);
+            terminal.AgentSessionIds[sessionKey] = reply.SessionId;
+            if (!string.IsNullOrWhiteSpace(cliModel))
+                terminal.AgentSessionModels[sessionKey] = cliModel;
+            terminal.Messages.Add(new CodeBadgerTerminalMessage
+            {
+                Role = "assistant", AgentRole = role, ModelReference = cliModel ?? string.Empty, Text = reply.Text
+            });
+            return reply.Text;
+        }
+
         var preference = agentPreferences.RolePreferences.FirstOrDefault(item => item.Role == role)
             ?? new CodeBadgerRolePreference { Role = role, AgentType = CodeBadgerRoles.DefaultAgentType(role) };
         var agentOptions = await openCode.GetAvailableAgentOptionsAsync(repository.Path, cancellationToken);
@@ -321,9 +408,9 @@ public sealed class CodeBadgerSlackSessionService(
 
     private static void EnsureSupported(RepositoryEntry repository)
     {
-        if (!repository.CodeBadgerTerminalEnabled || AgentTools.Normalize(repository.AgentTool) != AgentTools.OpenCode)
-            throw new NotSupportedException("CodeBadger Terminal via Slack or Discord is currently supported only when CodeBadger Terminal and OpenCode are enabled in the repository settings.");
-        if (repository.OpenCodeSandboxEnabled)
+        if (!repository.CodeBadgerTerminalEnabled)
+            throw new NotSupportedException("Enable CodeBadger Terminal in the repository settings first.");
+        if (AgentTools.Normalize(repository.AgentTool) == AgentTools.OpenCode && repository.OpenCodeSandboxEnabled)
             throw new NotSupportedException("CodeBadger Terminal via Slack or Discord does not support OpenCode sandbox repositories yet.");
         if (!Directory.Exists(repository.Path))
             throw new DirectoryNotFoundException("The configured repository folder does not exist.");

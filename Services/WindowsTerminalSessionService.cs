@@ -599,7 +599,8 @@ public sealed class WindowsTerminalSessionService : IAsyncDisposable
             : command.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
         var executable = Path.GetFileNameWithoutExtension(token);
         return executable.Equals("claude", StringComparison.OrdinalIgnoreCase) ||
-               executable.Equals("hermes", StringComparison.OrdinalIgnoreCase);
+               executable.Equals("hermes", StringComparison.OrdinalIgnoreCase) ||
+               executable.Equals("codex", StringComparison.OrdinalIgnoreCase);
     }
 
     private void ClearInteractiveAgentActivity(Guid id)

@@ -235,6 +235,8 @@ public sealed class CodeBadgerTerminalSessionState
     public Dictionary<string, long> AgentContextTokens { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, string> AgentContextModels { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, string> RoleModelOverrides { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, string> AgentSessionModels { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, string> AgentSessionHandoffContext { get; set; } = new(StringComparer.Ordinal);
     public List<string> RecentModels { get; set; } = [];
     public List<CodeBadgerTerminalMessage> Messages { get; set; } = [];
     public decimal CostUsd { get; set; }

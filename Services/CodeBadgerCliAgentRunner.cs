@@ -670,6 +670,15 @@ public sealed class CodeBadgerCliAgentRunner(ILogger<CodeBadgerCliAgentRunner> l
             CreateNoWindow = true
         };
 
+        if (agent == AgentTools.Hermes)
+        {
+            // Hermes is a Python CLI and exchanges UTF-8 query text and JSONL on redirected streams.
+            start.StandardInputEncoding = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+            start.StandardOutputEncoding = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+            start.StandardErrorEncoding = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+            start.Environment["PYTHONUTF8"] = "1";
+        }
+
         // Preserve the selected agent's existing config, MCP servers, hooks and skills.
         // Only the narrow command flags needed for non-interactive operation are added.
 

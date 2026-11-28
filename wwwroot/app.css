@@ -1,15 +1,15 @@
+:root {
+    --app-font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
 html, body {
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-family: var(--app-font-family);
 }
 
 /* Mac Catalyst's WebView can render the shared compact UI smaller than Windows. */
 html[data-platform="macos"] {
     font-size: var(--macos-scale, 130%);
-}
-
-html[data-platform="macos"],
-html[data-platform="macos"] body {
-    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    --app-font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
 }
 
 .startup-splash {
@@ -278,6 +278,10 @@ h1:focus {
 
 html[data-platform="macos"] .mud-appbar .appbar-action-button {
     margin-inline: 4px;
+}
+
+.mud-tooltip {
+    font-family: var(--app-font-family);
 }
 
 html[data-platform="macos"] .mud-tooltip {
@@ -3239,6 +3243,37 @@ body.repository-terminal-resizing * {
 }
 
 .repository-codebadger-input-model { display: none !important; }
+
+.repository-codebadger-cursor-debug {
+    margin-top: 0.35rem;
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.75rem;
+}
+
+.repository-codebadger-cursor-debug summary { cursor: pointer; }
+.repository-codebadger-cursor-debug button {
+    margin: 0.35rem 0;
+    padding: 0.2rem 0.5rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 0.3rem;
+    background: var(--mud-palette-surface);
+    color: inherit;
+    cursor: pointer;
+}
+
+.repository-codebadger-cursor-debug textarea {
+    display: block;
+    width: 100%;
+    height: 14rem;
+    padding: 0.4rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 0.3rem;
+    background: var(--mud-palette-surface);
+    color: var(--mud-palette-text-primary);
+    font: 0.7rem/1.4 Consolas, "Cascadia Mono", monospace;
+    resize: vertical;
+    white-space: pre;
+}
 
 .repository-codebadger-input-row > .mud-icon-button {
     flex: 0 0 auto;

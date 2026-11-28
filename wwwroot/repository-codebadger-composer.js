@@ -1,5 +1,77 @@
 const observers = new WeakMap();
 const activeComposerRoots = new Set();
+const cursorDiagnostics = new WeakMap();
+const cursorDebugVersion = "cursor-debug-1";
+
+function debugNodePath(editor, node) {
+    if (!node) return "none";
+    if (node === editor) return "editor";
+    const path = [];
+    for (let current = node; current && current !== editor; current = current.parentNode) {
+        if (!current.parentNode) return "outside";
+        path.unshift(Array.prototype.indexOf.call(current.parentNode.childNodes, current));
+    }
+    return editor.contains(node) ? path.join(".") : "outside";
+}
+
+function debugNodeShape(node, depth = 0) {
+    if (node.nodeType === Node.TEXT_NODE) return `text(${node.length})`;
+    if (isChip(node)) return `chip(${(node.dataset.pasteText ?? "").length})`;
+    if (node.nodeType !== Node.ELEMENT_NODE) return `node(${node.nodeType})`;
+    return `${node.tagName.toLowerCase()}${depth < 3
+        ? `[${Array.from(node.childNodes).map(child => debugNodeShape(child, depth + 1)).join(",")}]` : ""}`;
+}
+
+function traceCursor(editor, event, detail = "") {
+    const debug = cursorDiagnostics.get(editor);
+    if (!debug?.panel.open || !editor.isConnected) return;
+    const selection = window.getSelection();
+    const selectionPosition = selection
+        ? `${debugNodePath(editor, selection.anchorNode)}:${selection.anchorOffset} -> ${debugNodePath(editor, selection.focusNode)}:${selection.focusOffset} collapsed=${selection.isCollapsed}`
+        : "none";
+    const rectText = rect => rect ? `${Math.round(rect.x)},${Math.round(rect.y)} ${Math.round(rect.width)}x${Math.round(rect.height)}` : "none";
+    const rangeRect = selection?.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
+    const model = getModel(editor);
+    const text = getEditorText(editor, true);
+    debug.lines.push(`${(++debug.sequence).toString().padStart(3, "0")} +${Math.round(performance.now() - debug.started)}ms ${event} ${detail}\n` +
+        `  selection=${selectionPosition} focus=${document.activeElement === editor ? "editor" : document.activeElement?.tagName}\n` +
+        `  rangeRect=${rectText(rangeRect)} editorRect=${rectText(editor.getBoundingClientRect())} scroll=${editor.scrollLeft},${editor.scrollTop}\n` +
+        `  lengths editor=${text.length} model=${model?.value.length ?? -1} synced=${editor.dataset.syncedValue?.length ?? -1} matchesModel=${text === model?.value}\n` +
+        `  DOM=${Array.from(editor.childNodes).map(node => debugNodeShape(node)).join(" | ")}`);
+    if (debug.lines.length > 100) debug.lines.shift();
+    debug.output.value = `${cursorDebugVersion} | ${navigator.userAgent}\nNo input text is recorded.\n\n${debug.lines.join("\n")}`;
+    debug.output.scrollTop = debug.output.scrollHeight;
+}
+
+function attachCursorDebug(editor) {
+    if (cursorDiagnostics.has(editor)) return;
+    const panel = document.createElement("details");
+    panel.className = "repository-codebadger-cursor-debug";
+    const summary = document.createElement("summary");
+    summary.textContent = `Cursor debug (${cursorDebugVersion})`;
+    const hint = document.createElement("div");
+    hint.textContent = "Open to record. Reproduce the cursor jump, then press Backspace once more. Select and copy the log below. No input text is recorded.";
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.textContent = "Clear log";
+    const output = document.createElement("textarea");
+    output.readOnly = true;
+    output.rows = 10;
+    output.setAttribute("aria-label", "Cursor debug log");
+    const debug = { panel, output, lines: [], sequence: 0, started: performance.now() };
+    cursorDiagnostics.set(editor, debug);
+    reset.addEventListener("click", () => {
+        debug.lines = [];
+        debug.sequence = 0;
+        debug.started = performance.now();
+        traceCursor(editor, "reset");
+    });
+    panel.addEventListener("toggle", () => {
+        if (panel.open) traceCursor(editor, "debug-open");
+    });
+    panel.append(summary, hint, reset, output);
+    editor.closest(".repository-codebadger-editor")?.append(panel);
+}
 
 function getEditor(target) {
     return target?.closest?.(".repository-codebadger-input");
@@ -41,16 +113,20 @@ function syncModel(editor, editorChanged = true) {
     // Treat that as a model-originated update and rebuild plain text, rather than
     // retaining DOM-only chips whose source content no longer exists.
     if (!editorChanged && lastValue !== undefined && model.value !== lastValue) {
+        traceCursor(editor, "syncModel-replace-before");
         editor.replaceChildren(...(model.value ? [document.createTextNode(model.value)] : []));
         editor.dataset.syncedValue = model.value;
+        traceCursor(editor, "syncModel-replace-after");
         return;
     }
 
     const value = editorChanged || lastValue === undefined ? editorValue : model.value;
     editor.dataset.syncedValue = value;
     if (model.value !== value) {
+        traceCursor(editor, "model-input-before");
         model.value = value;
         model.dispatchEvent(new Event("input", { bubbles: true }));
+        traceCursor(editor, "model-input-after");
     }
 }
 
@@ -211,53 +287,23 @@ function getAdjacentChip(selection, editor, direction) {
     return null;
 }
 
-function removeChipAtCaret(editor, chip, direction) {
+function selectChipForDeletion(editor, chip) {
+    traceCursor(editor, "chip-select-before");
     closePastePreview(editor.closest(".repository-terminal-stack"));
-    const previous = chip.previousSibling;
-    const next = chip.nextSibling;
-    chip.remove();
-
-    let caretNode;
-    let caretOffset;
-    if (direction < 0 && previous?.nodeType === Node.TEXT_NODE) {
-        caretNode = previous;
-        caretOffset = previous.length;
-    } else if (direction > 0 && next?.nodeType === Node.TEXT_NODE) {
-        caretNode = next;
-        caretOffset = 0;
-    } else if (previous?.nodeType === Node.TEXT_NODE) {
-        caretNode = previous;
-        caretOffset = previous.length;
-    } else if (next?.nodeType === Node.TEXT_NODE) {
-        caretNode = next;
-        caretOffset = 0;
-    } else {
-        caretNode = document.createTextNode("");
-        editor.append(caretNode);
-        caretOffset = 0;
-    }
-
-    if (previous?.nodeType === Node.TEXT_NODE && next?.nodeType === Node.TEXT_NODE && previous.parentNode === editor) {
-        const previousLength = previous.length;
-        previous.appendData(next.data);
-        if (caretNode === next) {
-            caretNode = previous;
-            caretOffset = previousLength;
-        }
-        next.remove();
-    }
-
-    // The editor remains focused when Backspace/Delete is used; avoid resetting
-    // the just-restored selection in WebViews that place the caret at the start.
-    if (document.activeElement !== editor)
-        editor.focus({ preventScroll: true });
     const selection = window.getSelection();
+    if (!selection) return;
     const range = document.createRange();
-    range.setStart(caretNode, Math.min(caretOffset, caretNode.length ?? caretNode.childNodes.length));
-    range.collapse(true);
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-    syncModel(editor, true);
+    range.selectNode(chip);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    traceCursor(editor, "chip-select-after");
+    requestAnimationFrame(() => {
+        traceCursor(editor, "chip-frame-1");
+        requestAnimationFrame(() => traceCursor(editor, "chip-frame-2"));
+    });
+    // Do not cancel the key's default action: the browser deletes this selection
+    // through its native editing transaction, updating caret painting and undo.
+    // The resulting input event synchronizes the full text with Blazor.
 }
 
 function commandOptions(editor) {
@@ -353,6 +399,7 @@ export function attach(root, dotNetReference) {
     const onInput = event => {
         const editor = getEditor(event.target);
         if (!editor) return;
+        traceCursor(editor, "input-before", event.inputType ?? "");
         delete editor.dataset.commandAutocompleteDismissed;
         delete editor.dataset.commandSelection;
         const list = editor.closest(".repository-codebadger-composer")
@@ -367,6 +414,7 @@ export function attach(root, dotNetReference) {
         const input = getEditorText(editor, true).trimStart();
         if (/^\/model(?:\s|$)/i.test(input))
             dotNetReference.invokeMethodAsync("LoadTerminalModelSuggestionsAsync", editor.dataset.sessionId);
+        traceCursor(editor, "input-after", event.inputType ?? "");
     };
     const onPointerDown = event => {
         const editor = getEditor(event.target);
@@ -375,6 +423,7 @@ export function attach(root, dotNetReference) {
     };
     const onClick = event => {
         const target = event.target;
+        if (target.closest?.(".repository-codebadger-cursor-debug")) return;
         const previewButton = target.closest?.(".repository-codebadger-paste-preview-toggle");
         if (previewButton) {
             event.preventDefault();
@@ -416,15 +465,16 @@ export function attach(root, dotNetReference) {
     const onKeyDown = event => {
         const editor = getEditor(event.target);
         if (!editor || event.isComposing) return;
+        traceCursor(editor, "keydown", ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Enter"].includes(event.key) ? event.key : "other-key");
         if (event.key === "Escape" && !observers.get(root)?.previewPanel?.hidden) {
             closePastePreview(root);
             return;
         }
-        if (event.key === "Backspace" || event.key === "Delete") {
+        if ((event.key === "Backspace" || event.key === "Delete") &&
+            !event.target.closest?.("button") && editor.isContentEditable) {
             const chip = getAdjacentChip(window.getSelection(), editor, event.key === "Backspace" ? -1 : 1);
             if (chip) {
-                event.preventDefault();
-                removeChipAtCaret(editor, chip, event.key === "Backspace" ? -1 : 1);
+                selectChipForDeletion(editor, chip);
                 return;
             }
         }
@@ -480,6 +530,20 @@ export function attach(root, dotNetReference) {
         dotNetReference.invokeMethodAsync("SubmitTerminalInputAsync", editor.dataset.sessionId,
             getEditorText(editor, true));
     };
+    const onBeforeInput = event => {
+        const editor = getEditor(event.target);
+        if (editor) traceCursor(editor, "beforeinput", `${event.inputType} prevented=${event.defaultPrevented}`);
+    };
+    const onKeyUp = event => {
+        const editor = getEditor(event.target);
+        if (editor) traceCursor(editor, "keyup", ["Backspace", "Delete"].includes(event.key) ? event.key : "other-key");
+    };
+    const onSelectionChange = () => {
+        const selection = window.getSelection();
+        const node = selection?.anchorNode;
+        const editor = getEditor(node?.nodeType === Node.TEXT_NODE ? node.parentElement : node);
+        if (editor && root.contains(editor)) traceCursor(editor, "selectionchange");
+    };
     const onPaste = async event => {
         const editor = getEditor(event.target);
         if (!editor) return;
@@ -511,6 +575,7 @@ export function attach(root, dotNetReference) {
         }
     };
     const scan = (editorChanged = false) => root.querySelectorAll(".repository-codebadger-input").forEach(editor => {
+        attachCursorDebug(editor);
         const model = getModel(editor);
         if (editor.dataset.syncedValue === undefined) {
             if (model?.value) editor.append(document.createTextNode(model.value));
@@ -518,8 +583,10 @@ export function attach(root, dotNetReference) {
         } else if (!editorChanged && model) {
             const currentText = getEditorText(editor, true);
             if (model.value !== editor.dataset.syncedValue || currentText !== model.value) {
+                traceCursor(editor, "scan-replace-before");
                 editor.replaceChildren(...(model.value ? [document.createTextNode(model.value)] : []));
                 editor.dataset.syncedValue = model.value;
+                traceCursor(editor, "scan-replace-after");
             }
         }
     });
@@ -570,9 +637,14 @@ export function attach(root, dotNetReference) {
     root.addEventListener("pointerdown", onPointerDown, true);
     root.addEventListener("click", onClick);
     root.addEventListener("keydown", onKeyDown);
+    root.addEventListener("keyup", onKeyUp);
+    root.addEventListener("beforeinput", onBeforeInput);
+    document.addEventListener("selectionchange", onSelectionChange);
     root.addEventListener("paste", onPaste);
     const observer = new MutationObserver(records => {
         for (const record of records) {
+            const editor = getEditor(record.target.nodeType === Node.TEXT_NODE ? record.target.parentElement : record.target);
+            if (editor) traceCursor(editor, "mutation", `${record.type} added=${record.addedNodes.length} removed=${record.removedNodes.length}`);
             for (const node of record.addedNodes) {
                 if (node.nodeType !== Node.ELEMENT_NODE) continue;
                 if (node.matches?.(".repository-codebadger-input")) scan(false);
@@ -580,9 +652,9 @@ export function attach(root, dotNetReference) {
             }
         }
     });
-    observer.observe(root, { childList: true, subtree: true });
+    observer.observe(root, { childList: true, characterData: true, subtree: true });
     scan();
-    Object.assign(observers.get(root), { observer, onInput, onPointerDown, onClick, onKeyDown, onPaste, onPreviewScroll, onAnyPreviewClick, onDocumentKeyDown });
+    Object.assign(observers.get(root), { observer, onInput, onPointerDown, onClick, onKeyDown, onKeyUp, onBeforeInput, onSelectionChange, onPaste, onPreviewScroll, onAnyPreviewClick, onDocumentKeyDown });
 }
 
 export function clear(root, sessionId) {
@@ -602,8 +674,12 @@ export function sync(root) {
         if (!model) continue;
         if (editor.dataset.syncedValue === undefined || editor.dataset.syncedValue !== model.value ||
             getEditorText(editor, true) !== model.value) {
+            traceCursor(editor, "render-sync-replace-before");
             editor.replaceChildren(...(model.value ? [document.createTextNode(model.value)] : []));
             editor.dataset.syncedValue = model.value;
+            traceCursor(editor, "render-sync-replace-after");
+        } else {
+            traceCursor(editor, "render-sync-unchanged");
         }
     }
 }
@@ -623,6 +699,13 @@ export function detach(root) {
     root.removeEventListener("pointerdown", state.onPointerDown, true);
     root.removeEventListener("click", state.onClick);
     root.removeEventListener("keydown", state.onKeyDown);
+    root.removeEventListener("keyup", state.onKeyUp);
+    root.removeEventListener("beforeinput", state.onBeforeInput);
+    document.removeEventListener("selectionchange", state.onSelectionChange);
+    for (const editor of root.querySelectorAll(".repository-codebadger-input")) {
+        cursorDiagnostics.get(editor)?.panel.remove();
+        cursorDiagnostics.delete(editor);
+    }
     root.removeEventListener("paste", state.onPaste);
     observers.delete(root);
 }

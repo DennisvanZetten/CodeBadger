@@ -193,8 +193,24 @@ else
         _theme = LauncherThemes.Get(settings.Theme);
         WindowTitleBar.ApplyTheme(_theme);
         Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
+        await ApplyMacOsScaleAsync(settings.MacOsScalePercent);
         StateHasChanged();
     });
+
+    private async Task ApplyMacOsScaleAsync(int scalePercent)
+    {
+        if (!OperatingSystem.IsMacCatalyst())
+            return;
+
+        try
+        {
+            await JS.InvokeVoidAsync("codeBadger.setMacOsScale", Math.Clamp(scalePercent, 100, 160));
+        }
+        catch (JSException)
+        {
+            // Platform-specific styling must never prevent the main page from rendering.
+        }
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -297,6 +313,7 @@ else
         _theme = LauncherThemes.Get(settings.Theme);
         WindowTitleBar.ApplyTheme(_theme);
         Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
+        await ApplyMacOsScaleAsync(settings.MacOsScalePercent);
         _isStarting = false;
         await InvokeAsync(StateHasChanged);
     }
@@ -308,6 +325,7 @@ else
         _theme = LauncherThemes.Get(settings.Theme);
         WindowTitleBar.ApplyTheme(_theme);
         Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
+        await ApplyMacOsScaleAsync(settings.MacOsScalePercent);
         await InvokeAsync(StateHasChanged);
     }
 
@@ -321,6 +339,7 @@ else
             _theme = LauncherThemes.Get(settings.Theme);
             WindowTitleBar.ApplyTheme(_theme);
             Snackbar.Configuration.VisibleStateDuration = settings.ToastDurationSeconds * 1000;
+            await ApplyMacOsScaleAsync(settings.MacOsScalePercent);
 
             if (!settings.Repositories.Any(repository => repository.IsActive))
             {

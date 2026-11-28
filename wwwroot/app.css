@@ -4,7 +4,7 @@ html, body {
 
 /* Mac Catalyst's WebView can render the shared compact UI smaller than Windows. */
 html[data-platform="macos"] {
-    font-size: 130%;
+    font-size: var(--macos-scale, 130%);
 }
 
 html[data-platform="macos"],

@@ -6,6 +6,7 @@ public sealed class LauncherSettings
 {
     public string Language { get; set; } = "en";
     public string Theme { get; set; } = "midnight";
+    public int MacOsScalePercent { get; set; } = 130;
     public bool CompletionSoundEnabled { get; set; } = true;
     public string CompletionSound { get; set; } = "bell";
     public bool QuestionSoundEnabled { get; set; } = true;

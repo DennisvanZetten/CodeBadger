@@ -223,6 +223,8 @@ public sealed class LocalizationService
         ["Logging"] = ["Logging", "Logging", "Protokollierung", "Journalisation"],
         ["General"] = ["General", "Algemeen", "Allgemein", "Général"],
         ["General settings"] = ["General settings", "Algemene instellingen", "Allgemeine Einstellungen", "Paramètres généraux"],
+        ["macOS interface scale"] = ["macOS interface scale", "Schaal van de macOS-interface", "Skalierung der macOS-Oberfläche", "Échelle de l’interface macOS"],
+        ["Adjust the size of the app interface on macOS. Windows is not affected."] = ["Adjust the size of the app interface on macOS. Windows is not affected.", "Pas de grootte van de app-interface op macOS aan. Windows wordt niet beïnvloed.", "Passen Sie die Größe der App-Oberfläche unter macOS an. Windows ist nicht betroffen.", "Ajustez la taille de l’interface de l’application sur macOS. Windows n’est pas affecté."],
         ["Git"] = ["Git", "Git", "Git", "Git"],
         ["Notifications"] = ["Notifications", "Notificaties", "Benachrichtigungen", "Notifications"],
         ["AI"] = ["AI", "AI", "KI", "IA"],

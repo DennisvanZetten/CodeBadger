@@ -41,6 +41,14 @@
                             <MudSelectItem T="string" Value="@theme.Id">@theme.Name (@L.T(theme.IsDark ? "Dark" : "Light"))</MudSelectItem>
                         }
                     </MudSelect>
+                    @if (OperatingSystem.IsMacCatalyst())
+                    {
+                        <MudStack Spacing="1">
+                            <MudText Typo="Typo.body2">@L.T("macOS interface scale"): @Settings.MacOsScalePercent%</MudText>
+                            <MudSlider T="int" @bind-Value="Settings.MacOsScalePercent" Min="100" Max="160" Step="5" Color="Color.Primary" />
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.T("Adjust the size of the app interface on macOS. Windows is not affected.")</MudText>
+                        </MudStack>
+                    }
                     <MudNumericField T="int" @bind-Value="Settings.ToastDurationSeconds" Label="@L.T("Toast duration (seconds)")"
                                      Min="1" Max="10" Margin="Margin.Dense" Variant="Variant.Outlined" />
                     <MudDivider Class="my-2" />

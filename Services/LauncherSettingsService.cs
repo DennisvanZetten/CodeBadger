@@ -49,6 +49,7 @@ public sealed class LauncherSettingsService
             _localization.SetLanguage(settings.Language);
             settings.Language = _localization.CurrentLanguage;
             settings.Theme = LauncherThemes.Get(settings.Theme).Id;
+            settings.MacOsScalePercent = NormalizeMacOsScalePercent(settings.MacOsScalePercent);
             settings.CompletionSound = CompletionSounds.Normalize(settings.CompletionSound);
             settings.QuestionSound = CompletionSounds.Normalize(settings.QuestionSound);
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
@@ -103,6 +104,7 @@ public sealed class LauncherSettingsService
         {
             settings.Language = LocalizationService.NormalizeLanguage(settings.Language);
             settings.Theme = LauncherThemes.Get(settings.Theme).Id;
+            settings.MacOsScalePercent = NormalizeMacOsScalePercent(settings.MacOsScalePercent);
             settings.CompletionSound = CompletionSounds.Normalize(settings.CompletionSound);
             settings.QuestionSound = CompletionSounds.Normalize(settings.QuestionSound);
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
@@ -174,6 +176,9 @@ public sealed class LauncherSettingsService
 
     private static double NormalizeCodeBadgerChatScale(double scale) =>
         Math.Round(Math.Clamp(double.IsFinite(scale) ? scale : 1.0, 0.7, 1.5), 1);
+
+    private static int NormalizeMacOsScalePercent(int scalePercent) =>
+        Math.Clamp(scalePercent, 100, 160);
 
     private static void MigrateLegacyTicketSettings(JsonNode? root)
     {

@@ -3227,6 +3227,57 @@ body.repository-terminal-resizing * {
     gap: 0.65rem;
 }
 
+.repository-codebadger-editor {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.repository-codebadger-input[hidden],
+.repository-codebadger-paste-summary[hidden],
+.repository-codebadger-paste-preview[hidden] {
+    display: none;
+}
+
+.repository-codebadger-paste-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+    min-height: 2.5rem;
+    padding: 0.25rem 0.4rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, var(--mud-palette-surface) 88%, var(--mud-palette-primary));
+    color: var(--mud-palette-text-secondary);
+    cursor: text;
+}
+
+.repository-codebadger-paste-summary-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-left: 0.35rem;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 0.85rem;
+}
+
+.repository-codebadger-paste-summary .mud-icon-button {
+    flex: 0 0 auto;
+}
+
+.repository-codebadger-paste-preview {
+    max-height: min(40vh, 16rem);
+    overflow: auto;
+    margin: 0.35rem 0 0;
+    padding: 0.6rem;
+    border: 1px solid var(--mud-palette-divider);
+    border-radius: 0.4rem;
+    background: var(--mud-palette-surface);
+    color: var(--mud-palette-text-secondary);
+    font: inherit;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 .repository-codebadger-input-row > .mud-icon-button {
     flex: 0 0 auto;
     margin-top: 0.25rem;

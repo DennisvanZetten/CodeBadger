@@ -1,8 +1,49 @@
 const observers = new WeakMap();
 
 function resize(textarea) {
+    if (textarea.dataset.pasteCollapsed === "true") return;
     textarea.style.height = "auto";
     textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
+}
+
+function setPastePreview(textarea, open) {
+    const editor = textarea.closest(".repository-codebadger-editor");
+    const button = editor?.querySelector(".repository-codebadger-paste-preview-toggle");
+    const preview = editor?.querySelector(".repository-codebadger-paste-preview");
+    if (!button || !preview) return;
+    preview.hidden = !open;
+    button.setAttribute("aria-expanded", String(open));
+    if (open) preview.textContent = textarea.value;
+}
+
+function collapsePastedText(textarea) {
+    const threshold = Number.parseInt(textarea.dataset.pasteCollapseThreshold ?? "0", 10);
+    if (!(threshold > 0) || textarea.value.length < threshold) return;
+    const editor = textarea.closest(".repository-codebadger-editor");
+    const summary = editor?.querySelector(".repository-codebadger-paste-summary");
+    const label = summary?.querySelector(".repository-codebadger-paste-summary-label");
+    if (!summary || !label) return;
+    const lineCount = textarea.value.split("\n").length;
+    const format = lineCount === 1
+        ? textarea.dataset.pastedSummarySingular ?? "{0} line"
+        : textarea.dataset.pastedSummaryPlural ?? "{0} lines";
+    label.textContent = `[${format.replace("{0}", String(lineCount))}]`;
+    textarea.dataset.pasteCollapsed = "true";
+    textarea.hidden = true;
+    summary.hidden = false;
+    summary.focus({ preventScroll: true });
+    setPastePreview(textarea, false);
+}
+
+function expandPastedText(textarea) {
+    const editor = textarea.closest(".repository-codebadger-editor");
+    textarea.dataset.pasteCollapsed = "false";
+    textarea.hidden = false;
+    const summary = editor?.querySelector(".repository-codebadger-paste-summary");
+    if (summary) summary.hidden = true;
+    setPastePreview(textarea, false);
+    resize(textarea);
+    textarea.focus({ preventScroll: true });
 }
 
 function commandOptions(textarea) {
@@ -87,6 +128,10 @@ export function attach(root, dotNetReference) {
                 ?.querySelector(".repository-command-autocomplete");
             if (list) list.hidden = false;
             resize(textarea);
+            if (textarea.dataset.collapseAfterPaste === "true") {
+                delete textarea.dataset.collapseAfterPaste;
+                collapsePastedText(textarea);
+            }
         }
     };
     const onPointerDown = event => {
@@ -96,6 +141,29 @@ export function attach(root, dotNetReference) {
     };
     const onClick = event => {
         const target = event.target;
+        const previewButton = target.closest?.(".repository-codebadger-paste-preview-toggle");
+        if (previewButton) {
+            event.preventDefault();
+            const textarea = previewButton.closest(".repository-codebadger-editor")
+                ?.querySelector(".repository-codebadger-input");
+            if (textarea) setPastePreview(textarea, previewButton.getAttribute("aria-expanded") !== "true");
+            return;
+        }
+        const editButton = target.closest?.(".repository-codebadger-paste-edit");
+        if (editButton) {
+            event.preventDefault();
+            const textarea = editButton.closest(".repository-codebadger-editor")
+                ?.querySelector(".repository-codebadger-input");
+            if (textarea) expandPastedText(textarea);
+            return;
+        }
+        const pasteSummary = target.closest?.(".repository-codebadger-paste-summary");
+        if (pasteSummary && !target.closest("button")) {
+            const textarea = pasteSummary.closest(".repository-codebadger-editor")
+                ?.querySelector(".repository-codebadger-input");
+            if (textarea) expandPastedText(textarea);
+            return;
+        }
         const commandOption = target.closest?.(".repository-command-autocomplete-option");
         if (commandOption) {
             event.preventDefault();
@@ -123,8 +191,21 @@ export function attach(root, dotNetReference) {
             textarea.focus({ preventScroll: true });
     };
     const onKeyDown = event => {
-        const textarea = event.target.closest?.(".repository-codebadger-input");
+        const summary = event.target.closest?.(".repository-codebadger-paste-summary");
+        const textarea = event.target.closest?.(".repository-codebadger-input")
+            ?? summary?.closest(".repository-codebadger-editor")?.querySelector(".repository-codebadger-input");
         if (!textarea || event.isComposing) return;
+        if (summary) {
+            if (event.target.closest?.("button")) return;
+            if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                dotNetReference.invokeMethodAsync("SubmitTerminalInputAsync", textarea.dataset.sessionId);
+            } else if (event.key === "Escape") {
+                event.preventDefault();
+                expandPastedText(textarea);
+            }
+            return;
+        }
         const options = commandOptions(textarea);
         if (options.length && !textarea.dataset.commandAutocompleteDismissed) {
             const selectedIndex = Number.parseInt(textarea.dataset.commandSelection ?? "-1", 10);
@@ -169,6 +250,8 @@ export function attach(root, dotNetReference) {
     const onPaste = async event => {
         const textarea = event.target.closest?.(".repository-codebadger-input");
         if (!textarea) return;
+        if ((event.clipboardData?.getData("text/plain") ?? "").length > 0)
+            textarea.dataset.collapseAfterPaste = "true";
         const images = Array.from(event.clipboardData?.items ?? [])
             .filter(item => item.kind === "file" && item.type.startsWith("image/"));
         if (!images.length) return;
@@ -206,6 +289,13 @@ export function clear(root, sessionId) {
     const textarea = root?.querySelector(`.repository-codebadger-input[data-session-id="${sessionId}"]`);
     if (!textarea) return;
     textarea.value = "";
+    delete textarea.dataset.pasteCollapsed;
+    delete textarea.dataset.collapseAfterPaste;
+    textarea.hidden = false;
+    const editor = textarea.closest(".repository-codebadger-editor");
+    const summary = editor?.querySelector(".repository-codebadger-paste-summary");
+    if (summary) summary.hidden = true;
+    setPastePreview(textarea, false);
     resize(textarea);
 }
 

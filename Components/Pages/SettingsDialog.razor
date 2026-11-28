@@ -51,6 +51,10 @@
                     }
                     <MudNumericField T="int" @bind-Value="Settings.ToastDurationSeconds" Label="@L.T("Toast duration (seconds)")"
                                      Min="1" Max="10" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                    <MudNumericField T="int" @bind-Value="Settings.CodeBadgerPasteCollapseThreshold"
+                                     Label="@L.T("Long pasted text collapse threshold (characters)")"
+                                     HelperText="@L.T("Long pasted text is collapsed after this many characters. Set to 0 to disable.")"
+                                     Min="0" Max="100000" Margin="Margin.Dense" Variant="Variant.Outlined" />
                     <MudDivider Class="my-2" />
                     <MudSelect T="string" Label="@L.T("Completion sound")" Margin="Margin.Dense" Variant="Variant.Outlined" @bind-Value="Settings.CompletionSound" @bind-Value:after="PreviewSoundAsync" Disabled="@(!Settings.CompletionSoundEnabled)">
                         @foreach (var sound in CompletionSounds.All)

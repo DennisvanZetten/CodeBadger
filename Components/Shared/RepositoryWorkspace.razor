@@ -557,11 +557,27 @@
                                         }
                                         <div class="repository-codebadger-input-row">
                                             <span class="repository-codebadger-prompt" aria-hidden="true">›</span>
-                                            <textarea class="repository-codebadger-input" data-session-id="@session.Id" rows="1" autocomplete="off" spellcheck="false"
-                                                      data-mode-toggle-enabled="@(CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.Full ? "true" : "false")"
-                                                      disabled="@session.IsRotatingAgentRole"
-                                                      aria-label="@L.T("Universal command")" placeholder="@L.T("Ask anything or type /help for commands...")"
-                                                      @bind="session.Input" @bind:event="oninput"></textarea>
+                                            <div class="repository-codebadger-editor">
+                                                <textarea class="repository-codebadger-input" data-session-id="@session.Id"
+                                                          data-paste-collapse-threshold="@_settings.CodeBadgerPasteCollapseThreshold"
+                                                          data-pasted-summary-singular="@L.T("{0} line")"
+                                                          data-pasted-summary-plural="@L.T("{0} lines")"
+                                                          rows="1" autocomplete="off" spellcheck="false"
+                                                          data-mode-toggle-enabled="@(CodeBadgerOrchestrationModes.Normalize(Repository.CodeBadgerOrchestrationMode) != CodeBadgerOrchestrationModes.Full ? "true" : "false")"
+                                                          disabled="@session.IsRotatingAgentRole"
+                                                          aria-label="@L.T("Universal command")" placeholder="@L.T("Ask anything or type /help for commands...")"
+                                                          @bind="session.Input" @bind:event="oninput"></textarea>
+                                                <div class="repository-codebadger-paste-summary" role="group" tabindex="-1" hidden>
+                                                    <span class="repository-codebadger-paste-summary-label"></span>
+                                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Visibility"
+                                                                   Class="repository-codebadger-paste-preview-toggle"
+                                                                   aria-label="@L.T("Preview pasted text")" aria-expanded="false" />
+                                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit"
+                                                                   Class="repository-codebadger-paste-edit"
+                                                                   aria-label="@L.T("Edit pasted text")" />
+                                                </div>
+                                                <pre class="repository-codebadger-paste-preview" hidden></pre>
+                                            </div>
                                             <MudTooltip Text="@L.T("Show terminal commands")">
                                                 <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.HelpOutline"
                                                                 Color="Color.Default"
@@ -1183,6 +1199,14 @@
     {
         public int Percent => (int)Math.Clamp(Math.Round(Used * 100d / Limit), 0, 100);
     }
+
+    protected override void OnInitialized() => SettingsService.SettingsSaved += HandleSettingsSaved;
+
+    private void HandleSettingsSaved() => _ = InvokeAsync(async () =>
+    {
+        _settings = await SettingsService.LoadAsync();
+        StateHasChanged();
+    });
 
     protected override async Task OnParametersSetAsync()
     {
@@ -3428,6 +3452,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        SettingsService.SettingsSaved -= HandleSettingsSaved;
         _isDisposed = true;
         _agentStatusRotationTimer?.Dispose();
         _agentStatusRotationTimer = null;

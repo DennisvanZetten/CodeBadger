@@ -62,6 +62,7 @@ public sealed class LauncherSettingsService
             settings.QuestionSound = CompletionSounds.Normalize(settings.QuestionSound);
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
             settings.CodeBadgerChatScale = NormalizeCodeBadgerChatScale(settings.CodeBadgerChatScale);
+            settings.CodeBadgerPasteCollapseThreshold = NormalizeCodeBadgerPasteCollapseThreshold(settings.CodeBadgerPasteCollapseThreshold);
             NormalizeLogSettings(settings);
             settings.GitOverviewStartSize = NormalizeGitOverviewStartSize(settings.GitOverviewStartSize);
             settings.AiConflictModel = string.IsNullOrWhiteSpace(settings.AiConflictModel) ? settings.AiModel : settings.AiConflictModel;
@@ -125,6 +126,7 @@ public sealed class LauncherSettingsService
             settings.QuestionSound = CompletionSounds.Normalize(settings.QuestionSound);
             settings.ToastDurationSeconds = Math.Clamp(settings.ToastDurationSeconds, 1, 10);
             settings.CodeBadgerChatScale = NormalizeCodeBadgerChatScale(settings.CodeBadgerChatScale);
+            settings.CodeBadgerPasteCollapseThreshold = NormalizeCodeBadgerPasteCollapseThreshold(settings.CodeBadgerPasteCollapseThreshold);
             NormalizeLogSettings(settings);
             settings.GitOverviewStartSize = NormalizeGitOverviewStartSize(settings.GitOverviewStartSize);
             settings.AiConflictModel = string.IsNullOrWhiteSpace(settings.AiConflictModel) ? settings.AiModel : settings.AiConflictModel;
@@ -199,6 +201,9 @@ public sealed class LauncherSettingsService
 
     private static double NormalizeCodeBadgerChatScale(double scale) =>
         Math.Round(Math.Clamp(double.IsFinite(scale) ? scale : 1.0, 0.7, 1.5), 1);
+
+    private static int NormalizeCodeBadgerPasteCollapseThreshold(int threshold) =>
+        Math.Clamp(threshold, 0, 100_000);
 
     private static int NormalizeMacOsScalePercent(int scalePercent) =>
         Math.Clamp(scalePercent, 100, 160);

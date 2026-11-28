@@ -3,6 +3,7 @@
 @inject ApplicationLogService LogService
 @inject LocalizationService L
 @inject RepositoryDetachedWindowService DetachedWindows
+@inject ISnackbar Snackbar
 @inject IJSRuntime JS
 
 <PageTitle>@L.T("Application logs") - CodeBadger</PageTitle>
@@ -79,6 +80,11 @@
                                         {
                                             <details class="log-exception"><summary>@L.T("Exception details")</summary><pre>@entry.Exception</pre></details>
                                         }
+                                        <MudTooltip Text="@L.T("Copy to clipboard")">
+                                            <MudIconButton Class="log-copy-button" Size="Size.Small" Icon="@Icons.Material.Filled.ContentCopy"
+                                                           aria-label="@L.T("Copy to clipboard")"
+                                                           OnClick="@(args => OpenCopyMenu(entry, category, args))" />
+                                        </MudTooltip>
                                     </div>
                                 }
                             }
@@ -90,6 +96,21 @@
         </MudTabs>
     </MudStack>
 </MudContainer>
+@if (_copyMenuEntry is not null)
+{
+    <div class="git-context-menu-backdrop log-copy-menu-backdrop" @onclick="CloseCopyMenu" @oncontextmenu:preventDefault="true"></div>
+    <div class="git-commit-context-menu log-copy-menu" style="left:@(_copyMenuX)px;top:@(_copyMenuY)px" @onclick:stopPropagation="true">
+        <div class="git-commit-context-menu-section-label">@L.T("Copy to clipboard")</div>
+        <button class="git-commit-context-menu-item" @onclick="CopyFullEntryAsync">
+            <MudIcon Icon="@Icons.Material.Filled.Subject" Size="Size.Small" />
+            <span>@L.T("Copy entire log entry")</span>
+        </button>
+        <button class="git-commit-context-menu-item" @onclick="CopyMessageAsync">
+            <MudIcon Icon="@Icons.Material.Filled.Message" Size="Size.Small" />
+            <span>@L.T("Copy message")</span>
+        </button>
+    </div>
+}
 
 <style>
     .log-filter-row { display: grid !important; grid-template-columns: minmax(0, 1fr) minmax(220px, 32%); align-items: center; width: 100%; }
@@ -97,8 +118,9 @@
     .log-filter-row ::deep .log-level-filter .mud-input-control { margin-top: 0; }
     .log-filter-row ::deep .log-level-filter .mud-input-label { transform: translateY(-50%) scale(.75); transform-origin: top left; }
     .log-entries { max-height: calc(100vh - 270px); min-height: 280px; overflow: auto; border: 1px solid var(--mud-palette-lines-default); border-radius: 8px; }
-    .log-entry { display: grid; grid-template-columns: 190px 100px 180px minmax(0, 1fr); gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--mud-palette-divider); font-family: Consolas, monospace; font-size: .82rem; }
+    .log-entry { position: relative; display: grid; grid-template-columns: 190px 100px 180px minmax(0, 1fr); gap: 8px; align-items: center; padding: 8px 48px 8px 12px; border-bottom: 1px solid var(--mud-palette-divider); font-family: Consolas, monospace; font-size: .82rem; }
     .log-entry ::deep .log-level-chip { margin: 0; }
+    .log-copy-button { position: absolute; top: 4px; right: 6px; }
     .log-time { color: var(--mud-palette-text-secondary); white-space: nowrap; }
     .log-repository { overflow-wrap: anywhere; color: var(--mud-palette-primary); }
     .log-message { overflow-wrap: anywhere; white-space: pre-wrap; }
@@ -107,6 +129,8 @@
     .log-message-summary { overflow-wrap: anywhere; }
     .log-expand-hint { display: inline-block; margin-left: 10px; color: var(--mud-palette-primary); font-family: var(--mud-typography-default-family); font-size: .75rem; }
     .log-message-details pre, .log-exception pre { margin: 6px 0 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+    .log-copy-menu-backdrop { z-index: 1500; }
+    .log-copy-menu { position: fixed; z-index: 1501; min-width: 13rem; }
     @@media (max-width: 700px) { .log-filter-row { grid-template-columns: 1fr; } .log-entry { grid-template-columns: 1fr auto; } .log-time, .log-repository, .log-message, .log-exception { grid-column: 1 / -1; } }
 </style>
 
@@ -119,6 +143,10 @@
     private string _search = string.Empty;
     private string _levelFilter = "All";
     private bool _scrollPending;
+    private ApplicationLogEntry? _copyMenuEntry;
+    private string _copyMenuCategory = string.Empty;
+    private double _copyMenuX;
+    private double _copyMenuY;
 
     private void ReturnToCodeBadger() => DetachedWindows.CloseUtilityWindow("/logs");
 
@@ -186,6 +214,41 @@
     {
         _followLatest = followLatest;
         _scrollPending = followLatest;
+    }
+
+    private void OpenCopyMenu(ApplicationLogEntry entry, string category, Microsoft.AspNetCore.Components.Web.MouseEventArgs args)
+    {
+        _copyMenuEntry = entry;
+        _copyMenuCategory = category;
+        _copyMenuX = Math.Max(8, args.ClientX - 205);
+        _copyMenuY = Math.Max(8, args.ClientY);
+    }
+
+    private void CloseCopyMenu() => _copyMenuEntry = null;
+
+    private Task CopyFullEntryAsync() => CopyLogTextAsync(FormatFullEntry(_copyMenuEntry!, _copyMenuCategory), "Log entry copied.");
+
+    private Task CopyMessageAsync() => CopyLogTextAsync(GetDisplayMessage(_copyMenuEntry!.Message), "Message copied.");
+
+    private string FormatFullEntry(ApplicationLogEntry entry, string category)
+    {
+        var repository = string.IsNullOrWhiteSpace(entry.Repository) ? string.Empty : $" [{entry.Repository}]";
+        var line = $"{entry.Timestamp.ToLocalTime():yyyy-MM-dd HH:mm:ss.fff} [{entry.Level}] [{category}]{repository} {GetDisplayMessage(entry.Message)}";
+        return string.IsNullOrWhiteSpace(entry.Exception) ? line : $"{line}{Environment.NewLine}{entry.Exception}";
+    }
+
+    private async Task CopyLogTextAsync(string text, string successMessage)
+    {
+        CloseCopyMenu();
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            Snackbar.Add(L.T(successMessage), Severity.Success);
+        }
+        catch (Exception)
+        {
+            Snackbar.Add(L.T("Could not copy to clipboard."), Severity.Error);
+        }
     }
 
     private void HandleLanguageChanged() => _ = InvokeAsync(StateHasChanged);

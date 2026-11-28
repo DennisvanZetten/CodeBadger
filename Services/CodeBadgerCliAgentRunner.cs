@@ -577,7 +577,16 @@ public sealed class CodeBadgerCliAgentRunner(ILogger<CodeBadgerCliAgentRunner> l
                 foreach (var image in images ?? [])
                     if (image.StartsWith("data:image/jpeg;base64,", StringComparison.OrdinalIgnoreCase))
                         attachments.Add(WriteImageAttachment(image));
+            var promptAlreadyContainsRole = prompt.StartsWith("CodeBadger role:", StringComparison.Ordinal);
+            var instruction = role == CodeBadgerRoles.Worker
+                ? $"CodeBadger role: {role}. Complete the requested work in the repository and report the result.\n\n"
+                : $"CodeBadger role: {role}. Analyze and respond without modifying repository files.\n\n";
+            var normalizedPrompt = promptAlreadyContainsRole ? prompt : instruction + prompt;
+            var fullPrompt = normalizedPrompt + (attachments.Count == 0 ? string.Empty :
+                "\n\nInspect the attached image file(s) for context:\n" + string.Join("\n", attachments));
             var processStart = CreateStartInfo(agent, repositoryPath, existingSessionId, role, attachments, model);
+            if (agent == AgentTools.ClaudeCode)
+                processStart.ArgumentList.Add(fullPrompt);
             var initialSessionId = agent == AgentTools.ClaudeCode && existingSessionId is null
                 ? Guid.NewGuid().ToString()
                 : existingSessionId;
@@ -610,18 +619,7 @@ public sealed class CodeBadgerCliAgentRunner(ILogger<CodeBadgerCliAgentRunner> l
 
             var outputTask = ReadOutputAsync(agent, process.StandardOutput, cancellationToken, onText);
             var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-            var promptAlreadyContainsRole = prompt.StartsWith("CodeBadger role:", StringComparison.Ordinal);
-            var instruction = role == CodeBadgerRoles.Worker
-                ? $"CodeBadger role: {role}. Complete the requested work in the repository and report the result.\n\n"
-                : $"CodeBadger role: {role}. Analyze and respond without modifying repository files.\n\n";
-            var normalizedPrompt = promptAlreadyContainsRole ? prompt : instruction + prompt;
-            var fullPrompt = normalizedPrompt + (attachments.Count == 0 ? string.Empty :
-                "\n\nInspect the attached image file(s) for context:\n" + string.Join("\n", attachments));
-            if (agent == AgentTools.ClaudeCode)
-            {
-                await process.StandardInput.WriteLineAsync(fullPrompt.AsMemory(), cancellationToken);
-            }
-            else
+            if (agent != AgentTools.ClaudeCode)
                 await process.StandardInput.WriteAsync(fullPrompt.AsMemory(), cancellationToken);
             await process.StandardInput.FlushAsync(cancellationToken);
             process.StandardInput.Close();
@@ -685,9 +683,9 @@ public sealed class CodeBadgerCliAgentRunner(ILogger<CodeBadgerCliAgentRunner> l
         switch (agent)
         {
             case AgentTools.ClaudeCode:
+                // This runner handles one prompt per process; use Claude Code's documented
+                // positional prompt instead of the undocumented stream-json input protocol.
                 start.ArgumentList.Add("--print");
-                start.ArgumentList.Add("--input-format");
-                start.ArgumentList.Add("stream-json");
                 start.ArgumentList.Add("--output-format");
                 start.ArgumentList.Add("stream-json");
                 start.ArgumentList.Add("--verbose");
